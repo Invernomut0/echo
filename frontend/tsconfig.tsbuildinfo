@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/api.ts","./src/hooks.ts","./src/main.tsx","./src/components/chatpanel.tsx","./src/components/consolidationpanel.tsx","./src/components/drivechart.tsx","./src/components/drivehistory.tsx","./src/components/identitygraph.tsx","./src/components/memorypanel.tsx"],"version":"5.6.3"}
