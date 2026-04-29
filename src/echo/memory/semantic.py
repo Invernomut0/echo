@@ -349,7 +349,8 @@ class SemanticMemoryStore:
             ids_c: list[str] = raw.get("ids") or []
             docs: list[str | None] = raw.get("documents") or []
             metas: list[dict] = raw.get("metadatas") or []
-            embeds: list[list[float] | None] = raw.get("embeddings") or []
+            _emb_raw = raw.get("embeddings")
+            embeds: list = _emb_raw if _emb_raw is not None else []
 
             for cid, doc, meta, emb in zip(ids_c, docs, metas, embeds):
                 mem_id: str = meta.get("memory_id") or memory_id_from_chunk_id(cid)
