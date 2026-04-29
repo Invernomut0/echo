@@ -1,5 +1,18 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import ReactMarkdown from 'react-markdown'
+
+/** crypto.randomUUID() requires a secure context (HTTPS/localhost).
+ *  This fallback works on plain-HTTP LAN addresses too. */
+const genId = (): string => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  // Fallback: RFC-4122 v4 UUID via Math.random
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16)
+  })
+}
 import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
@@ -149,8 +162,8 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
     if (!text || streaming) return
     setInput('')
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: 'user', content: text }
-    const assistantMsg: Message = { id: crypto.randomUUID(), role: 'assistant', content: '', streaming: true }
+    const userMsg: Message = { id: genId(), role: 'user', content: text }
+    const assistantMsg: Message = { id: genId(), role: 'assistant', content: '', streaming: true }
 
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     setStreaming(true)
