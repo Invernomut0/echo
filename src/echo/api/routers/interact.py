@@ -35,8 +35,11 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
 
     async def event_stream():
         try:
-            async for delta in pipeline.stream_interact(body.message, body.history):
-                payload = json.dumps({"type": "delta", "content": delta})
+            async for item in pipeline.stream_interact(body.message, body.history):
+                if isinstance(item, dict) and "_status" in item:
+                    payload = json.dumps({"type": "status", "message": item["_status"]})
+                else:
+                    payload = json.dumps({"type": "delta", "content": item})
                 yield f"data: {payload}\n\n"
 
             # Normal completion — send done event.

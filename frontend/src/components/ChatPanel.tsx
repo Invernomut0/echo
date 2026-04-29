@@ -59,19 +59,19 @@ function MemoryBadges({ sources }: { sources?: MemorySources }) {
       {sources.episodic > 0 && (
         <span
           className="memory-badge episodic"
-          title={`${sources.episodic} memoria${sources.episodic > 1 ? ' episodiche' : ' episodica'} usata`}
+          title={`${sources.episodic} episodic memor${sources.episodic > 1 ? 'ies' : 'y'} used`}
         >
           <span className="memory-badge-dot" />
-          episodica&nbsp;&times;{sources.episodic}
+          episodic&nbsp;&times;{sources.episodic}
         </span>
       )}
       {sources.semantic > 0 && (
         <span
           className="memory-badge semantic"
-          title={`${sources.semantic} memoria${sources.semantic > 1 ? ' semantiche' : ' semantica'} usata`}
+          title={`${sources.semantic} semantic memor${sources.semantic > 1 ? 'ies' : 'y'} used`}
         >
           <span className="memory-badge-dot" />
-          semantica&nbsp;&times;{sources.semantic}
+          semantic&nbsp;&times;{sources.semantic}
         </span>
       )}
     </div>
@@ -86,7 +86,7 @@ function ToolBadges({ tools }: { tools?: string[] }) {
         <span
           key={name}
           className="memory-badge tool"
-          title={`Tool chiamato: ${name}`}
+          title={`Tool called: ${name}`}
         >
           <span className="memory-badge-dot" />
           {name}
@@ -135,6 +135,7 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
   const [messages, setMessages] = useState<Message[]>(loadMessages)
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [statusMessage, setStatusMessage] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const stopRef = useRef<(() => void) | null>(null)
 
@@ -174,6 +175,7 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
       text,
       history,
       (delta) => {
+        setStatusMessage('')
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -183,6 +185,7 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
         )
       },
       (ms, memorySources, toolsUsed) => {
+        setStatusMessage('')
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id ? { ...m, streaming: false, memorySources, toolsUsed } : m
@@ -192,6 +195,7 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
         onMetaStateUpdate?.(ms)
       },
       (err) => {
+        setStatusMessage('')
         setMessages((prev) =>
           prev.map((m) =>
             m.id === assistantMsg.id
@@ -200,6 +204,9 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
           )
         )
         setStreaming(false)
+      },
+      (status) => {
+        setStatusMessage(status)
       }
     )
   }, [input, streaming, messages, onMetaStateUpdate])
@@ -227,6 +234,11 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
               {msg.role === 'assistant'
                 ? <MarkdownContent content={msg.content} />
                 : msg.content}
+              {msg.streaming && !msg.content && (
+                <span className="streaming-status">
+                  {statusMessage || 'Thinking…'}
+                </span>
+              )}
               {msg.streaming && msg.content && <span className="streaming-cursor" />}
               {msg.role === 'assistant' && !msg.streaming && (
                 <>

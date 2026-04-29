@@ -83,8 +83,8 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
       .nodeLabel((n: object) => {
         const node = n as GraphNode
         const isSem = node.node_type === 'semantic'
-        const typeLabel = isSem ? 'memoria semantica' : 'credenza'
-        const scoreLabel = isSem ? 'salienza' : 'conf'
+        const typeLabel = isSem ? 'semantic memory' : 'belief'
+        const scoreLabel = isSem ? 'salience' : 'conf'
         return `<span style="font-size:11px;color:#e2e8f0">${node.content}<br/><small style="color:#94a3b8">${typeLabel} · ${scoreLabel}: ${(node.confidence * 100).toFixed(0)}%</small></span>`
       })
       .nodeVal((n: object) => {
@@ -211,7 +211,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
               <tr key={n.id} style={{ borderBottom: '1px solid #0f172a' }}>
                 <td style={{ padding: '6px 8px', color: '#e2e8f0', lineHeight: 1.4 }}>{n.content}</td>
                 <td style={{ padding: '6px 8px', color: n.node_type === 'semantic' ? '#a78bfa' : '#06b6d4' }}>
-                  {n.node_type === 'semantic' ? 'semantica' : 'credenza'}
+                  {n.node_type === 'semantic' ? 'semantic' : 'belief'}
                 </td>
                 <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{(n.confidence * 100).toFixed(0)}%</td>
               </tr>
@@ -219,7 +219,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
           </tbody>
         </table>
         {nodes.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: '#475569' }}>Nessun nodo disponibile</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#475569' }}>No nodes available</div>
         )}
       </div>
     )
@@ -322,7 +322,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
                 letterSpacing: '0.08em', marginBottom: 5,
                 color: selectedNode.node_type === 'semantic' ? '#a78bfa' : '#475569',
               }}>
-                {selectedNode.node_type === 'semantic' ? 'Memoria Semantica' : 'Credenza selezionata'}
+                {selectedNode.node_type === 'semantic' ? 'Semantic Memory' : 'Selected Belief'}
               </div>
               <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.55 }}>
                 {selectedNode.content}

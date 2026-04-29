@@ -275,6 +275,7 @@ export function streamInteract(
   onDelta: (delta: string) => void,
   onDone: (metaState: MetaState, memorySources: MemorySources, toolsUsed: string[]) => void,
   onError: (err: string) => void,
+  onStatus?: (message: string) => void,
 ): () => void {
   const controller = new AbortController()
 
@@ -303,6 +304,7 @@ export function streamInteract(
           try {
             const data = JSON.parse(line.slice(6))
             if (data.type === 'delta') onDelta(data.content)
+            else if (data.type === 'status') onStatus?.(data.message)
             else if (data.type === 'done') {
               doneReceived = true
               const sources: MemorySources = data.memory_sources ?? { episodic: 0, semantic: 0 }

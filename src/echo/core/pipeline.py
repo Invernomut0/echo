@@ -143,8 +143,8 @@ class CognitivePipeline:
         self,
         user_input: str,
         history: list[dict[str, str]] | None = None,
-    ) -> AsyncGenerator[str, None]:
-        """Streaming interact — yields response deltas, fires reflection in background."""
+    ) -> AsyncGenerator[str | dict, None]:
+        """Streaming interact — yields status dicts and response string deltas."""
         interaction_id = str(uuid.uuid4())
 
         # Publish input event
@@ -154,6 +154,9 @@ class CognitivePipeline:
                 payload={"text": user_input, "interaction_id": interaction_id},
             )
         )
+
+        # Status: memory retrieval
+        yield {"_status": "Retrieving episodic memories…"}
 
         # Retrieve memories + generate self-prediction concurrently (reduces latency)
         episodic_mems, semantic_mems, self_pred = await asyncio.gather(
@@ -166,6 +169,10 @@ class CognitivePipeline:
             "episodic": len(episodic_mems),
             "semantic": len(semantic_mems),
         }
+
+        # Status: workspace loading
+        yield {"_status": f"Loaded {len(episodic_mems)} episodic + {len(semantic_mems)} semantic memories…"}
+
         memories = semantic_mems + episodic_mems  # semantic facts first (identity, name)
         self.workspace.clear()
         self.workspace.load_memories(memories, "archivist")
@@ -249,6 +256,8 @@ class CognitivePipeline:
         }
 
         full_response = []
+        # Status: generating response
+        yield {"_status": "Generating response…"}
         async for delta in self.orchestrator.stream(
             user_input, self.workspace.snapshot, meta_state, context
         ):
