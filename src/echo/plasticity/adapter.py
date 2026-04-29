@@ -12,6 +12,9 @@ logger = logging.getLogger(__name__)
 _LR = 0.05
 _MIN_WEIGHT = 0.1
 _MAX_WEIGHT = 2.0
+# Gentle pull toward neutral weight each cycle (prevents monotonic drift)
+_DECAY_RATE = 0.005
+_NEUTRAL_WEIGHT = 1.0
 
 
 class PlasticityAdapter:
@@ -61,10 +64,34 @@ class PlasticityAdapter:
         logger.debug("Plasticity deltas: %s", deltas)
         return deltas
 
-    def apply(self, meta_state: MetaState, reflection_insights: list[str]) -> MetaState:
-        """Apply computed deltas directly to meta_state.agent_weights."""
+    def apply(
+        self,
+        meta_state: MetaState,
+        reflection_insights: list[str],
+        prediction_error: float = 0.5,
+    ) -> MetaState:
+        """Apply computed deltas directly to meta_state.agent_weights.
+
+        prediction_error (0.0–1.0): higher surprise → larger plastic changes.
+        Also applies a gentle decay toward neutral weight to prevent unbounded drift.
+        """
         deltas = self.adapt(meta_state, reflection_insights)
+
+        # IM-11: Modulate learning magnitude by prediction error
+        # Low error (routine interaction) → small update; high error (surprise) → larger update
+        error_scale = 0.5 + prediction_error  # range [0.5, 1.5]
+
         for agent, delta in deltas.items():
             current = meta_state.agent_weights.get(agent, 1.0)
-            meta_state.agent_weights[agent] = max(_MIN_WEIGHT, min(_MAX_WEIGHT, current + delta))
+            meta_state.agent_weights[agent] = max(
+                _MIN_WEIGHT, min(_MAX_WEIGHT, current + delta * error_scale)
+            )
+
+        # Decay all agent weights toward _NEUTRAL_WEIGHT — stabilises routing over time
+        for agent in list(meta_state.agent_weights.keys()):
+            current = meta_state.agent_weights[agent]
+            meta_state.agent_weights[agent] = round(
+                current + _DECAY_RATE * (_NEUTRAL_WEIGHT - current), 4
+            )
+
         return meta_state

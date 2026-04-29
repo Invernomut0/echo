@@ -29,7 +29,7 @@ Current beliefs (sample):
 Current drives:
   coherence={coherence:.2f}  curiosity={curiosity:.2f}  stability={stability:.2f}
   competence={competence:.2f}  compression={compression:.2f}
-
+{workspace_context}
 Interaction:
 User: {user_input}
 ECHO: {response}
@@ -65,8 +65,13 @@ class ReflectionEngine:
         user_input: str,
         response: str,
         meta_state: MetaState,
+        workspace_summary: str = "",
     ) -> ReflectionResult:
-        """Run reflection and update the identity graph. Returns structured result."""
+        """Run reflection and update the identity graph. Returns structured result.
+
+        workspace_summary: newline-separated list of active workspace items at the
+        time of the interaction (i.e., what was "consciously" active in ECHO's GWT).
+        """
         # Summarise current beliefs for context
         beliefs = self._graph.all_beliefs()
         belief_summaries = "\n".join(
@@ -77,6 +82,11 @@ class ReflectionEngine:
             belief_summaries = "  (none yet)"
 
         d = meta_state.drives
+        # IM-8: Include active workspace items so reflection knows what was "conscious"
+        workspace_context = ""
+        if workspace_summary:
+            workspace_context = f"\nActive workspace items:\n{workspace_summary}\n"
+
         prompt = _REFLECTION_PROMPT.format(
             beliefs=belief_summaries,
             coherence=d.coherence,
@@ -84,6 +94,7 @@ class ReflectionEngine:
             stability=d.stability,
             competence=d.competence,
             compression=d.compression,
+            workspace_context=workspace_context,
             user_input=user_input[:400],
             response=response[:400],
         )

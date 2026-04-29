@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "echo"
-version = "0.1.0"
+version = "0.2.0"
 description = "PROJECT ECHO — Persistent Self-Modifying Cognitive Architecture"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -34,6 +34,8 @@ dependencies = [
     "tenacity>=8.4.2",
     "rich>=13.7.1",
     "python-dotenv>=1.0.1",
+    # MCP client support
+    "mcp>=1.9.0",
 ]
 
 [project.optional-dependencies]

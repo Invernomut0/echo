@@ -10,12 +10,17 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@types/react-syntax-highlighter": "^15.5.13",
     "clsx": "^2.1.1",
     "d3": "^7.9.0",
     "lucide-react": "^1.11.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "recharts": "^2.14.1"
+    "react-force-graph": "^1.48.2",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "recharts": "^2.14.1",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",

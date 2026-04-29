@@ -30,13 +30,17 @@ async def get_history(limit: int = 50) -> list[HistoryPoint]:
         HistoryPoint(
             timestamp=s.timestamp,
             drives={
-                "coherence": s.drives.coherence,
-                "curiosity": s.drives.curiosity,
-                "stability": s.drives.stability,
-                "competence": s.drives.competence,
+                "coherence":   s.drives.coherence,
+                "curiosity":   s.drives.curiosity,
+                "stability":   s.drives.stability,
+                "competence":  s.drives.competence,
                 "compression": s.drives.compression,
             },
             emotional_valence=s.emotional_valence,
+            arousal=s.arousal,
+            agent_weights=s.agent_weights,
+            drive_weights=s.drives.weights,
+            total_motivation=s.drives.total_motivation(),
         )
         for s in states
     ]

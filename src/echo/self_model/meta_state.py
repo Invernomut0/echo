@@ -60,12 +60,38 @@ class MetaStateTracker:
             await session.commit()
 
     def update_drives(self, adjustments: dict[str, float]) -> MetaState:
-        """Apply delta adjustments to drive scores (clamped 0–1)."""
+        """Apply delta adjustments to drive scores (clamped 0–1).
+
+        Also performs Hebbian-style weight adaptation:
+        drives highly active during competence growth get their weight (w_i in
+        M = Σ w_i · d_i) increased, so the motivation formula self-tunes over time.
+        """
         d = self._current.drives
+        competence_before = d.competence
+
         for key, delta in adjustments.items():
             if hasattr(d, key):
                 current_val = getattr(d, key)
                 setattr(d, key, max(0.0, min(1.0, current_val + delta)))
+
+        # IM-6: Hebbian weight evolution — drives active during competence gains grow stronger
+        competence_delta = d.competence - competence_before
+        if abs(competence_delta) > 0.01 and d.weights:
+            _WEIGHT_LR = 0.004
+            for drive_name in ("curiosity", "coherence", "compression"):
+                drive_val = getattr(d, drive_name, 0.5)
+                if competence_delta > 0 and drive_val > 0.6:
+                    # Drive was active and competence improved → strengthen its weight
+                    d.weights[drive_name] = min(0.40, d.weights.get(drive_name, 0.2) + _WEIGHT_LR)
+                elif competence_delta < 0 and drive_val > 0.6:
+                    # Drive was active but competence fell → slightly weaken its weight
+                    d.weights[drive_name] = max(0.05, d.weights.get(drive_name, 0.2) - _WEIGHT_LR * 0.5)
+            # Re-normalise weights so they always sum to 1.0
+            total = sum(d.weights.values())
+            if total > 0:
+                for k in d.weights:
+                    d.weights[k] = round(d.weights[k] / total, 6)
+
         self._current.timestamp = datetime.now(timezone.utc)
         return self._current
 
@@ -78,6 +104,14 @@ class MetaStateTracker:
         self._current.emotional_valence = max(
             -1.0, min(1.0, self._current.emotional_valence + delta)
         )
+
+    def update_arousal(self, delta: float) -> None:
+        """Adjust arousal level — clamped to [0, 1].
+
+        Arousal encodes alertness/activation (0 = deeply calm, 1 = hyperactivated).
+        It rises with prediction error (surprise) and mean drive activation.
+        """
+        self._current.arousal = max(0.0, min(1.0, self._current.arousal + delta))
 
     async def get_history(self, limit: int = 100) -> list[MetaState]:
         factory = get_session_factory()

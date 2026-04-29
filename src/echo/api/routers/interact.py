@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
@@ -36,19 +35,24 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
     async def event_stream():
         try:
             async for delta in pipeline.stream_interact(body.message, body.history):
-                # SSE format
                 payload = json.dumps({"type": "delta", "content": delta})
                 yield f"data: {payload}\n\n"
+
+            # Normal completion — send done event.
+            # Use model_dump(mode='json') so datetime fields are ISO strings,
+            # not bare Python datetime objects (which json.dumps cannot handle).
+            ms = pipeline.meta_state.model_dump(mode="json")
+            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms})}\n\n"
+
         except Exception as exc:  # noqa: BLE001
-            logger.error("Streaming error: %s", exc)
+            logger.error("Streaming error: %s", exc, exc_info=True)
             yield f"data: {json.dumps({'type': 'error', 'content': str(exc)})}\n\n"
-        finally:
-            # Send final meta-state
+            # Always send done to unblock the client even on error
             try:
-                ms = pipeline.meta_state.model_dump()
+                ms = pipeline.meta_state.model_dump(mode="json")
                 yield f"data: {json.dumps({'type': 'done', 'meta_state': ms})}\n\n"
             except Exception:  # noqa: BLE001
-                pass
+                yield f"data: {json.dumps({'type': 'done', 'meta_state': {}})}\n\n"
 
     return StreamingResponse(
         event_stream(),

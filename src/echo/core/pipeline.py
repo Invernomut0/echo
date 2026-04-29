@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -11,24 +12,60 @@ from typing import Any
 
 from echo.agents.orchestrator import Orchestrator
 from echo.consolidation.scheduler import ConsolidationScheduler
+from echo.core.config import settings
 from echo.core.event_bus import bus
 from echo.core.types import (
     CognitiveEvent,
     EventTopic,
+    IdentityBelief,
     InteractionRecord,
     MetaState,
     WorkspaceSnapshot,
 )
 from echo.memory.decay import DecayScheduler
 from echo.memory.episodic import EpisodicMemoryStore, MemoryEntry
-from echo.motivation.drives import adjust_drives_from_interaction
+from echo.memory.semantic import SemanticMemoryStore
+from echo.motivation.motivational_scorer import score_interaction
 from echo.plasticity.adapter import PlasticityAdapter
 from echo.reflection.engine import ReflectionEngine
 from echo.self_model.identity_graph import IdentityGraph
 from echo.self_model.meta_state import MetaStateTracker
+from echo.self_model.self_prediction import predict_response
 from echo.workspace.global_workspace import GlobalWorkspace
 
 logger = logging.getLogger(__name__)
+
+# Patterns that suggest the user is introducing their name.
+_NAME_PATTERNS = [
+    re.compile(r"\b(?:sono|mi chiamo|my name is|i am|chiamami|call me)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,30})", re.IGNORECASE),
+    re.compile(r"\bI'?m\s+([A-Za-z]{2,30})\b", re.IGNORECASE),
+]
+
+
+def _extract_user_name(text: str) -> str | None:
+    """Return the user's name if they introduce themselves, else None."""
+    for pat in _NAME_PATTERNS:
+        m = pat.search(text)
+        if m:
+            return m.group(1).strip().capitalize()
+    return None
+
+
+def _compute_prediction_error(prediction: str, response: str) -> float:
+    """Token-overlap prediction error in [0, 1].
+
+    Returns 0.0 = perfect overlap, 1.0 = no shared tokens.
+    Used to modulate plasticity magnitude: high surprise → larger weight updates.
+    """
+    if not prediction or not response:
+        return 0.5
+    pred_tokens = set(prediction.lower().split())
+    resp_tokens = set(response.lower().split())
+    union = pred_tokens | resp_tokens
+    if not union:
+        return 0.5
+    overlap = len(pred_tokens & resp_tokens) / len(union)
+    return round(1.0 - overlap, 4)
 
 
 class CognitivePipeline:
@@ -39,31 +76,44 @@ class CognitivePipeline:
         self.meta_tracker = MetaStateTracker()
         self.workspace = GlobalWorkspace()
         self.episodic = EpisodicMemoryStore()
+        self.semantic = SemanticMemoryStore()
         self.orchestrator = Orchestrator()
         self.reflection = ReflectionEngine(self.identity_graph)
         self.plasticity = PlasticityAdapter()
         self.consolidation = ConsolidationScheduler()
         self.decay = DecayScheduler()
         self._interaction_count = 0
+        # Track fire-and-forget tasks so we can await them on graceful shutdown
+        self._pending_tasks: set[asyncio.Task] = set()
         self._ready = False
 
     async def startup(self) -> None:
         """Initialise all stateful components."""
         from echo.core.db import startup as db_startup
+        from echo.mcp import mcp_manager
 
         await db_startup()
         await self.identity_graph.load()
         await self.meta_tracker.load_latest()
         self.consolidation.start()
         self.decay.start()
+        await mcp_manager.startup()
         self._ready = True
         logger.info("CognitivePipeline ready")
 
     async def shutdown(self) -> None:
         self.consolidation.stop()
         self.decay.stop()
-        from echo.core.llm_client import llm
 
+        # Flush any in-flight fire-and-forget tasks before exiting
+        if self._pending_tasks:
+            logger.info("Awaiting %d pending post-interact task(s)…", len(self._pending_tasks))
+            await asyncio.gather(*self._pending_tasks, return_exceptions=True)
+
+        from echo.core.llm_client import llm
+        from echo.mcp import mcp_manager
+
+        await mcp_manager.shutdown()
         await llm.aclose()
         logger.info("CognitivePipeline shutdown")
 
@@ -100,13 +150,32 @@ class CognitivePipeline:
             )
         )
 
-        # Retrieve memories + build workspace
-        memories = await self.episodic.retrieve_similar(user_input, n_results=5)
+        # Retrieve memories + generate self-prediction concurrently (reduces latency)
+        episodic_mems, semantic_mems, self_pred = await asyncio.gather(
+            self.episodic.retrieve_similar(user_input, n_results=5),
+            self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
+            predict_response(user_input, self.meta_tracker.current),
+        )
+        memories = semantic_mems + episodic_mems  # semantic facts first (identity, name)
         self.workspace.clear()
         self.workspace.load_memories(memories, "archivist")
+        # Broadcast self-prediction into workspace so agents can see expected behaviour
+        if self_pred:
+            self.workspace.broadcast(f"[Self-Prediction] {self_pred}", "self_model", salience=0.65)
 
-        context: dict[str, Any] = {"memories": memories, "interaction_id": interaction_id}
+        context: dict[str, Any] = {
+            "memories": memories,
+            "interaction_id": interaction_id,
+            "history": history or [],
+            "self_prediction": self_pred,
+        }
         meta_state = self.meta_tracker.current
+
+        # Capture workspace snapshot for post-interaction reflection (before streaming clears it)
+        workspace_summary = "\n".join(
+            f"  [{item.source_agent}] {item.content[:80]}"
+            for item in self.workspace.snapshot.items
+        )
 
         full_response = []
         async for delta in self.orchestrator.stream(
@@ -115,11 +184,17 @@ class CognitivePipeline:
             full_response.append(delta)
             yield delta
 
-        # Post-interaction (async, non-blocking)
+        # Post-interaction (async, non-blocking — tracked for graceful shutdown)
         response_text = "".join(full_response)
-        asyncio.create_task(
-            self._post_interact(interaction_id, user_input, response_text, memories)
+        task = asyncio.create_task(
+            self._post_interact(
+                interaction_id, user_input, response_text, memories,
+                self_prediction=self_pred,
+                workspace_summary=workspace_summary,
+            )
         )
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     # ------------------------------------------------------------------
     # Internal pipeline steps
@@ -140,14 +215,30 @@ class CognitivePipeline:
             )
         )
 
-        # Retrieve memories
-        memories = await self.episodic.retrieve_similar(user_input, n_results=5)
+        # Retrieve memories + generate self-prediction concurrently
+        episodic_mems, semantic_mems, self_pred = await asyncio.gather(
+            self.episodic.retrieve_similar(user_input, n_results=5),
+            self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
+            predict_response(user_input, self.meta_tracker.current),
+        )
+        memories = semantic_mems + episodic_mems  # semantic facts first
         self.workspace.clear()
         self.workspace.load_memories(memories, "archivist")
+        if self_pred:
+            self.workspace.broadcast(f"[Self-Prediction] {self_pred}", "self_model", salience=0.65)
 
-        context: dict[str, Any] = {"memories": memories, "history": history or []}
+        context: dict[str, Any] = {
+            "memories": memories,
+            "history": history or [],
+            "self_prediction": self_pred,
+        }
         meta_state_before = self.meta_tracker.current.model_copy(deep=True)
         meta_state = self.meta_tracker.current
+
+        workspace_summary = "\n".join(
+            f"  [{item.source_agent}] {item.content[:80]}"
+            for item in self.workspace.snapshot.items
+        )
 
         # Run orchestrator
         response, agent_outputs = await self.orchestrator.run(
@@ -155,7 +246,11 @@ class CognitivePipeline:
         )
 
         # Post-interaction (blocking in this code path)
-        await self._post_interact(interaction_id, user_input, response, memories)
+        await self._post_interact(
+            interaction_id, user_input, response, memories,
+            self_prediction=self_pred,
+            workspace_summary=workspace_summary,
+        )
 
         record = InteractionRecord(
             id=interaction_id,
@@ -173,45 +268,162 @@ class CognitivePipeline:
         user_input: str,
         response: str,
         memories: list[MemoryEntry],
+        self_prediction: str = "",
+        workspace_summary: str = "",
     ) -> None:
-        """Store memory, reflect, adapt weights — runs async fire-and-forget."""
+        """Store memory, reflect, adapt weights — runs async fire-and-forget.
+
+        self_prediction: ECHO's pre-response prediction (for predictive coding error).
+        workspace_summary: snapshot of active workspace items for richer reflection.
+        """
         try:
-            # Store interaction as episodic memory
+            meta_state = self.meta_tracker.current
+
+            # IM-11: Compute prediction error — 0 = perfect prediction, 1 = max surprise
+            prediction_error = _compute_prediction_error(self_prediction, response)
+
+            # NEW-1: Log prediction quality so we can monitor self-awareness over time
+            if self_prediction and prediction_error is not None:
+                logger.info(
+                    "Self-prediction quality: error=%.3f  (0=perfect, 1=max surprise)",
+                    prediction_error,
+                )
+
+            # BUG-2 / IM-1: LLM-based motivational scoring replaces heuristic drives
+            drive_scores = await score_interaction(user_input, response, meta_state)
+
+            # NEW-6: Derive emotional valence from drive activations.
+            # coherence/competence → positive affect; low stability → negative affect.
+            valence_signal = (
+                drive_scores.get("coherence", 0.5)
+                + drive_scores.get("competence", 0.5)
+                - drive_scores.get("stability", 0.5) * 0.3
+            ) / 2.0 - 0.5  # approx [-0.5, +0.5]
+            self.meta_tracker.update_valence(
+                (valence_signal - meta_state.emotional_valence) * 0.15
+            )
+
+            # NEW-6: Arousal rises with prediction error (surprise) and drive activation
+            mean_activation = sum(drive_scores.values()) / max(len(drive_scores), 1)
+            arousal_target = 0.3 + 0.5 * prediction_error + 0.2 * mean_activation
+            self.meta_tracker.update_arousal(
+                (arousal_target - meta_state.arousal) * 0.10
+            )
+
+            # Read updated state so emotional_weight reflects the live valence
+            updated_state = self.meta_tracker.current
+
+            # NEW-2: Scale attractor deltas by drive weights so plastic drives move faster
+            _DRIVE_ATTRACTION = 0.08
+            score_deltas: dict[str, float] = {
+                k: (v - getattr(meta_state.drives, k, 0.5))
+                   * _DRIVE_ATTRACTION
+                   * (meta_state.drives.weights.get(k, 0.2) / 0.2)
+                for k, v in drive_scores.items()
+                if hasattr(meta_state.drives, k)
+            }
+
+            # BUG-4 / IM-3: Dynamic salience from motivational scores.
+            # NEW-2 + NEW-6: emotional_weight combines live valence and weighted drives.
+            weighted_drive = updated_state.drives.weighted_sum(drive_scores)
             mem = MemoryEntry(
                 content=f"User: {user_input}\nECHO: {response}",
-                importance=0.6,
-                novelty=0.5,
-                self_relevance=0.6,
-                emotional_weight=0.2,
+                importance=drive_scores.get("competence", 0.6),
+                novelty=drive_scores.get("curiosity", 0.5),
+                self_relevance=drive_scores.get("coherence", 0.6),
+                emotional_weight=max(
+                    0.1,
+                    0.5 * abs(updated_state.emotional_valence) + 0.5 * weighted_drive,
+                ),
                 source_agent="pipeline",
             )
-            await self.episodic.store(mem)
+            stored_mem = await self.episodic.store(mem)
+
+            # NEW-3: Temporal causal link — new memory points back to the previous one
+            try:
+                recent = await self.episodic.get_recent(n=2)
+                prev = next((m for m in recent if m.id != stored_mem.id), None)
+                if prev is not None:
+                    await self.episodic.add_causal_link(stored_mem.id, prev.id)
+                    logger.debug("Causal link: %s → %s", prev.id[:8], stored_mem.id[:8])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Causal linking failed: %s", exc)
+
+            # NEW-4: Promote highly competitive workspace items to weak identity beliefs.
+            # Items with competition_score > 0.6 that aren't already from identity agents
+            # are turned into low-confidence beliefs so ECHO can learn from "what was conscious".
+            try:
+                for item in self.workspace.snapshot.items[:3]:
+                    if (
+                        item.competition_score > 0.6
+                        and item.source_agent not in ("archivist", "self_model")
+                        and len(item.content.strip()) > 20
+                    ):
+                        belief = IdentityBelief(
+                            content=item.content[:200],
+                            confidence=0.25,
+                            source_agent="workspace",
+                        )
+                        await self.identity_graph.add_belief(belief)
+                        logger.debug("Workspace→belief: %.30s…", item.content)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Workspace→belief promotion failed: %s", exc)
+
+            # Persist user identity if they introduced themselves
+            user_name = _extract_user_name(user_input)
+            if user_name:
+                await self.semantic.store(
+                    content=f"The user's name is {user_name}.",
+                    tags=["user_identity", "name"],
+                    salience=0.95,
+                )
+                logger.info("Stored user identity: name=%s", user_name)
 
             self._interaction_count += 1
 
-            # Reflect every N interactions
-            if self._interaction_count % max(1, 1) == 0:
+            # BUG-1 / IM-4: Configurable reflection interval (was hardcoded)
+            if self._interaction_count % settings.reflection_trigger_interval == 0:
+                # IM-8: Pass workspace snapshot so reflection knows what was "conscious"
                 reflection = await self.reflection.reflect(
-                    interaction_id, user_input, response, self.meta_tracker.current
+                    interaction_id, user_input, response,
+                    self.meta_tracker.current,
+                    workspace_summary=workspace_summary,
                 )
 
-                # Apply drive adjustments
-                drive_deltas = adjust_drives_from_interaction(
-                    self.meta_tracker.current.drives,
-                    user_input,
-                    response,
-                    reflection.insights,
-                )
-                # Merge reflection deltas
+                # Merge scorer deltas with reflection-generated adjustments
+                merged_deltas = dict(score_deltas)
                 for k, v in reflection.drive_adjustments.items():
-                    drive_deltas[k] = drive_deltas.get(k, 0.0) + v
+                    merged_deltas[k] = merged_deltas.get(k, 0.0) + v
 
-                self.meta_tracker.update_drives(drive_deltas)
+                self.meta_tracker.update_drives(merged_deltas)
 
-                # Plasticity
-                self.plasticity.apply(self.meta_tracker.current, reflection.insights)
+                # IM-11: Plasticity modulated by prediction error (surprise ↑ → learning ↑)
+                self.plasticity.apply(
+                    self.meta_tracker.current,
+                    reflection.insights,
+                    prediction_error=prediction_error,
+                )
 
-                # Save state
+                # NEW-5: Identity drift detection — fires every reflection cycle.
+                # Cosine distance between current and previous agent_weights vectors.
+                if hasattr(self, "_weights_snapshot") and self._weights_snapshot:
+                    drift = _compute_identity_drift(
+                        self._weights_snapshot,
+                        self.meta_tracker.current.agent_weights,
+                    )
+                    if drift > 0.15:
+                        logger.info("Identity drift detected: %.3f", drift)
+                        await bus.publish(CognitiveEvent(
+                            topic=EventTopic.META_STATE_UPDATE,
+                            payload={
+                                "type": "identity_drift",
+                                "drift": round(drift, 4),
+                                "interaction_count": self._interaction_count,
+                            },
+                        ))
+                # Always snapshot for the next check
+                self._weights_snapshot = dict(self.meta_tracker.current.agent_weights)
+
                 await self.meta_tracker.save()
 
                 await bus.publish(
@@ -221,11 +433,48 @@ class CognitivePipeline:
                             "interaction_id": interaction_id,
                             "insights": reflection.insights,
                             "new_beliefs": len(reflection.new_beliefs),
+                            "prediction_error": round(prediction_error, 3),
+                            "emotional_valence": round(
+                                self.meta_tracker.current.emotional_valence, 3
+                            ),
+                            "arousal": round(self.meta_tracker.current.arousal, 3),
                         },
                     )
                 )
+                logger.debug(
+                    "Reflection done — prediction_error=%.3f insights=%d "
+                    "valence=%.3f arousal=%.3f",
+                    prediction_error,
+                    len(reflection.insights),
+                    self.meta_tracker.current.emotional_valence,
+                    self.meta_tracker.current.arousal,
+                )
+            else:
+                # Between reflections: still apply drive scores so drives stay live
+                self.meta_tracker.update_drives(score_deltas)
+                await self.meta_tracker.save()
+
         except Exception as exc:  # noqa: BLE001
             logger.error("Post-interact error: %s", exc)
+
+
+def _compute_identity_drift(
+    prev_weights: dict[str, float],
+    curr_weights: dict[str, float],
+) -> float:
+    """Return cosine distance between two agent_weights vectors.
+
+    0.0 = identical (no drift), 1.0 = orthogonal (maximum drift).
+    """
+    keys = sorted(set(curr_weights) | set(prev_weights))
+    v1 = [prev_weights.get(k, 0.0) for k in keys]
+    v2 = [curr_weights.get(k, 0.0) for k in keys]
+    dot = sum(a * b for a, b in zip(v1, v2))
+    mag1 = sum(a ** 2 for a in v1) ** 0.5
+    mag2 = sum(b ** 2 for b in v2) ** 0.5
+    if mag1 * mag2 == 0.0:
+        return 0.0
+    return 1.0 - dot / (mag1 * mag2)
 
 
 # Module-level singleton (lazily initialised at startup)

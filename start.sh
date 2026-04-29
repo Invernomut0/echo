@@ -40,6 +40,28 @@ cleanup() {
 }
 trap cleanup SIGINT SIGTERM
 
+# ── kill processi già in ascolto sulle porte ─────────────────────────────────
+_kill_port() {
+    local port=$1
+    local pids
+    pids=$(lsof -ti :"$port" 2>/dev/null || true)
+    if [[ -n "$pids" ]]; then
+        echo -e "${YELLOW}  ⚠  Porta $port occupata — termino PID $pids${RESET}"
+        echo "$pids" | xargs kill -TERM 2>/dev/null || true
+        # aspetta fino a 3s che si liberi, poi forza
+        local i=0
+        while lsof -ti :"$port" &>/dev/null && (( i < 6 )); do
+            sleep 0.5; (( i++ ))
+        done
+        if lsof -ti :"$port" &>/dev/null; then
+            echo "$pids" | xargs kill -9 2>/dev/null || true
+        fi
+    fi
+}
+
+_kill_port 8000
+_kill_port 5173
+
 # ── backend ──────────────────────────────────────────────────────────────────
 echo -e "${CYAN}▶  Backend${RESET}  →  http://localhost:8000"
 echo -e "           →  http://localhost:8000/docs  (Swagger)"

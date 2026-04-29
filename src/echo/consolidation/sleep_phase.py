@@ -40,11 +40,21 @@ class ConsolidationPhase:
         self._semantic = SemanticMemoryStore()
         self._autobio = AutobiographicalMemoryStore()
 
-    async def run(self) -> ConsolidationReport:
-        """Execute one full consolidation cycle."""
+    async def run(self, elapsed_seconds: float = 300.0, *, prune: bool = False) -> ConsolidationReport:
+        """Execute one full consolidation cycle.
+
+        Args:
+            elapsed_seconds: Real wall-clock seconds since the last decay run.
+                Pass 0 to skip decay (e.g. in deep/REM cycles where the
+                preceding light cycle already applied decay).
+            prune: When True (deep/REM cycle) permanently delete sub-threshold
+                memories via :meth:`~EpisodicMemoryStore.prune_weak`.
+                When False (light cycle) only mark weak memories as dormant,
+                preserving them until the next deep cycle.
+        """
         report = ConsolidationReport(started_at=datetime.now(timezone.utc))
 
-        # 1. Get all episodic memories
+        # 1. Get all episodic memories (active only — dormant excluded by default)
         memories = await self._episodic.get_all(limit=500)
         report.memories_processed = len(memories)
         logger.info("Consolidation: processing %d memories", len(memories))
@@ -67,6 +77,11 @@ class ConsolidationPhase:
                 report.memories_promoted += 1
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Semantic promotion failed: %s", exc)
+
+        # 3b. Back-fill vectors for memories that had no embedding at store time
+        re_embedded = await self._episodic.re_embed_missing()
+        if re_embedded:
+            logger.info("Re-embedded %d memories that were missing vectors", re_embedded)
 
         # 4. Very high salience → autobiographical note
         very_high = [m for m in high_salience if m.salience >= 0.85 and m.self_relevance >= 0.7]
@@ -100,16 +115,28 @@ class ConsolidationPhase:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Pattern extraction failed: %s", exc)
 
-        # 6. Apply decay
-        await self._episodic.apply_decay(3600.0)
-        pruned = await self._episodic.prune_weak()
-        report.memories_pruned = pruned
+        # 6. Apply decay (only when elapsed_seconds > 0 to avoid double-counting)
+        if elapsed_seconds > 0:
+            await self._episodic.apply_decay(elapsed_seconds)
+            await self._semantic.apply_decay(elapsed_seconds)
+
+        # 7. Restructure or prune weak memories
+        if prune:
+            # Deep/REM cycle: permanently delete sub-threshold memories
+            pruned = await self._episodic.prune_weak()
+            report.memories_pruned = pruned
+        else:
+            # Light cycle: mark weak memories as dormant; no deletion
+            dormant = await self._episodic.mark_dormant()
+            report.memories_pruned = dormant  # reported as "restructured" count
 
         report.finished_at = datetime.now(timezone.utc)
         logger.info(
-            "Consolidation complete: promoted=%d pruned=%d patterns=%d",
+            "Consolidation complete: promoted=%d %s=%d re_embedded=%d patterns=%d",
             report.memories_promoted,
+            "pruned" if prune else "dormant",
             report.memories_pruned,
+            re_embedded,
             len(report.patterns_found),
         )
         return report

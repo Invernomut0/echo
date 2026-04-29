@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, Float, Integer, String, Text, select
+from sqlalchemy import Boolean, Column, Float, Integer, String, Text, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from echo.core.db import Base, get_or_create_collection, get_session_factory
@@ -45,6 +45,8 @@ class MemoryRow(Base):
     linked_ids = Column(Text, default="[]")  # JSON list
     tags = Column(Text, default="[]")  # JSON list
     source_agent = Column(String, default="system")
+    is_dormant = Column(Boolean, default=False)   # set by light consolidation; cleared on access
+    has_vector = Column(Boolean, default=False)   # True when vector is in ChromaDB
 
 
 def _row_to_entry(row: MemoryRow) -> MemoryEntry:
@@ -66,6 +68,8 @@ def _row_to_entry(row: MemoryRow) -> MemoryEntry:
         linked_ids=json.loads(row.linked_ids or "[]"),
         tags=json.loads(row.tags or "[]"),
         source_agent=row.source_agent,
+        is_dormant=bool(row.is_dormant),
+        has_vector=bool(row.has_vector),
     )
 
 
@@ -87,17 +91,24 @@ class EpisodicMemoryStore:
         """Persist a memory entry (embedding + metadata)."""
         entry.compute_salience()
 
-        # Embed the content
+        # Embed the content (may return [] if LM Studio is offline)
         vector = await llm.embed_one(entry.content)
         entry.embedding_id = entry.id
 
-        # Store in ChromaDB
-        self._collection.upsert(
-            ids=[entry.embedding_id],
-            embeddings=[vector],
-            documents=[entry.content],
-            metadatas=[{"memory_id": entry.id, "salience": entry.salience}],
-        )
+        # Store in ChromaDB only when a valid vector is available
+        has_vector = False
+        if vector:
+            try:
+                self._collection.upsert(
+                    ids=[entry.embedding_id],
+                    embeddings=[vector],
+                    documents=[entry.content],
+                    metadatas=[{"memory_id": entry.id, "salience": entry.salience}],
+                )
+                has_vector = True
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ChromaDB upsert skipped: %s", exc)
+        entry.has_vector = has_vector
 
         # Store metadata in SQLite
         factory = get_session_factory()
@@ -120,6 +131,8 @@ class EpisodicMemoryStore:
                 linked_ids=json.dumps(entry.linked_ids),
                 tags=json.dumps(entry.tags),
                 source_agent=entry.source_agent,
+                is_dormant=False,
+                has_vector=has_vector,
             )
             session.add(row)
             await session.commit()
@@ -137,13 +150,24 @@ class EpisodicMemoryStore:
         n_results: int = 5,
         min_strength: float = 0.1,
     ) -> list[MemoryEntry]:
-        """Semantic search — returns top-k memories by cosine similarity."""
+        """Semantic search — returns top-k memories by cosine similarity.
+
+        Returns [] gracefully when the embedding service (LM Studio) is offline.
+        """
         vector = await llm.embed_one(query)
-        results = self._collection.query(
-            query_embeddings=[vector],
-            n_results=min(n_results, self._collection.count() or 1),
-            include=["metadatas", "distances"],
-        )
+        if not vector:
+            # Embedding service unavailable — skip memory retrieval
+            logger.debug("embed_one returned empty — skipping memory retrieval")
+            return []
+        try:
+            results = self._collection.query(
+                query_embeddings=[vector],
+                n_results=min(n_results, self._collection.count() or 1),
+                include=["metadatas", "distances"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ChromaDB query failed: %s", exc)
+            return []
         if not results["ids"] or not results["ids"][0]:
             return []
 
@@ -170,12 +194,63 @@ class EpisodicMemoryStore:
 
         return entries
 
-    async def get_all(self, limit: int = 200) -> list[MemoryEntry]:
+    async def get_all(
+        self,
+        limit: int = 200,
+        include_dormant: bool = False,
+    ) -> list[MemoryEntry]:
+        """Return memories from SQLite, newest first.  Dormant ones are excluded by default."""
         factory = get_session_factory()
         async with factory() as session:
-            stmt = select(MemoryRow).limit(limit)
+            stmt = select(MemoryRow)
+            if not include_dormant:
+                stmt = stmt.where(MemoryRow.is_dormant.is_(False))
+            stmt = stmt.order_by(MemoryRow.created_at.desc()).limit(limit)
             rows = (await session.execute(stmt)).scalars().all()
         return [_row_to_entry(r) for r in rows]
+
+    async def get_dormant(self, limit: int = 200) -> list[MemoryEntry]:
+        """Return only dormant (sub-threshold, awaiting pruning) memories."""
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = select(MemoryRow).where(MemoryRow.is_dormant.is_(True)).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+        return [_row_to_entry(r) for r in rows]
+
+    async def get_recent(self, n: int = 1) -> list[MemoryEntry]:
+        """Return the *n* most recently stored active memories (newest first).
+
+        Used by the pipeline to establish temporal causal links between memories.
+        """
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = (
+                select(MemoryRow)
+                .where(MemoryRow.is_dormant.is_(False))
+                .order_by(MemoryRow.created_at.desc())
+                .limit(n)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+        return [_row_to_entry(r) for r in rows]
+
+    async def add_causal_link(self, from_id: str, to_id: str) -> None:
+        """Record that the memory *from_id* follows / was caused by *to_id*.
+
+        A unidirectional temporal edge is added to `from_id.linked_ids`
+        (JSON array). Duplicate links are silently ignored.
+        """
+        import json  # noqa: PLC0415
+
+        factory = get_session_factory()
+        async with factory() as session:
+            row = await session.get(MemoryRow, from_id)
+            if row is None:
+                return
+            current_links: list[str] = json.loads(row.linked_ids or "[]")
+            if to_id not in current_links:
+                current_links.append(to_id)
+                row.linked_ids = json.dumps(current_links)
+                await session.commit()
 
     async def get_by_id(self, memory_id: str) -> MemoryEntry | None:
         factory = get_session_factory()
@@ -210,8 +285,30 @@ class EpisodicMemoryStore:
         logger.debug("Decay applied to %d memories (%d prunable)", len(rows), prunable)
         return prunable
 
+    async def mark_dormant(self, threshold: float = 0.01) -> int:
+        """Mark sub-threshold memories as dormant (not deleted, not searchable).
+
+        Called by the light consolidation cycle.  Returns the number newly
+        marked dormant.
+        """
+        factory = get_session_factory()
+        async with factory() as session:
+            rows = (await session.execute(select(MemoryRow))).scalars().all()
+            marked = 0
+            for row in rows:
+                if row.current_strength < threshold and not row.is_dormant:
+                    row.is_dormant = True
+                    marked += 1
+                elif row.current_strength >= threshold and row.is_dormant:
+                    # Reactivate if strength was bumped (e.g., accessed again)
+                    row.is_dormant = False
+            await session.commit()
+        if marked:
+            logger.info("Marked %d memories as dormant (strength < %.3f)", marked, threshold)
+        return marked
+
     async def prune_weak(self, threshold: float = 0.01) -> int:
-        """Delete memories below strength threshold. Returns count deleted."""
+        """Delete memories below strength threshold (both dormant and active). Returns count deleted."""
         factory = get_session_factory()
         async with factory() as session:
             rows = (await session.execute(select(MemoryRow))).scalars().all()
@@ -227,5 +324,71 @@ class EpisodicMemoryStore:
 
         return len(ids_to_delete)
 
+    async def re_embed_missing(self, limit: int = 50) -> int:
+        """Embed memories that have no vector yet (embedding failed at store time).
+
+        Uses the current embedding backend (LM Studio → HF fallback).
+        Returns count of memories successfully re-embedded.
+        """
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = select(MemoryRow).where(MemoryRow.has_vector.is_(False)).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+
+        if not rows:
+            return 0
+
+        succeeded = 0
+        for row in rows:
+            try:
+                vector = await llm.embed_one(row.content)
+                if not vector:
+                    continue
+                self._collection.upsert(
+                    ids=[row.id],
+                    embeddings=[vector],
+                    documents=[row.content],
+                    metadatas=[{"memory_id": row.id, "salience": row.salience}],
+                )
+                async with factory() as session2:
+                    stmt_u = select(MemoryRow).where(MemoryRow.id == row.id)
+                    r = (await session2.execute(stmt_u)).scalar_one_or_none()
+                    if r:
+                        r.has_vector = True
+                        await session2.commit()
+                succeeded += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("re_embed_missing: skipping %s — %s", row.id[:8], exc)
+
+        if succeeded:
+            logger.info("Re-embedded %d/%d memories", succeeded, len(rows))
+        return succeeded
+
     def count(self) -> int:
+        """Best-effort sync count (uses ChromaDB; prefer acount() in async context)."""
         return self._collection.count()
+
+    def _sqlite_count_sync(self) -> int:
+        """Synchronous SQLite count via a new event loop."""
+        import asyncio
+        from sqlalchemy import func
+
+        async def _count() -> int:
+            factory = get_session_factory()
+            async with factory() as session:
+                result = await session.execute(select(func.count()).select_from(MemoryRow))
+                return result.scalar_one()
+
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(_count())
+        finally:
+            loop.close()
+
+    async def acount(self) -> int:
+        """Async count from SQLite — use this in async routes."""
+        from sqlalchemy import func
+        factory = get_session_factory()
+        async with factory() as session:
+            result = await session.execute(select(func.count()).select_from(MemoryRow))
+            return result.scalar_one()

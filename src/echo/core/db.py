@@ -68,6 +68,15 @@ async def get_session() -> AsyncSession:  # noqa: D401
 
 async def init_db() -> None:
     """Create all tables. Safe to call multiple times (CREATE IF NOT EXISTS)."""
+    # Import all ORM Row classes so Base.metadata is fully populated before create_all.
+    # New models must be added here to ensure their tables are created.
+    import echo.memory.episodic  # noqa: F401
+    import echo.memory.semantic  # noqa: F401
+    import echo.memory.autobiographical  # noqa: F401
+    import echo.memory.dream_store  # noqa: F401
+    import echo.self_model.identity_graph  # noqa: F401
+    import echo.self_model.meta_state  # noqa: F401
+
     engine = _get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -75,6 +84,16 @@ async def init_db() -> None:
     async with engine.connect() as conn:
         await conn.execute(text("PRAGMA journal_mode=WAL"))
         await conn.execute(text("PRAGMA synchronous=NORMAL"))
+    # ── Schema migrations (SQLite doesn't support IF NOT EXISTS on ADD COLUMN) ──
+    async with engine.begin() as conn:
+        for stmt in (
+            "ALTER TABLE episodic_memories ADD COLUMN is_dormant INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE episodic_memories ADD COLUMN has_vector INTEGER NOT NULL DEFAULT 0",
+        ):
+            try:
+                await conn.execute(text(stmt))
+            except Exception:
+                pass  # Column already exists — safe to ignore
     logger.info("SQLite initialized at %s", settings.sqlite_path)
 
 

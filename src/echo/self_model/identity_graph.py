@@ -192,6 +192,37 @@ class IdentityGraph:
     # Graph metrics
     # ------------------------------------------------------------------
 
+    async def resolve_contradictions(self) -> list[str]:
+        """Attenuate confidence of older beliefs involved in CONTRADICTS edges.
+
+        For each A→B CONTRADICTS pair, reduces confidence of the *older* belief
+        by −0.05 (newer evidence takes precedence).  Returns the list of belief
+        IDs whose confidence was updated.  When confidence falls below 0.15 the
+        belief is logged as near-obsolete (not auto-deleted).
+        """
+        resolved: list[str] = []
+        for source_id, target_id, data in list(self.graph.edges(data=True)):
+            if data.get("relation") != BeliefRelation.CONTRADICTS.value:
+                continue
+            b_source = self.get_belief(source_id)
+            b_target = self.get_belief(target_id)
+            if not b_source or not b_target:
+                continue
+            # Attenuate the older belief (less recent evidence)
+            older = b_source if b_source.created_at < b_target.created_at else b_target
+            updated = await self.update_belief_confidence(older.id, -0.05)
+            if updated:
+                resolved.append(older.id)
+                belief = self.get_belief(older.id)
+                if belief and belief.confidence < 0.15:
+                    logger.info(
+                        "Belief near-obsolete (conf=%.2f): %.80s",
+                        belief.confidence, belief.content,
+                    )
+        if resolved:
+            logger.info("Resolved %d contradiction(s) in identity graph", len(resolved))
+        return resolved
+
     def coherence_score(self) -> float:
         """Returns ratio of SUPPORTS to (SUPPORTS + CONTRADICTS) edges."""
         supports = sum(
@@ -208,6 +239,76 @@ class IdentityGraph:
         if total == 0:
             return 1.0
         return round(supports / total, 4)
+
+    def compute_semantic_edges(self) -> list[dict]:
+        """Compute keyword-based semantic edges for visualization (not persisted).
+
+        Uses Jaccard similarity on content tokens to infer relationships between
+        beliefs without requiring embeddings.
+        """
+        import re
+
+        STOPWORDS = frozenset({
+            "the", "user", "a", "an", "is", "are", "in", "and", "or", "to", "of",
+            "their", "with", "by", "as", "for", "has", "been", "likely", "that",
+            "this", "they", "will", "can", "be", "it", "at", "on", "from", "also",
+            "very", "well", "more", "most", "both", "when", "where", "which",
+            "who", "its", "have", "had", "does", "did", "was", "were",
+        })
+
+        beliefs = self.all_beliefs()
+        if len(beliefs) < 2:
+            return []
+
+        def tokenize(text: str) -> frozenset:
+            words = re.findall(r"\b[a-z]+\b", text.lower())
+            return frozenset(w for w in words if len(w) > 3 and w not in STOPWORDS)
+
+        def jaccard(a: frozenset, b: frozenset) -> float:
+            u = a | b
+            return len(a & b) / len(u) if u else 0.0
+
+        NEGATION = ("not ", "never", "doesn't", "don't", "without", "avoid", "dislike")
+
+        token_pairs = [(b, tokenize(b.content)) for b in beliefs]
+        edges: list[dict] = []
+
+        for i in range(len(token_pairs)):
+            b1, t1 = token_pairs[i]
+            for j in range(i + 1, len(token_pairs)):
+                b2, t2 = token_pairs[j]
+                sim = jaccard(t1, t2)
+
+                if sim < 0.18:
+                    continue
+
+                # Contradiction: one belief negates terms the other affirms
+                neg1 = any(p in b1.content.lower() for p in NEGATION)
+                neg2 = any(p in b2.content.lower() for p in NEGATION)
+
+                if neg1 != neg2 and sim > 0.28:
+                    relation = "CONTRADICTS"
+                elif sim > 0.42:
+                    relation = "REFINES"
+                elif sim > 0.28:
+                    relation = "SUPPORTS"
+                else:
+                    relation = "DERIVES_FROM"
+
+                # Direction: higher-confidence belief supports lower-confidence one
+                if b1.confidence >= b2.confidence:
+                    src, tgt = b1.id, b2.id
+                else:
+                    src, tgt = b2.id, b1.id
+
+                edges.append({
+                    "source": src,
+                    "target": tgt,
+                    "relation": relation,
+                    "weight": round(sim, 3),
+                })
+
+        return edges
 
     def to_dict(self) -> dict:
         """Serialise graph for API/frontend consumption."""
@@ -230,4 +331,7 @@ class IdentityGraph:
             }
             for s, t, d in self.graph.edges(data=True)
         ]
+        # If no persisted edges exist, compute semantic edges dynamically
+        if not edges:
+            edges = self.compute_semantic_edges()
         return {"nodes": nodes, "edges": edges}

@@ -107,6 +107,10 @@ class MemoryEntry(BaseModel):
     tags: list[str] = Field(default_factory=list)
     source_agent: str = "system"
 
+    # Lifecycle flags
+    is_dormant: bool = False          # True when strength < threshold, awaiting deep-cycle prune
+    has_vector: bool = False          # True when a vector is actually stored in ChromaDB
+
     def compute_salience(self) -> float:
         s = (
             0.3 * self.importance
@@ -164,7 +168,7 @@ class DriveScores(BaseModel):
     )
 
     def total_motivation(self) -> float:
-        """M = Σ wᵢ·dᵢ"""
+        """M = Σ wᵢ·dᵢ using internal drive values."""
         drives = {
             "coherence": self.coherence,
             "curiosity": self.curiosity,
@@ -172,6 +176,10 @@ class DriveScores(BaseModel):
             "competence": self.competence,
             "compression": self.compression,
         }
+        return sum(self.weights.get(k, 0.0) * v for k, v in drives.items())
+
+    def weighted_sum(self, drives: dict[str, float]) -> float:
+        """M = Σ wᵢ·dᵢ using an external drive scores dict."""
         return sum(self.weights.get(k, 0.0) * v for k, v in drives.items())
 
 
@@ -246,5 +254,19 @@ class ConsolidationReport(BaseModel):
     memories_pruned: int = 0
     beliefs_updated: int = 0
     patterns_found: list[str] = Field(default_factory=list)
+    # IM-10: Memory health telemetry (populated by the scheduler after light/deep cycles)
+    dormant_count: int = 0
+    avg_salience: float = 0.0
+    total_active: int = 0
     started_at: datetime = Field(default_factory=_now)
     finished_at: datetime | None = None
+
+
+class DreamEntry(BaseModel):
+    """A dream narrative generated during REM deep consolidation phase."""
+
+    id: str = Field(default_factory=_uid)
+    dream: str
+    source_memory_count: int = 0
+    created_at: datetime = Field(default_factory=_now)
+    cycle_type: str = "rem"  # "rem" or "light"

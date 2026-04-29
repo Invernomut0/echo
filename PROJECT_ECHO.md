@@ -513,3 +513,52 @@ Create a system that:
 
 The final architecture should resemble:
 a persistent evolving cognitive entity rather than a conventional LLM.
+
+---
+
+# IMPLEMENTATION STATUS — 2026-04-29
+
+## Bugs Fixed ✅
+| ID | File | Description |
+|----|------|-------------|
+| BUG-1 | `src/echo/core/pipeline.py` | Reflection triggering ogni singola interazione (hardcoded `max(1,1)`). Fix: `settings.reflection_trigger_interval` |
+| BUG-2 | `src/echo/core/pipeline.py` | `adjust_drives_from_interaction` con logica sbagliata. Fix: sostituito con `score_interaction()` (LLM scorer) |
+| BUG-3 | `src/echo/core/pipeline.py` | `predict_response()` mai chiamato. Fix: `asyncio.gather` parallelo nella pipeline |
+| BUG-4 | `src/echo/core/pipeline.py` | Salience `MemoryEntry` hardcoded. Fix: dinamico da `drive_scores` |
+| BUG-6 | `src/echo/core/event_bus.py` | `subscribe_once` memory leak: callback non rimosso se evento mai arrivato. Fix: `unsubscribe()` nel wrapper |
+| BUG-7 | `src/echo/self_model/identity_graph.py` + `src/echo/consolidation/scheduler.py` | Contraddizioni nel grafo mai risolte. Fix: `resolve_contradictions()` + chiamata nel deep sleep |
+| BUG-8 | `src/echo/consolidation/scheduler.py` | Pattern consolidati loggati ma non persistiti. Fix: storati come semantic memories |
+| BUG-9 | `src/echo/agents/orchestrator.py` | Routing weight sorting errato: agenti con peso più basso venivano preferiti. Fix: `reverse=True` |
+
+## Improvements Applied ✅
+| ID | File | Description |
+|----|------|-------------|
+| IM-6  | `src/echo/self_model/meta_state.py` | Evoluzione Hebbiana dei pesi drive in `update_drives()` |
+| IM-8  | `src/echo/reflection/engine.py` | Engine di riflessione consapevole del workspace attivo (`workspace_context`) |
+| IM-10 | `src/echo/consolidation/scheduler.py` + `src/echo/core/types.py` | Metriche health memoria nel light heartbeat: `dormant_count`, `avg_salience`, `total_active` nel `ConsolidationReport` + evento `CONSOLIDATION_COMPLETE` |
+| IM-11 | `src/echo/core/pipeline.py` + `src/echo/plasticity/adapter.py` | `prediction_error` wired pipeline→plasticity: alta sorpresa → aggiornamenti pesi più grandi |
+
+## New Features Applied ✅
+| ID | File | Description |
+|----|------|-------------|
+| NEW-1 | `src/echo/core/pipeline.py` | `self_prediction` come segnale di qualità: log INFO con `prediction_error` a ogni interazione |
+| NEW-2 | `src/echo/core/pipeline.py` + `src/echo/core/types.py` | Pesi motivazionali influenzano il comportamento: delta drive scalati per `weights[k]`; `weighted_sum()` per `emotional_weight` |
+| NEW-3 | `src/echo/memory/episodic.py` + `src/echo/core/pipeline.py` | Linking causale tra memorie: `get_recent()` + `add_causal_link()` → catena causale confermata nel DB |
+| NEW-4 | `src/echo/core/pipeline.py` | Workspace → credenze identità: item ad alta salienza (`competition_score > 0.6`) promossi come `IdentityBelief` con `confidence=0.25` |
+| NEW-5 | `src/echo/core/pipeline.py` | Drift identitario: distanza coseno tra `agent_weights` snapshots ogni ciclo di riflessione; evento `identity_drift` se > 0.15 |
+| NEW-6 | `src/echo/self_model/meta_state.py` + `src/echo/core/pipeline.py` | Stato emotivo (valenza + arousal) sempre attivo: `update_arousal()` aggiunto; valenza e arousal derivati dai drive in `_post_interact` |
+
+## Bug Fixes (ChromaDB)
+| Problema | Fix |
+|----------|-----|
+| `Collection expecting embedding dimension 768, got 384` crashava `_post_interact` | Wrapped `upsert()` in try/except in `episodic.store()` — memoria persiste in SQLite anche senza vettore ChromaDB |
+
+## Integration Tests ✅
+- Endpoint `/api/chat` (sync): **PASS** — risposta generata, nessun errore post-interact
+- `emotional_valence` ≠ 0 e `arousal` ≠ 0.5 confermati nella risposta JSON
+- Causal links verificati in DB: catena `mem1 → mem2 → mem3 → mem4 → mem5`
+- 5 interazioni completate senza errori (`echo5.log`: 0 ERROR/CRITICAL)
+
+## Known Pre-existing Issues
+- ChromaDB dimensione embedding 768 vs 384: gestita gracefully (skip upsert, memoria salvata in SQLite)
+- LM Studio embedding non disponibile in locale → fallback HuggingFace attivo

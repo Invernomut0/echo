@@ -33,12 +33,38 @@ class Settings(BaseSettings):
     reflection_trigger_interval: int = 5
     memory_decay_interval_seconds: int = 300
 
+    # GitHub OAuth
+    github_client_id: str = ""
+    github_token: str = ""
+
+    # LLM provider selection
+    llm_provider: Literal["copilot", "lm_studio"] = "lm_studio"
+    copilot_model: str = "gpt-4o"
+
+    # HuggingFace fallback embeddings (free Inference API)
+    hf_token: str = ""  # optional — higher rate limits if provided
+    # Must produce 768-dim vectors to match the ChromaDB semantic_memory collection.
+    # paraphrase-multilingual-mpnet-base-v2 is 768-dim AND multilingual (IT/EN/ES…)
+    hf_embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+
     # API server
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: list[str] = Field(
         default=["http://localhost:5173", "http://localhost:3000"]
     )
+
+    # Curiosity / idle-time autonomous learning
+    curiosity_enabled: bool = True
+    # Seconds of inactivity before a curiosity cycle is allowed to run.
+    # Default: 180 s = 3 minutes — aligned with the 5-min light heartbeat so
+    # ECHO can research after just one idle heartbeat interval.
+    # Override via ECHO_CURIOSITY_IDLE_THRESHOLD_SECONDS env var.
+    curiosity_idle_threshold_seconds: int = 180
+    curiosity_max_topics: int = 3          # LLM-extracted topics per cycle
+    curiosity_max_arxiv_results: int = 2   # papers per topic
+    curiosity_max_hn_results: int = 3      # news articles per topic
+    curiosity_max_brave_results: int = 3   # web results per topic (Brave Search MCP)
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

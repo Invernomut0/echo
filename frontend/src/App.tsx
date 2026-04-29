@@ -1,4 +1,6 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, Component } from 'react'
+import type { ReactNode } from 'react'
+import { Settings } from 'lucide-react'
 import './index.css'
 import './styles.css'
 import ChatPanel from './components/ChatPanel'
@@ -7,10 +9,29 @@ import IdentityGraph from './components/IdentityGraph'
 import DriveChart from './components/DriveChart'
 import DriveHistory from './components/DriveHistory'
 import ConsolidationPanel from './components/ConsolidationPanel'
-import { useEchoState, useHistory, useGraph, useMemories } from './hooks'
+import SetupPanel from './components/SetupPanel'
+import AnalyticsPanel from './components/AnalyticsPanel'
+import VectorMemoriesPanel from './components/VectorMemoriesPanel'
+import { useEchoState, useHistory, useAnalyticsHistory, useGraph, useMemories } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'memory' | 'graph' | 'consolidation'
+type Tab = 'chat' | 'memory' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'setup'
+
+class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
+  state = { hasError: false }
+  static getDerivedStateFromError() { return { hasError: true } }
+  componentDidCatch(err: Error) { console.warn('[IdentityGraph] caught error:', err.message) }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#070a12', color: '#475569', fontSize: 13 }}>
+          ⬡ Grafo non disponibile in questo ambiente
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 
 const DRIVE_COLORS: Record<string, string> = {
   coherence:   '#06b6d4',
@@ -24,12 +45,14 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('chat')
   const { state, error } = useEchoState()
   const history = useHistory()
-  const { graph } = useGraph()
-  const { memories, total } = useMemories()
+  const analyticsHistory = useAnalyticsHistory()
+  const { graph } = useGraph(tab === 'graph')
+  const { memories, total, refresh: refreshMemories } = useMemories()
 
   const handleMetaUpdate = useCallback((_ms: MetaState) => {
-    // Live update from SSE response — state polling will sync shortly
-  }, [])
+    // Immediately refresh memories after each chat response
+    refreshMemories()
+  }, [refreshMemories])
 
   const drives = state?.meta_state.drives
   const agentWeights = state?.meta_state.agent_weights ?? {}
@@ -54,33 +77,47 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'memory', 'graph', 'consolidation'] as Tab[]).map((t) => (
+          {(['chat', 'memory', 'graph', 'consolidation', 'analytics', 'vectors'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
           ))}
+          <button
+            className={`tab tab--icon ${tab === 'setup' ? 'active' : ''}`}
+            onClick={() => setTab('setup')}
+            title="Setup"
+          >
+            <Settings size={14} />
+          </button>
         </div>
 
-        {tab === 'chat' && <ChatPanel onMetaStateUpdate={handleMetaUpdate} />}
-        {tab === 'memory' && <MemoryPanel memories={memories} total={total} />}
-        {tab === 'graph' && (
-          <div className="graph-container" style={{ flex: 1 }}>
-            <IdentityGraph nodes={graph.nodes} edges={graph.edges} />
-            <div style={{
-              position: 'absolute', bottom: 12, left: 12,
-              background: 'rgba(10,10,15,0.8)',
-              border: '1px solid #1e293b',
-              borderRadius: 6,
-              padding: '6px 10px',
-              fontSize: 11,
-              color: '#94a3b8',
-            }}>
-              Coherence: {(graph.coherence_score * 100).toFixed(0)}%
-              &nbsp;·&nbsp;{graph.nodes.length} beliefs
-            </div>
-          </div>
-        )}
-        {tab === 'consolidation' && <ConsolidationPanel />}
+        {/* Always mounted — hidden with CSS so state survives tab switches */}
+        <div style={{ display: tab === 'chat' ? 'contents' : 'none' }}>
+          <ChatPanel onMetaStateUpdate={handleMetaUpdate} />
+        </div>
+        <div style={{ display: tab === 'memory' ? 'contents' : 'none' }}>
+          <MemoryPanel memories={memories} total={total} />
+        </div>
+        <div
+          className="graph-container"
+          style={{ display: tab === 'graph' ? 'flex' : 'none', flex: 1 }}
+        >
+          <GraphErrorBoundary>
+            <IdentityGraph nodes={graph.nodes} edges={graph.edges} coherenceScore={graph.coherence_score} />
+          </GraphErrorBoundary>
+        </div>
+        <div style={{ display: tab === 'consolidation' ? 'contents' : 'none' }}>
+          <ConsolidationPanel />
+        </div>
+        <div style={{ display: tab === 'analytics' ? 'contents' : 'none' }}>
+          <AnalyticsPanel history={analyticsHistory} />
+        </div>
+        <div style={{ display: tab === 'vectors' ? 'contents' : 'none' }}>
+          <VectorMemoriesPanel />
+        </div>
+        <div style={{ display: tab === 'setup' ? 'contents' : 'none' }}>
+          <SetupPanel />
+        </div>
       </main>
 
       {/* Right sidebar */}

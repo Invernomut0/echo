@@ -43,6 +43,10 @@ class HistoryPoint(BaseModel):
     timestamp: datetime
     drives: dict[str, float]
     emotional_valence: float
+    arousal: float = 0.5
+    agent_weights: dict[str, float] = Field(default_factory=dict)
+    drive_weights: dict[str, float] = Field(default_factory=dict)
+    total_motivation: float = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -57,11 +61,49 @@ class MemoryListItem(BaseModel):
     current_strength: float
     created_at: datetime
     tags: list[str]
+    is_dormant: bool = False
+    has_vector: bool = False
 
 
 class MemoriesResponse(BaseModel):
     total: int
     items: list[MemoryListItem]
+
+
+class SemanticMemoriesResponse(BaseModel):
+    total: int
+    items: list[MemoryListItem]
+
+
+class VectorStoreStatus(BaseModel):
+    episodic_sqlite_count: int
+    episodic_vector_count: int
+    semantic_sqlite_count: int
+    semantic_vector_count: int
+    episodic_coverage_pct: float
+    semantic_coverage_pct: float
+
+
+# ---------------------------------------------------------------------------
+# Conflict resolution
+# ---------------------------------------------------------------------------
+
+class ResolveConflictRequest(BaseModel):
+    """User decision for a memory conflict that couldn't be auto-resolved.
+
+    The caller specifies which memory to *delete* (the incorrect one) and
+    which to *keep* (the correct one).  Both IDs must belong to the same
+    conflict pair surfaced by ``detect_and_clean_conflicts``.
+    """
+
+    delete_id: str = Field(..., description="ID of the memory to delete (the incorrect fact)")
+    keep_id: str = Field(..., description="ID of the memory to keep (the correct fact)")
+
+
+class ResolveConflictResponse(BaseModel):
+    deleted: bool
+    delete_id: str
+    keep_id: str
 
 
 # ---------------------------------------------------------------------------

@@ -98,13 +98,59 @@ class EventBus:
                 except ValueError:
                     pass
 
-    def subscribe_once(
-        self, topic: EventTopic, maxsize: int = 64
-    ) -> asyncio.Queue[CognitiveEvent]:
-        """Return a queue that will receive the next event for `topic`."""
-        q: asyncio.Queue[CognitiveEvent] = asyncio.Queue(maxsize=maxsize)
+    async def subscribe_once(
+        self,
+        topic: EventTopic,
+        timeout: float | None = None,
+    ) -> CognitiveEvent | None:
+        """Await the next event on ``topic`` and auto-unsubscribe.
+
+        Unlike ``subscribe()``, the queue is removed from ``_subscribers``
+        immediately after the first event is received (or on timeout/error),
+        preventing the unbounded queue leak present in the old sync variant.
+
+        Args:
+            topic:   The event topic to listen on.
+            timeout: Optional seconds to wait before giving up. Returns ``None``
+                     on timeout.
+        """
+        q: asyncio.Queue[CognitiveEvent] = asyncio.Queue(maxsize=64)
         self._subscribers[topic].append(q)
-        return q
+        try:
+            if timeout is not None:
+                return await asyncio.wait_for(q.get(), timeout=timeout)
+            return await q.get()
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            # Always remove the queue — even on exception or cancellation.
+            try:
+                self._subscribers[topic].remove(q)
+            except ValueError:
+                pass
+
+    def prune_stale_queues(self, threshold: int = 200) -> int:
+        """Remove queues that are full beyond *threshold* items (dead listeners).
+
+        A queue that is nearly or completely full has stopped being consumed —
+        its listener likely crashed or was abandoned without closing the async
+        generator.  Pruning prevents unbounded memory growth.
+
+        Returns the number of queues removed.
+        """
+        pruned = 0
+        for topic in list(self._subscribers):
+            stale = [q for q in self._subscribers[topic] if q.qsize() >= threshold]
+            for q in stale:
+                self._subscribers[topic].remove(q)
+                pruned += 1
+                logger.warning(
+                    "Pruned stale queue for topic %s (size=%d)", topic, q.qsize()
+                )
+            # Clean up empty lists to keep the dict tidy
+            if not self._subscribers[topic]:
+                del self._subscribers[topic]
+        return pruned
 
     # ------------------------------------------------------------------
     # Helpers

@@ -6,11 +6,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+# Load ALL variables from .env into os.environ early, so subprocesses (e.g. MCP
+# servers) can inherit them even if they are not declared as Pydantic fields.
+from dotenv import load_dotenv
+load_dotenv(override=False)  # override=False: real env vars take precedence
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from echo.api.routers import auth, consolidation, identity, interact, memory, state
+from echo.api.routers import consolidation, identity, interact, memory, mcp as mcp_router, setup, state
 from echo.api.schemas import HealthResponse
 from echo.core.config import settings
 from echo.core.llm_client import llm
@@ -63,7 +68,8 @@ def create_app() -> FastAPI:
     app.include_router(memory.router)
     app.include_router(identity.router)
     app.include_router(consolidation.router)
-    app.include_router(auth.router)
+    app.include_router(setup.router)
+    app.include_router(mcp_router.router)
 
     # Health check
     @app.get("/health", response_model=HealthResponse, tags=["health"])

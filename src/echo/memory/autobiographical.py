@@ -44,12 +44,13 @@ class AutobiographicalMemoryStore:
         entry_id = str(uuid.uuid4())
         vector = await llm.embed_one(content)
 
-        self._collection.upsert(
-            ids=[entry_id],
-            embeddings=[vector],
-            documents=[content],
-            metadatas=[{"chapter": chapter, "salience": salience}],
-        )
+        if vector:
+            self._collection.upsert(
+                ids=[entry_id],
+                embeddings=[vector],
+                documents=[content],
+                metadatas=[{"chapter": chapter, "salience": salience}],
+            )
 
         factory = get_session_factory()
         async with factory() as session:
@@ -97,6 +98,8 @@ class AutobiographicalMemoryStore:
         if self._collection.count() == 0:
             return []
         vector = await llm.embed_one(query)
+        if not vector:
+            return []
         results = self._collection.query(
             query_embeddings=[vector],
             n_results=min(n_results, self._collection.count()),
