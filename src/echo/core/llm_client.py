@@ -49,6 +49,7 @@ class LLMClient:
         self._client = _build_openai_client()
         self.model = settings.lm_studio_model
         self.embedding_model = settings.lm_studio_embedding_model
+        self._last_tools_used: list[str] = []
 
     # ── Copilot helpers ────────────────────────────────────────────────────────
 
@@ -336,6 +337,7 @@ class LLMClient:
             )
 
         # OpenAI-compatible path (LM Studio)
+        self._last_tools_used = []
         current_messages = list(messages)
         for _round in range(max_tool_rounds):
             response = await self._client.chat.completions.create(
@@ -358,6 +360,8 @@ class LLMClient:
             # Execute each requested tool and append results
             for tc in msg.tool_calls:
                 fn_name: str = tc.function.name
+                if fn_name not in self._last_tools_used:
+                    self._last_tools_used.append(fn_name)
                 try:
                     fn_args: dict[str, Any] = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError:
@@ -388,6 +392,7 @@ class LLMClient:
         """Tool-calling loop through the GitHub Copilot API."""
         from echo.api.routers.setup import _get_copilot_token_cached  # noqa: PLC0415
 
+        self._last_tools_used = []
         current_messages = list(messages)
         for _round in range(max_rounds):
             token_data = await _get_copilot_token_cached()
@@ -420,6 +425,8 @@ class LLMClient:
             current_messages.append(msg)
             for tc in tool_calls:
                 fn_name: str = tc["function"]["name"]
+                if fn_name not in self._last_tools_used:
+                    self._last_tools_used.append(fn_name)
                 try:
                     fn_args: dict[str, Any] = json.loads(tc["function"].get("arguments", "{}"))
                 except json.JSONDecodeError:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from echo.api.schemas import ChatRequest, ChatResponse
+from echo.core.llm_client import llm
 from echo.core.pipeline import pipeline
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,8 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
             ms = pipeline.meta_state.model_dump(mode="json")
             mem_sources = getattr(pipeline, "_last_memory_sources", {"episodic": 0, "semantic": 0})
             trace = getattr(pipeline, "_last_pipeline_trace", {})
-            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms, 'memory_sources': mem_sources, 'pipeline_trace': trace})}\n\n"
+            tools_used = list(getattr(llm, "_last_tools_used", []))
+            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms, 'memory_sources': mem_sources, 'pipeline_trace': trace, 'tools_used': tools_used})}\n\n"
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Streaming error: %s", exc, exc_info=True)

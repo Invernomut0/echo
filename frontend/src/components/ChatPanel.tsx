@@ -65,6 +65,24 @@ function MemoryBadges({ sources }: { sources?: MemorySources }) {
   )
 }
 
+function ToolBadges({ tools }: { tools?: string[] }) {
+  if (!tools || tools.length === 0) return null
+  return (
+    <div className="memory-badges">
+      {tools.map((name) => (
+        <span
+          key={name}
+          className="memory-badge tool"
+          title={`Tool chiamato: ${name}`}
+        >
+          <span className="memory-badge-dot" />
+          {name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 const STORAGE_KEY = 'echo_chat_messages'
 
 interface Message {
@@ -73,6 +91,7 @@ interface Message {
   content: string
   streaming?: boolean
   memorySources?: MemorySources
+  toolsUsed?: string[]
 }
 
 function loadMessages(): Message[] {
@@ -150,10 +169,10 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
           )
         )
       },
-      (ms, memorySources) => {
+      (ms, memorySources, toolsUsed) => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false, memorySources } : m
+            m.id === assistantMsg.id ? { ...m, streaming: false, memorySources, toolsUsed } : m
           )
         )
         setStreaming(false)
@@ -197,7 +216,10 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
                 : msg.content}
               {msg.streaming && msg.content && <span className="streaming-cursor" />}
               {msg.role === 'assistant' && !msg.streaming && (
-                <MemoryBadges sources={msg.memorySources} />
+                <>
+                  <MemoryBadges sources={msg.memorySources} />
+                  <ToolBadges tools={msg.toolsUsed} />
+                </>
               )}
             </div>
             <div className="chat-meta">{msg.role === 'user' ? 'You' : 'ECHO'}</div>

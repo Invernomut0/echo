@@ -241,7 +241,7 @@ export function streamInteract(
   message: string,
   history: Array<{ role: string; content: string }>,
   onDelta: (delta: string) => void,
-  onDone: (metaState: MetaState, memorySources: MemorySources) => void,
+  onDone: (metaState: MetaState, memorySources: MemorySources, toolsUsed: string[]) => void,
   onError: (err: string) => void,
 ): () => void {
   const controller = new AbortController()
@@ -274,7 +274,8 @@ export function streamInteract(
             else if (data.type === 'done') {
               doneReceived = true
               const sources: MemorySources = data.memory_sources ?? { episodic: 0, semantic: 0 }
-              onDone(data.meta_state, sources)
+              const toolsUsed: string[] = data.tools_used ?? []
+              onDone(data.meta_state, sources, toolsUsed)
             }
             else if (data.type === 'error') onError(data.content)
           } catch {

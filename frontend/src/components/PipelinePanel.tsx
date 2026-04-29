@@ -230,7 +230,7 @@ function LearningSection({ trace }: { trace: PipelineTrace }) {
     >
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
         <Bar label="Curiosity spike"   value={lp.curiosity_spike_prob}       color={CLR.learning} />
-        <Bar label="Identity drift risk" value={lp.identity_drift_risk}      color={CLR.rose} />
+        <Bar label="Identity drift risk" value={lp.identity_drift_risk}      color={CLR.postprocess} />
         <Bar label="Consolidation urgency" value={lp.consolidation_urgency}  color={CLR.prediction} />
         <Bar label="Valence forecast"  value={(lp.emotional_valence_forecast + 1) / 2} color={CLR.retrieval} />
       </div>

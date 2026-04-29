@@ -392,6 +392,17 @@
   box-shadow: 0 0 4px rgba(167, 139, 250, 0.6);
 }
 
+.memory-badge.tool {
+  background: rgba(34, 211, 238, 0.10);
+  border: 1px solid rgba(34, 211, 238, 0.28);
+  color: #22d3ee;
+}
+
+.memory-badge.tool .memory-badge-dot {
+  background: #22d3ee;
+  box-shadow: 0 0 4px rgba(34, 211, 238, 0.6);
+}
+
 .chat-meta {
   font-size: 10px;
   color: var(--text-muted);
