@@ -10,6 +10,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Node v25 (Homebrew) richiesto da Vite 5+
 export PATH="/opt/homebrew/bin:$PATH"
+export BROWSER=none
 
 # ── colori ────────────────────────────────────────────────────────────────────
 CYAN='\033[0;36m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RESET='\033[0m'
