@@ -4,7 +4,7 @@ import type { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { streamInteract, type MetaState } from '../api'
+import { streamInteract, type MetaState, type MemorySources } from '../api'
 
 const markdownComponents: Components = {
   code({ children, className, node: _node, ...rest }) {
@@ -39,6 +39,32 @@ function MarkdownContent({ content }: { content: string }) {
   )
 }
 
+function MemoryBadges({ sources }: { sources?: MemorySources }) {
+  if (!sources || (sources.episodic === 0 && sources.semantic === 0)) return null
+  return (
+    <div className="memory-badges">
+      {sources.episodic > 0 && (
+        <span
+          className="memory-badge episodic"
+          title={`${sources.episodic} memoria${sources.episodic > 1 ? ' episodiche' : ' episodica'} usata`}
+        >
+          <span className="memory-badge-dot" />
+          episodica&nbsp;&times;{sources.episodic}
+        </span>
+      )}
+      {sources.semantic > 0 && (
+        <span
+          className="memory-badge semantic"
+          title={`${sources.semantic} memoria${sources.semantic > 1 ? ' semantiche' : ' semantica'} usata`}
+        >
+          <span className="memory-badge-dot" />
+          semantica&nbsp;&times;{sources.semantic}
+        </span>
+      )}
+    </div>
+  )
+}
+
 const STORAGE_KEY = 'echo_chat_messages'
 
 interface Message {
@@ -46,6 +72,7 @@ interface Message {
   role: 'user' | 'assistant'
   content: string
   streaming?: boolean
+  memorySources?: MemorySources
 }
 
 function loadMessages(): Message[] {
@@ -123,10 +150,10 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
           )
         )
       },
-      (ms) => {
+      (ms, memorySources) => {
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false } : m
+            m.id === assistantMsg.id ? { ...m, streaming: false, memorySources } : m
           )
         )
         setStreaming(false)
@@ -169,6 +196,9 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
                 ? <MarkdownContent content={msg.content} />
                 : msg.content}
               {msg.streaming && msg.content && <span className="streaming-cursor" />}
+              {msg.role === 'assistant' && !msg.streaming && (
+                <MemoryBadges sources={msg.memorySources} />
+              )}
             </div>
             <div className="chat-meta">{msg.role === 'user' ? 'You' : 'ECHO'}</div>
           </div>

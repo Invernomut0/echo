@@ -156,6 +156,11 @@ class CognitivePipeline:
             self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
             predict_response(user_input, self.meta_tracker.current),
         )
+        # Track source counts for downstream SSE metadata
+        self._last_memory_sources = {
+            "episodic": len(episodic_mems),
+            "semantic": len(semantic_mems),
+        }
         memories = semantic_mems + episodic_mems  # semantic facts first (identity, name)
         self.workspace.clear()
         self.workspace.load_memories(memories, "archivist")

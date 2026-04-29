@@ -177,11 +177,16 @@ export async function triggerREM(): Promise<{ status: string; dream: DreamEntry 
 }
 
 // ── SSE Streaming chat ─────────────────────────────────────────────────────
+export interface MemorySources {
+  episodic: number
+  semantic: number
+}
+
 export function streamInteract(
   message: string,
   history: Array<{ role: string; content: string }>,
   onDelta: (delta: string) => void,
-  onDone: (metaState: MetaState) => void,
+  onDone: (metaState: MetaState, memorySources: MemorySources) => void,
   onError: (err: string) => void,
 ): () => void {
   const controller = new AbortController()
@@ -211,7 +216,11 @@ export function streamInteract(
           try {
             const data = JSON.parse(line.slice(6))
             if (data.type === 'delta') onDelta(data.content)
-            else if (data.type === 'done') { doneReceived = true; onDone(data.meta_state) }
+            else if (data.type === 'done') {
+              doneReceived = true
+              const sources: MemorySources = data.memory_sources ?? { episodic: 0, semantic: 0 }
+              onDone(data.meta_state, sources)
+            }
             else if (data.type === 'error') onError(data.content)
           } catch {
             // ignore parse error

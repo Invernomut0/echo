@@ -339,6 +339,59 @@
   border-bottom-left-radius: 4px;
 }
 
+/* ── Memory source badges ─────────────────────────────────────────────────── */
+.memory-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.memory-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: 2px 9px 2px 6px;
+  border-radius: 20px;
+  cursor: default;
+  user-select: none;
+}
+
+.memory-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.memory-badge.episodic {
+  background: rgba(251, 146, 60, 0.10);
+  border: 1px solid rgba(251, 146, 60, 0.28);
+  color: #fb923c;
+}
+
+.memory-badge.episodic .memory-badge-dot {
+  background: #fb923c;
+  box-shadow: 0 0 4px rgba(251, 146, 60, 0.6);
+}
+
+.memory-badge.semantic {
+  background: rgba(167, 139, 250, 0.10);
+  border: 1px solid rgba(167, 139, 250, 0.28);
+  color: #a78bfa;
+}
+
+.memory-badge.semantic .memory-badge-dot {
+  background: #a78bfa;
+  box-shadow: 0 0 4px rgba(167, 139, 250, 0.6);
+}
+
 .chat-meta {
   font-size: 10px;
   color: var(--text-muted);

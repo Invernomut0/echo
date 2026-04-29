@@ -42,7 +42,8 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
             # Use model_dump(mode='json') so datetime fields are ISO strings,
             # not bare Python datetime objects (which json.dumps cannot handle).
             ms = pipeline.meta_state.model_dump(mode="json")
-            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms})}\n\n"
+            mem_sources = getattr(pipeline, "_last_memory_sources", {"episodic": 0, "semantic": 0})
+            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms, 'memory_sources': mem_sources})}\n\n"
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Streaming error: %s", exc, exc_info=True)
