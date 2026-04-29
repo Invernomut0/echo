@@ -206,29 +206,29 @@ class SemanticMemoryStore:
         if self._collection.count() > 0:
             vector = await llm.embed_one(query)
 
-            def _chroma_to_entries(results: dict) -> list[MemoryEntry]:
-                out = []
-                for doc, meta in zip(
-                    results.get("documents", [[]])[0],
-                    results.get("metadatas", [[]])[0],
-                ):
-                    out.append(
-                        MemoryEntry(
-                            content=doc,
-                            memory_type=MemoryType.SEMANTIC,
-                            salience=meta.get("salience", 0.5),
-                        )
-                    )
-                return out
-
             if vector:
                 col_count = self._collection.count()
                 results = self._collection.query(
                     query_embeddings=[vector],
                     n_results=min(n_results, col_count),
-                    include=["documents", "metadatas"],
+                    include=["documents", "metadatas", "distances"],
                 )
-                entries.extend(_chroma_to_entries(results))
+                # Filter by cosine distance — discard memories too dissimilar to the query.
+                # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
+                # 0.5 → similarity ≥ 0.5, a reasonable relevance floor.
+                _MAX_COSINE_DIST = 0.5
+                docs = results.get("documents", [[]])[0]
+                metas = results.get("metadatas", [[]])[0]
+                dists = results.get("distances", [[]])[0]
+                for doc, meta, dist in zip(docs, metas, dists):
+                    if dist <= _MAX_COSINE_DIST:
+                        entries.append(
+                            MemoryEntry(
+                                content=doc,
+                                memory_type=MemoryType.SEMANTIC,
+                                salience=meta.get("salience", 0.5),
+                            )
+                        )
 
         # Safety fallback: SQLite rows still missing a vector (embedding keeps failing)
         # Include high-salience ones so identity facts are never silently lost.

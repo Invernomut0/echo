@@ -172,6 +172,17 @@ class EpisodicMemoryStore:
             return []
 
         ids = results["ids"][0]
+        distances = results["distances"][0]
+        # Filter by cosine distance — discard memories too dissimilar to the query.
+        # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
+        # 0.5 → similarity ≥ 0.5, a reasonable relevance floor.
+        _MAX_COSINE_DIST = 0.5
+        ids = [
+            id_ for id_, dist in zip(ids, distances) if dist <= _MAX_COSINE_DIST
+        ]
+        if not ids:
+            return []
+
         factory = get_session_factory()
         async with factory() as session:
             stmt = select(MemoryRow).where(MemoryRow.id.in_(ids))
