@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   fetchState, fetchHistory, fetchGraph, fetchMemories, fetchDreams, fetchHeartbeat,
-  fetchVectorStatus, fetchSemanticMemories,
+  fetchVectorStatus, fetchSemanticMemories, fetchPipelineTrace,
   type StateResponse, type HistoryPoint, type GraphResponse, type MemoryItem,
-  type DreamEntry, type HeartbeatStatus, type VectorStoreStatus,
+  type DreamEntry, type HeartbeatStatus, type VectorStoreStatus, type PipelineTrace,
 } from './api'
 
 // Polling interval for live data
@@ -172,4 +172,30 @@ export function useSemanticMemories(limit = 50) {
   }, [limit])
 
   return data
+}
+
+/** Poll /api/pipeline/trace every 1.5 s while the panel is active.
+ *  Stops polling as soon as post_interact_complete becomes true,
+ *  and resumes when a new interaction_id appears. */
+export function usePipelineTrace(active: boolean) {
+  const [trace, setTrace] = useState<PipelineTrace | null>(null)
+  const lastIdRef = useRef<string | null>(null)
+
+  const refresh = useCallback(async () => {
+    try {
+      const t = await fetchPipelineTrace()
+      if (!t) return
+      setTrace(t)
+      lastIdRef.current = t.interaction_id
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    refresh()
+    const id = setInterval(refresh, 1500)
+    return () => clearInterval(id)
+  }, [active, refresh])
+
+  return { trace, refresh }
 }

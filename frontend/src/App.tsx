@@ -4,7 +4,7 @@ import { Settings } from 'lucide-react'
 import './index.css'
 import './styles.css'
 import ChatPanel from './components/ChatPanel'
-import MemoryPanel from './components/MemoryPanel'
+import PipelinePanel from './components/PipelinePanel'
 import IdentityGraph from './components/IdentityGraph'
 import DriveChart from './components/DriveChart'
 import DriveHistory from './components/DriveHistory'
@@ -13,10 +13,10 @@ import SetupPanel from './components/SetupPanel'
 import AnalyticsPanel from './components/AnalyticsPanel'
 import VectorMemoriesPanel from './components/VectorMemoriesPanel'
 import CuriosityPanel from './components/CuriosityPanel'
-import { useEchoState, useHistory, useAnalyticsHistory, useGraph, useMemories } from './hooks'
+import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'memory' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -48,12 +48,9 @@ export default function App() {
   const history = useHistory()
   const analyticsHistory = useAnalyticsHistory()
   const { graph } = useGraph(tab === 'graph')
-  const { memories, total, refresh: refreshMemories } = useMemories()
-
   const handleMetaUpdate = useCallback((_ms: MetaState) => {
-    // Immediately refresh memories after each chat response
-    refreshMemories()
-  }, [refreshMemories])
+    // intentionally left empty — pipeline trace polls independently
+  }, [])
 
   const drives = state?.meta_state.drives
   const agentWeights = state?.meta_state.agent_weights ?? {}
@@ -78,7 +75,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'memory', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -96,8 +93,8 @@ export default function App() {
         <div style={{ display: tab === 'chat' ? 'contents' : 'none' }}>
           <ChatPanel onMetaStateUpdate={handleMetaUpdate} />
         </div>
-        <div style={{ display: tab === 'memory' ? 'contents' : 'none' }}>
-          <MemoryPanel memories={memories} total={total} />
+        <div style={{ display: tab === 'pipeline' ? 'contents' : 'none' }}>
+          <PipelinePanel active={tab === 'pipeline'} />
         </div>
         <div
           className="graph-container"

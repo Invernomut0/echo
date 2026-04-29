@@ -101,6 +101,52 @@ export interface HeartbeatStatus {
   running: boolean
 }
 
+// ── Pipeline Trace ─────────────────────────────────────────────────────────
+export interface PipelineWorkspaceItem {
+  source: string
+  content: string
+  salience: number
+  competition_score: number
+}
+
+export interface PipelineTrace {
+  interaction_id: string
+  timestamp: string
+  retrieval: {
+    episodic_count: number
+    semantic_count: number
+    episodic_snippets: string[]
+    semantic_snippets: string[]
+  }
+  self_prediction: string
+  learning_priors: {
+    emotional_valence_forecast: number
+    curiosity_spike_prob: number
+    identity_drift_risk: number
+    consolidation_urgency: number
+    is_notable: boolean
+    workspace_items: [string, number][]
+  }
+  personalization: {
+    verbosity: number
+    topic_depth: number
+    recall_frequency: number
+    style_hint: string
+    n_observations: number
+  }
+  workspace_items: PipelineWorkspaceItem[]
+  drives_before: Record<string, number>
+  valence_before: number
+  arousal_before: number
+  identity_drift: number
+  post_interact_complete: boolean
+  drive_scores: Record<string, number>
+  prediction_error: number | null
+  valence_after: number | null
+  arousal_after: number | null
+  response_length: number | null
+}
+
 // ── State ──────────────────────────────────────────────────────────────────
 export async function fetchState(): Promise<StateResponse> {
   const r = await fetch(`${BASE}/state`)
@@ -174,6 +220,15 @@ export async function triggerREM(): Promise<{ status: string; dream: DreamEntry 
   const r = await fetch(`${BASE}/consolidation/trigger-rem`, { method: 'POST' })
   if (!r.ok) throw new Error(`trigger-rem: ${r.status}`)
   return r.json()
+}
+
+export async function fetchPipelineTrace(): Promise<PipelineTrace | null> {
+  const r = await fetch(`${BASE}/pipeline/trace`)
+  if (!r.ok) return null
+  const data = await r.json()
+  // Return null if no trace yet (empty object)
+  if (!data?.interaction_id) return null
+  return data as PipelineTrace
 }
 
 // ── SSE Streaming chat ─────────────────────────────────────────────────────

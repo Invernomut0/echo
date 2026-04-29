@@ -86,6 +86,7 @@ class CognitivePipeline:
         self.learning = LearningEngine()  # module 16: deep real-time learning
         self._interaction_count = 0
         self._last_drift: float = 0.0  # last identity-drift score (fed to LearningEngine)
+        self._last_pipeline_trace: dict[str, Any] = {}  # pipeline trace for UI visualisation
         # Track fire-and-forget tasks so we can await them on graceful shutdown
         self._pending_tasks: set[asyncio.Task] = set()
         self._ready = False
@@ -192,6 +193,60 @@ class CognitivePipeline:
             f"  [{item.source_agent}] {item.content[:80]}"
             for item in self.workspace.snapshot.items
         )
+
+        # MODULE-16 — build pipeline trace for UI visualisation
+        _priors = self.learning.get_priors()
+        _pers = self.learning.personalization
+        self._last_pipeline_trace = {
+            "interaction_id": interaction_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "retrieval": {
+                "episodic_count": len(episodic_mems),
+                "semantic_count": len(semantic_mems),
+                "episodic_snippets": [m.content[:100] for m in episodic_mems[:3]],
+                "semantic_snippets": [m.content[:100] for m in semantic_mems[:3]],
+            },
+            "self_prediction": self_pred or "",
+            "learning_priors": {
+                "emotional_valence_forecast": round(_priors.emotional_valence_forecast, 3),
+                "curiosity_spike_prob": round(_priors.curiosity_spike_prob, 3),
+                "identity_drift_risk": round(_priors.identity_drift_risk, 3),
+                "consolidation_urgency": round(_priors.consolidation_urgency, 3),
+                "is_notable": _priors.is_notable(),
+                "workspace_items": [[c, round(s, 3)] for c, s in _priors.workspace_items()],
+            },
+            "personalization": {
+                "verbosity": round(_pers.verbosity, 3),
+                "topic_depth": round(_pers.topic_depth, 3),
+                "recall_frequency": round(_pers.recall_frequency, 3),
+                "style_hint": _pers.style_hint(),
+                "n_observations": _pers._n,
+            },
+            "workspace_items": [
+                {
+                    "source": item.source_agent,
+                    "content": item.content[:120],
+                    "salience": round(item.salience, 3),
+                    "competition_score": round(item.competition_score, 3),
+                }
+                for item in self.workspace.snapshot.items
+            ],
+            "drives_before": {
+                "curiosity": round(meta_state.drives.curiosity, 3),
+                "coherence": round(meta_state.drives.coherence, 3),
+                "stability": round(meta_state.drives.stability, 3),
+                "competence": round(meta_state.drives.competence, 3),
+            },
+            "valence_before": round(meta_state.emotional_valence, 3),
+            "arousal_before": round(meta_state.arousal, 3),
+            "identity_drift": round(self._last_drift, 3),
+            "post_interact_complete": False,
+            "drive_scores": {},
+            "prediction_error": None,
+            "valence_after": None,
+            "arousal_after": None,
+            "response_length": None,
+        }
 
         full_response = []
         async for delta in self.orchestrator.stream(
@@ -489,6 +544,17 @@ class CognitivePipeline:
                 # Between reflections: still apply drive scores so drives stay live
                 self.meta_tracker.update_drives(score_deltas)
                 await self.meta_tracker.save()
+
+            # MODULE-16 — update pipeline trace with post-interact results
+            self._last_pipeline_trace.update({
+                "drive_scores": {k: round(v, 3) for k, v in drive_scores.items()},
+                "prediction_error": round(prediction_error, 3),
+                "identity_drift": round(self._last_drift, 3),
+                "valence_after": round(self.meta_tracker.current.emotional_valence, 3),
+                "arousal_after": round(self.meta_tracker.current.arousal, 3),
+                "response_length": len(response),
+                "post_interact_complete": True,
+            })
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Post-interact error: %s", exc)

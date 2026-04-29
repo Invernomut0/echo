@@ -43,7 +43,8 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
             # not bare Python datetime objects (which json.dumps cannot handle).
             ms = pipeline.meta_state.model_dump(mode="json")
             mem_sources = getattr(pipeline, "_last_memory_sources", {"episodic": 0, "semantic": 0})
-            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms, 'memory_sources': mem_sources})}\n\n"
+            trace = getattr(pipeline, "_last_pipeline_trace", {})
+            yield f"data: {json.dumps({'type': 'done', 'meta_state': ms, 'memory_sources': mem_sources, 'pipeline_trace': trace})}\n\n"
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Streaming error: %s", exc, exc_info=True)
@@ -63,3 +64,14 @@ async def interact_stream(body: ChatRequest, request: Request) -> StreamingRespo
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/pipeline/trace")
+async def get_pipeline_trace() -> dict:
+    """Return the pipeline trace from the last interaction.
+
+    Includes pre-interact data (learning priors, workspace items, personalization)
+    and post-interact data (drive scores, prediction error) once async processing completes.
+    The ``post_interact_complete`` field indicates if post-processing has finished.
+    """
+    return getattr(pipeline, "_last_pipeline_trace", {})
