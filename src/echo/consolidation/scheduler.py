@@ -251,9 +251,40 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Contradiction resolution error: %s", exc)
 
-        dream = await DreamPhase().run()
+        # Retrieve current MetaState (best-effort — errors are non-fatal)
+        _meta_state = None
+        try:
+            from echo.core.pipeline import pipeline  # noqa: PLC0415
+            if pipeline._ready:
+                _meta_state = pipeline.meta_state
+        except Exception:  # noqa: BLE001
+            pass
+
+        dream = await DreamPhase().run(meta_state=_meta_state)
         await DreamStore().store(dream)
         logger.info("Dream stored (id=%s, type=%s)", dream.id, dream.cycle_type)
+
+        # Apply weight mutations produced by WeightEvolution
+        if dream.weight_mutations:
+            try:
+                from echo.core.pipeline import pipeline as _pl  # noqa: PLC0415
+                if _pl._ready and _pl.meta_state:
+                    ms = _pl.meta_state
+                    for agent, delta in dream.weight_mutations.items():
+                        cur = ms.agent_weights.get(agent, 1.0)
+                        ms.agent_weights[agent] = float(max(0.1, min(2.0, cur + delta)))
+                    await bus.publish(CognitiveEvent(
+                        topic=EventTopic.PLASTICITY_UPDATE,
+                        source_agent="dream_evolution",
+                        payload={
+                            "mutations": dream.weight_mutations,
+                            "source": "dream_evolution",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                    ))
+                    logger.info("Dream weight evolution applied: %s", dream.weight_mutations)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Weight mutation apply failed: %s", exc)
 
         # Spurious / conflicting semantic memory cleanup (deep pass — prune=True)
         try:
@@ -325,7 +356,16 @@ class ConsolidationScheduler:
 
         phase = ConsolidationPhase()
         await phase.run(elapsed_seconds=0)  # consolidate without extra decay
-        dream = await DreamPhase().run()
+
+        _meta_state = None
+        try:
+            from echo.core.pipeline import pipeline  # noqa: PLC0415
+            if pipeline._ready:
+                _meta_state = pipeline.meta_state
+        except Exception:  # noqa: BLE001
+            pass
+
+        dream = await DreamPhase().run(meta_state=_meta_state)
         await DreamStore().store(dream)
         self._last_deep_at = datetime.now(timezone.utc)
         return dream
