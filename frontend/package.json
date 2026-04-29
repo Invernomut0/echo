@@ -1,12 +1,12 @@
 {
   "name": "echo-frontend",
   "private": true,
-  "version": "0.2.8",
+  "version": "0.2.9",
   "type": "module",
   "scripts": {
-    "dev": "vite --no-open",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview",
+    "dev": "./node_modules/.bin/vite --no-open",
+    "build": "tsc -b && ./node_modules/.bin/vite build",
+    "preview": "./node_modules/.bin/vite preview",
     "lint": "eslint src"
   },
   "dependencies": {
