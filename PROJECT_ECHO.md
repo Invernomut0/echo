@@ -502,6 +502,54 @@ Focus first on:
 
 ---
 
+# 16. DEEP REAL-TIME LEARNING
+
+Implement deeper real-time learning capabilities beyond the base plasticity layer.
+
+This module extends module 9 (PLASTICITY SYSTEM) with additional ML models
+for predictive analytics and highly sophisticated personalizations.
+
+## Predictive Analytics Engine
+
+Deploy lightweight secondary models trained to predict:
+- likely emotional responses to interaction patterns,
+- future curiosity spikes based on topic history,
+- identity drift trajectories over time,
+- optimal consolidation windows based on memory load.
+
+These models run alongside the LLM core and feed their outputs
+as priors into the Global Workspace and Motivational System.
+
+## Personalization Layer
+
+Accumulate per-session interaction statistics to adapt:
+- response verbosity (learned preference over time),
+- topic depth (inferred from engagement scores),
+- proactive memory recall frequency (based on user confirmation patterns),
+- drive weight baselines (shifted by long-term interaction history).
+
+Personalization must NOT override identity — it modulates style, not self.
+
+## Requirements
+
+- Models must be lightweight (< 50 M parameters or ONNX-quantized).
+- Inference latency budget: < 20 ms per call.
+- All models must be hot-swappable without restarting the system.
+- Predictions must be logged as cognitive events and subject to workspace competition.
+- Personalization state must be persisted between sessions.
+
+## Integration Points
+
+```text
+Real-Time Learning Engine
+        ↓
+Predictive priors → Global Workspace
+Personalization state → Motivational weights
+Analytics logs → Consolidation phase
+```
+
+---
+
 # END GOAL
 
 Create a system that:
@@ -547,6 +595,7 @@ a persistent evolving cognitive entity rather than a conventional LLM.
 | NEW-4 | `src/echo/core/pipeline.py` | Workspace → credenze identità: item ad alta salienza (`competition_score > 0.6`) promossi come `IdentityBelief` con `confidence=0.25` |
 | NEW-5 | `src/echo/core/pipeline.py` | Drift identitario: distanza coseno tra `agent_weights` snapshots ogni ciclo di riflessione; evento `identity_drift` se > 0.15 |
 | NEW-6 | `src/echo/self_model/meta_state.py` + `src/echo/core/pipeline.py` | Stato emotivo (valenza + arousal) sempre attivo: `update_arousal()` aggiunto; valenza e arousal derivati dai drive in `_post_interact` |
+| PLAN-1 (v0.2.4) | `src/echo/learning/` (nuovo modulo) | **Deep Real-Time Learning** — `PersonalizationState` (EMA α=0.08, persiste in SQLite) adatta verbosità, topic depth e recall frequency. `PredictiveAnalyticsEngine` (EWMA α=0.20) prevede curiosity spike, identity drift, urgenza consolidation e valenza. `LearningEngine` orchestratore, integrato in `CognitivePipeline`: priors iniettati nel workspace, style hint a salienza 0.40, observe() chiamato ogni interazione dopo drive scoring. Latenza < 0.5 ms. |
 
 ## Bug Fixes (ChromaDB)
 | Problema | Fix |
@@ -562,3 +611,8 @@ a persistent evolving cognitive entity rather than a conventional LLM.
 ## Known Pre-existing Issues
 - ChromaDB dimensione embedding 768 vs 384: gestita gracefully (skip upsert, memoria salvata in SQLite)
 - LM Studio embedding non disponibile in locale → fallback HuggingFace attivo
+
+## Planned Features 🗓️
+| ID | Module | Description |
+|----|--------|-------------|
+| — | — | — (nessuna feature pianificata al momento) |

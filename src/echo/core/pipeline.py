@@ -26,6 +26,7 @@ from echo.memory.decay import DecayScheduler
 from echo.memory.episodic import EpisodicMemoryStore, MemoryEntry
 from echo.memory.semantic import SemanticMemoryStore
 from echo.motivation.motivational_scorer import score_interaction
+from echo.learning import LearningEngine
 from echo.plasticity.adapter import PlasticityAdapter
 from echo.reflection.engine import ReflectionEngine
 from echo.self_model.identity_graph import IdentityGraph
@@ -82,7 +83,9 @@ class CognitivePipeline:
         self.plasticity = PlasticityAdapter()
         self.consolidation = ConsolidationScheduler()
         self.decay = DecayScheduler()
+        self.learning = LearningEngine()  # module 16: deep real-time learning
         self._interaction_count = 0
+        self._last_drift: float = 0.0  # last identity-drift score (fed to LearningEngine)
         # Track fire-and-forget tasks so we can await them on graceful shutdown
         self._pending_tasks: set[asyncio.Task] = set()
         self._ready = False
@@ -98,6 +101,7 @@ class CognitivePipeline:
         self.consolidation.start()
         self.decay.start()
         await mcp_manager.startup()
+        await self.learning.startup()
         self._ready = True
         logger.info("CognitivePipeline ready")
 
@@ -168,6 +172,13 @@ class CognitivePipeline:
         if self_pred:
             self.workspace.broadcast(f"[Self-Prediction] {self_pred}", "self_model", salience=0.65)
 
+        # MODULE-16: inject prediction priors + personalisation hint into workspace
+        for _prior_content, _prior_salience in self.learning.get_priors().workspace_items():
+            self.workspace.broadcast(_prior_content, "learning", salience=_prior_salience)
+        _style_hint = self.learning.personalization.style_hint()
+        if _style_hint:
+            self.workspace.broadcast(_style_hint, "learning", salience=0.40)
+
         context: dict[str, Any] = {
             "memories": memories,
             "interaction_id": interaction_id,
@@ -231,6 +242,13 @@ class CognitivePipeline:
         self.workspace.load_memories(memories, "archivist")
         if self_pred:
             self.workspace.broadcast(f"[Self-Prediction] {self_pred}", "self_model", salience=0.65)
+
+        # MODULE-16: inject prediction priors + personalisation hint into workspace
+        for _prior_content, _prior_salience in self.learning.get_priors().workspace_items():
+            self.workspace.broadcast(_prior_content, "learning", salience=_prior_salience)
+        _style_hint = self.learning.personalization.style_hint()
+        if _style_hint:
+            self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
         context: dict[str, Any] = {
             "memories": memories,
@@ -296,6 +314,18 @@ class CognitivePipeline:
 
             # BUG-2 / IM-1: LLM-based motivational scoring replaces heuristic drives
             drive_scores = await score_interaction(user_input, response, meta_state)
+
+            # MODULE-16: Deep Real-Time Learning — update personalization + predictor
+            await self.learning.observe(
+                response=response,
+                user_input=user_input,
+                novelty_score=drive_scores.get("curiosity", 0.5),
+                curiosity=meta_state.drives.curiosity,
+                coherence=meta_state.drives.coherence,
+                emotional_valence=meta_state.emotional_valence,
+                identity_drift=self._last_drift,
+                memory_count=len(memories),
+            )
 
             # NEW-6: Derive emotional valence from drive activations.
             # coherence/competence → positive affect; low stability → negative affect.
@@ -416,6 +446,7 @@ class CognitivePipeline:
                         self._weights_snapshot,
                         self.meta_tracker.current.agent_weights,
                     )
+                    self._last_drift = drift  # expose to LearningEngine on next turn
                     if drift > 0.15:
                         logger.info("Identity drift detected: %.3f", drift)
                         await bus.publish(CognitiveEvent(
