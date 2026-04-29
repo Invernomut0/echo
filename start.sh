@@ -75,6 +75,15 @@ uv run uvicorn echo.api.server:app \
     2>&1 | sed 's/^/  [backend] /' &
 BACKEND_PID=$!
 
+# ── attendi che il backend sia pronto (max 15 s) ─────────────────────────────
+echo -n "  Attendo backend"
+for _i in $(seq 1 15); do
+    curl -sf http://localhost:8000/health >/dev/null 2>&1 && { echo " ✓"; break; }
+    echo -n "."
+    sleep 1
+done
+echo ""
+
 # ── frontend ─────────────────────────────────────────────────────────────────
 echo -e "${CYAN}▶  Frontend${RESET} →  http://localhost:5173"
 cd "$PROJECT_ROOT/frontend"

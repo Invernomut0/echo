@@ -146,11 +146,15 @@ class _ServerConnection:
             # present in the process environment (loaded from .env).
             merged_env = {**base_env, **{k: v for k, v in self.cfg.env.items() if v}}
 
+            _eff_user_path = (
+                os.path.expandvars(os.path.expanduser(self.cfg.user_path))
+                if self.cfg.user_path else ""
+            )
             params = StdioServerParameters(
                 command=self.cfg.command,
                 args=(
-                    self.cfg.args + [self.cfg.user_path]
-                    if self.cfg.user_path and self.cfg.user_path_mode == "readwrite"
+                    self.cfg.args + [_eff_user_path]
+                    if _eff_user_path and self.cfg.user_path_mode == "readwrite"
                     else self.cfg.args
                 ),
                 env=merged_env,
@@ -316,14 +320,16 @@ class MCPClientManager:
                         a for a in cfg.args
                         if not a.startswith("/") and not a.startswith("~")
                     ]
+                    # Expand ~ and $HOME so the path works on any OS
+                    expanded_user_path = os.path.expandvars(os.path.expanduser(user_path))
                     companion = MCPServerConfig(
                         name=f"{cfg.name}_user",
                         transport=cfg.transport,
                         command=cfg.command,
-                        args=pre_path + [user_path],
+                        args=pre_path + [expanded_user_path],
                         env=dict(cfg.env),
                         enabled=cfg.enabled,
-                        description=f"User path access to {user_path}",
+                        description=f"User path access to {expanded_user_path}",
                         is_derived=True,
                     )
                     configs.append(companion)
