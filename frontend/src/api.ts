@@ -419,6 +419,55 @@ export async function removeMcpServer(name: string): Promise<void> {
   if (!r.ok) throw new Error(`remove server: ${r.status}`)
 }
 
+// ── Curiosity ─────────────────────────────────────────────────────────────
+
+export interface CuriosityFinding {
+  title: string
+  source: string
+  topic: string
+  url: string | null
+}
+
+export interface CycleRecord {
+  id: string
+  started_at: string
+  finished_at: string | null
+  status: 'running' | 'completed' | 'skipped' | 'error'
+  skip_reason: string | null
+  idle_seconds: number | null
+  topics_proposed: string[]
+  topics_searched: string[]
+  results_by_source: Record<string, number>
+  total_found: number
+  total_stored: number
+  total_deduped: number
+  findings: CuriosityFinding[]
+}
+
+export interface CuriosityActivity {
+  is_running: boolean
+  recently_searched: string[]
+  stats: {
+    total_cycles: number
+    completed: number
+    skipped: number
+    total_stored: number
+  }
+  cycles: CycleRecord[]
+}
+
+export async function fetchCuriosityActivity(limit = 50): Promise<CuriosityActivity> {
+  const r = await fetch(`${BASE}/curiosity/activity?limit=${limit}`)
+  if (!r.ok) throw new Error(`curiosity activity: ${r.status}`)
+  return r.json()
+}
+
+export async function triggerCuriosityCycle(): Promise<{ status: string; stored: number }> {
+  const r = await fetch(`${BASE}/curiosity/trigger`, { method: 'POST' })
+  if (!r.ok) throw new Error(`curiosity trigger: ${r.status}`)
+  return r.json()
+}
+
 export async function toggleMcpServer(
   name: string,
   enabled: boolean,
