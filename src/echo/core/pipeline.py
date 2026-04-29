@@ -370,6 +370,41 @@ class CognitivePipeline:
             # BUG-2 / IM-1: LLM-based motivational scoring replaces heuristic drives
             drive_scores = await score_interaction(user_input, response, meta_state)
 
+            # FIX: Update agent routing weights based on drive activations each turn.
+            # Each drive has semantic affinity with one or more agents — the agent whose
+            # specialty is most useful given the current motivational state gets a weight boost.
+            # This is the ONLY place update_agent_weight() is called; without it all
+            # agents stay permanently at 1.0 and the routing system is inert.
+            _AGENT_WEIGHT_LR = 0.03  # small step — weights should drift slowly
+            # Maps drive name → list of (agent_name, direction).
+            # direction=+1: drive↑ boosts agent; direction=-1: drive↑ suppresses agent.
+            _DRIVE_AGENT_MAP: list[tuple[str, str, float]] = [
+                ("curiosity",    "explorer",      +1.0),
+                ("curiosity",    "archivist",     -0.4),  # exploration ↔ conservation trade-off
+                ("coherence",    "analyst",       +1.0),
+                ("coherence",    "skeptic",       +0.6),
+                ("coherence",    "explorer",      -0.3),
+                ("stability",    "archivist",     +1.0),
+                ("stability",    "explorer",      -0.5),
+                ("competence",   "planner",       +1.0),
+                ("competence",   "analyst",       +0.4),
+                ("compression",  "analyst",       +0.8),
+                ("compression",  "planner",       +0.4),
+            ]
+            for drive, agent, direction in _DRIVE_AGENT_MAP:
+                score = drive_scores.get(drive, 0.5)
+                # delta: positive when score is above neutral (0.5), scaled by direction
+                delta = (score - 0.5) * direction * _AGENT_WEIGHT_LR
+                self.meta_tracker.update_agent_weight(agent, delta)
+
+            # social_self tracks emotional valence directly — high valence → more active
+            valence_now = meta_state.emotional_valence
+            self.meta_tracker.update_agent_weight(
+                "social_self", valence_now * 0.5 * _AGENT_WEIGHT_LR
+            )
+            # orchestrator weight is the geometric mean of all other weights — stays balanced
+            # (no explicit update; it naturally tracks the weighted result via the scores)
+
             # MODULE-16: Deep Real-Time Learning — update personalization + predictor
             await self.learning.observe(
                 response=response,
