@@ -115,8 +115,20 @@ function MemoryCard({ m }: { m: MemoryItem }) {
 
 // ── Stats header ──────────────────────────────────────────────────────────────
 
-function CoverageBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? '#22c55e' : pct >= 40 ? '#f59e0b' : '#ef4444'
+/**
+ * Shows the avg-chunks-per-memory ratio as a horizontal bar capped at a
+ * "reasonable max" of 10 chunks/memory, plus a text label.
+ *
+ * Background: each memory is split into N ChromaDB chunks (chunked text).
+ * The bar fills proportionally to that average (≤ 10 chunks = full bar).
+ * We cap visually so the bar never overflows at high ratios.
+ */
+function AvgChunksBar({ vectors, memories }: { vectors: number; memories: number }) {
+  const avg = memories > 0 ? vectors / memories : 0
+  const MAX_AVG = 10          // bar fills 100% at 10 chunks/memory
+  const fillPct = Math.min((avg / MAX_AVG) * 100, 100)
+  // colour ramp: few chunks = amber (could be too sparse), many = green
+  const color = avg >= 2 ? '#818cf8' : avg >= 1 ? '#f59e0b' : '#ef4444'
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <div
@@ -131,14 +143,14 @@ function CoverageBar({ pct }: { pct: number }) {
         <div
           style={{
             height: '100%',
-            width: `${pct}%`,
+            width: `${fillPct}%`,
             background: color,
             transition: 'width 0.5s ease',
           }}
         />
       </div>
-      <span style={{ fontSize: 12, color, minWidth: 38, textAlign: 'right' }}>
-        {pct}%
+      <span style={{ fontSize: 12, color, minWidth: 56, textAlign: 'right' }}>
+        ~{avg.toFixed(1)} each
       </span>
     </div>
   )
@@ -344,10 +356,23 @@ export default function VectorMemoriesPanel() {
             >
               EPISODIC VECTORS
             </div>
-            <div style={{ fontSize: 15, color: '#e5e7eb', marginBottom: 4 }}>
-              {vectorStatus.episodic_vector_count} / {vectorStatus.episodic_sqlite_count}
+            <div style={{ fontSize: 15, color: '#e5e7eb', marginBottom: 2 }}>
+              {vectorStatus.episodic_vector_count}
+              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>
+                chunks
+              </span>
+              <span style={{ fontSize: 11, color: '#4b5563', margin: '0 4px' }}>·</span>
+              <span style={{ fontSize: 13, color: '#9ca3af' }}>
+                {vectorStatus.episodic_sqlite_count}
+              </span>
+              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>
+                memories
+              </span>
             </div>
-            <CoverageBar pct={vectorStatus.episodic_coverage_pct} />
+            <AvgChunksBar
+              vectors={vectorStatus.episodic_vector_count}
+              memories={vectorStatus.episodic_sqlite_count}
+            />
           </div>
           <div>
             <div
@@ -355,10 +380,23 @@ export default function VectorMemoriesPanel() {
             >
               SEMANTIC VECTORS
             </div>
-            <div style={{ fontSize: 15, color: '#e5e7eb', marginBottom: 4 }}>
-              {vectorStatus.semantic_vector_count} / {vectorStatus.semantic_sqlite_count}
+            <div style={{ fontSize: 15, color: '#e5e7eb', marginBottom: 2 }}>
+              {vectorStatus.semantic_vector_count}
+              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>
+                chunks
+              </span>
+              <span style={{ fontSize: 11, color: '#4b5563', margin: '0 4px' }}>·</span>
+              <span style={{ fontSize: 13, color: '#9ca3af' }}>
+                {vectorStatus.semantic_sqlite_count}
+              </span>
+              <span style={{ fontSize: 11, color: '#6b7280', marginLeft: 4 }}>
+                memories
+              </span>
             </div>
-            <CoverageBar pct={vectorStatus.semantic_coverage_pct} />
+            <AvgChunksBar
+              vectors={vectorStatus.semantic_vector_count}
+              memories={vectorStatus.semantic_sqlite_count}
+            />
           </div>
         </div>
       )}
