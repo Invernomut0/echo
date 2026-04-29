@@ -116,7 +116,7 @@ class AutobiographicalMemoryStore:
             query_embeddings=[vector],
             # Request n*3 raw chunk results so dedup still yields n unique memories
             n_results=min(n_results * 3, col_count),
-            include=["ids", "documents", "metadatas", "distances"],
+            include=["documents", "metadatas", "distances"],
         )
         ids_r = results.get("ids", [[]])[0]
         docs = results.get("documents", [[]])[0]

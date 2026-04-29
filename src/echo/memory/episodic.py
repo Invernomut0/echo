@@ -173,7 +173,7 @@ class EpisodicMemoryStore:
                 query_embeddings=[vector],
                 # Request n*3 raw chunk results so dedup still yields n unique memories
                 n_results=min(n_results * 3, col_count),
-                include=["ids", "metadatas", "distances"],
+                include=["metadatas", "distances"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ChromaDB query failed: %s", exc)

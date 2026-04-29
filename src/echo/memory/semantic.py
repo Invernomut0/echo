@@ -233,7 +233,7 @@ class SemanticMemoryStore:
                 results = self._collection.query(
                     query_embeddings=[vector],
                     n_results=min(n_results * 3, col_count),
-                    include=["ids", "documents", "metadatas", "distances"],
+                    include=["documents", "metadatas", "distances"],
                 )
                 # Filter by cosine distance — discard memories too dissimilar to the query.
                 # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
@@ -431,7 +431,7 @@ class SemanticMemoryStore:
                 neighbors = self._collection.query(
                     query_embeddings=[vec],
                     n_results=n_neighbors,
-                    include=["ids", "distances"],
+                    include=["distances"],
                 )
             except Exception as exc:
                 logger.debug(
