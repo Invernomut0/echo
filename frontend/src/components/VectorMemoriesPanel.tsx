@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useMemories, useVectorStatus, useSemanticMemories } from '../hooks'
-import type { MemoryItem } from '../api'
+import { useMemories, useVectorStatus, useSemanticMemories, useChunks } from '../hooks'
+import type { MemoryItem, ChunkItem, MemoryWithChunks } from '../api'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -146,7 +146,162 @@ function CoverageBar({ pct }: { pct: number }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-type PanelTab = 'episodic' | 'semantic' | 'dormant'
+type PanelTab = 'episodic' | 'semantic' | 'dormant' | 'chunks'
+
+// ── Chunk viewer components ────────────────────────────────────────────────────
+
+/** Mini heat-map bar showing the first N embedding dimensions. */
+function EmbeddingPreview({ values }: { values: number[] }) {
+  if (values.length === 0) return null
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  return (
+    <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end', marginTop: 8 }}>
+      {values.map((v, i) => {
+        const norm = (v - min) / range
+        // cool → warm gradient (blue-purple → orange)
+        const r = Math.round(30 + norm * 200)
+        const g = Math.round(80 + norm * 40)
+        const b = Math.round(220 - norm * 180)
+        return (
+          <div
+            key={i}
+            title={`dim ${i}: ${v.toFixed(4)}`}
+            style={{
+              width: 14,
+              height: Math.round(8 + norm * 20),
+              borderRadius: 2,
+              background: `rgb(${r},${g},${b})`,
+              opacity: 0.85,
+              flexShrink: 0,
+            }}
+          />
+        )
+      })}
+      <span style={{ fontSize: 10, color: '#6b7280', marginLeft: 4, alignSelf: 'center' }}>
+        dims 0–{values.length - 1}
+      </span>
+    </div>
+  )
+}
+
+function ChunkCard({ chunk }: { chunk: ChunkItem }) {
+  return (
+    <div
+      style={{
+        background: '#0f0f1a',
+        borderRadius: 6,
+        padding: '8px 12px',
+        marginBottom: 6,
+        borderLeft: '3px solid #4f46e5',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+        <span style={{ fontSize: 11, color: '#818cf8', fontWeight: 700 }}>
+          chunk {chunk.chunk_index}
+        </span>
+        <span style={{ fontSize: 10, color: '#6b7280' }}>
+          {chunk.char_count.toLocaleString()} chars · {chunk.embedding_dim}d
+        </span>
+      </div>
+      <p
+        style={{
+          fontSize: 12,
+          color: '#d1d5db',
+          margin: 0,
+          lineHeight: 1.55,
+          wordBreak: 'break-word',
+        }}
+      >
+        {chunk.text.length > 300 ? chunk.text.slice(0, 300) + '…' : chunk.text}
+      </p>
+      <EmbeddingPreview values={chunk.embedding_preview} />
+    </div>
+  )
+}
+
+function MemoryChunksCard({ mem }: { mem: MemoryWithChunks }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div
+      style={{
+        background: '#1a1a2e',
+        borderRadius: 8,
+        padding: '10px 14px',
+        marginBottom: 10,
+        border: '1px solid #2a2a40',
+      }}
+    >
+      {/* Clickable header */}
+      <div
+        style={{ cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 5 }}>
+          <code style={{ fontSize: 11, color: '#6366f1', fontFamily: 'monospace' }}>
+            {mem.memory_id.slice(0, 8)}
+          </code>
+          <span
+            style={{
+              fontSize: 11,
+              background: '#2a2a40',
+              color: '#9ca3af',
+              borderRadius: 10,
+              padding: '1px 7px',
+            }}
+          >
+            {mem.chunk_count} chunk{mem.chunk_count !== 1 ? 's' : ''}
+          </span>
+          <span
+            style={{
+              fontSize: 11,
+              background: '#312e81',
+              color: '#a5b4fc',
+              borderRadius: 10,
+              padding: '1px 7px',
+            }}
+          >
+            sal {mem.salience.toFixed(2)}
+          </span>
+          {mem.tags.slice(0, 3).map(t => (
+            <span
+              key={t}
+              style={{
+                fontSize: 10,
+                background: '#1e1e40',
+                color: '#818cf8',
+                borderRadius: 10,
+                padding: '1px 6px',
+              }}
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+        <span style={{ color: '#6b7280', fontSize: 14, marginLeft: 8, flexShrink: 0 }}>
+          {expanded ? '▲' : '▼'}
+        </span>
+      </div>
+
+      {/* Content preview */}
+      <p style={{ fontSize: 12, color: '#9ca3af', margin: '6px 0 0', lineHeight: 1.45 }}>
+        {mem.content.length > 160 ? mem.content.slice(0, 160) + '…' : mem.content}
+      </p>
+
+      {/* Expanded: individual chunks */}
+      {expanded && (
+        <div style={{ marginTop: 10 }}>
+          {mem.chunks.length === 0 ? (
+            <p style={{ color: '#6b7280', fontSize: 12 }}>No ChromaDB chunks found for this memory.</p>
+          ) : (
+            mem.chunks.map(c => <ChunkCard key={c.chunk_id} chunk={c} />)
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function VectorMemoriesPanel() {
   const [tab, setTab] = useState<PanelTab>('episodic')
@@ -157,10 +312,14 @@ export default function VectorMemoriesPanel() {
   const dormant = episodic.filter(m => m.is_dormant)
   const active = episodic.filter(m => !m.is_dormant)
 
+  const isChunksTab = tab === 'chunks'
+  const { data: chunksData, loading: chunksLoading } = useChunks(isChunksTab)
+
   const tabs: { id: PanelTab; label: string; count: number }[] = [
     { id: 'episodic', label: 'Episodic', count: active.length },
     { id: 'semantic', label: 'Semantic', count: semanticData?.total ?? 0 },
     { id: 'dormant', label: 'Dormant', count: dormant.length },
+    { id: 'chunks', label: 'Chunks', count: chunksData?.total_chunks ?? 0 },
   ]
 
   return (
@@ -269,6 +428,23 @@ export default function VectorMemoriesPanel() {
           ) : (
             dormant.map(m => <MemoryCard key={m.id} m={m} />)
           ))}
+
+        {tab === 'chunks' && (
+          chunksLoading
+            ? <p style={{ color: '#6b7280', textAlign: 'center', paddingTop: 20 }}>Loading chunks…</p>
+            : !chunksData || chunksData.memories.length === 0
+              ? <p style={{ color: '#6b7280', textAlign: 'center', paddingTop: 20 }}>No semantic memories with chunks yet.</p>
+              : (
+                <>
+                  <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>
+                    {chunksData.total_memories} memories · {chunksData.total_chunks} total chunks in ChromaDB
+                  </div>
+                  {chunksData.memories.map(m => (
+                    <MemoryChunksCard key={m.memory_id} mem={m} />
+                  ))}
+                </>
+              )
+        )}
       </div>
     </div>
   )

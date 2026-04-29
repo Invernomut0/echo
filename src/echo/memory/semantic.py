@@ -323,6 +323,69 @@ class SemanticMemoryStore:
             for r in rows
         ]
 
+    async def get_all_chunks(
+        self,
+        limit: int = 200,
+        embedding_preview_len: int = 12,
+    ) -> list[dict]:
+        """Return all semantic memories together with their ChromaDB chunks.
+
+        Each returned dict matches the ``MemoryWithChunks`` Pydantic schema.
+        Fetches all ChromaDB vectors in one shot (no N+1) and groups by memory_id.
+        """
+        # 1 — Load SQLite rows
+        factory = get_session_factory()
+        async with factory() as session:
+            stmt = select(SemanticRow).order_by(SemanticRow.created_at.desc()).limit(limit)
+            rows = (await session.execute(stmt)).scalars().all()
+
+        if not rows:
+            return []
+
+        # 2 — Load all ChromaDB chunks in one call (with embeddings)
+        chroma_by_mem: dict[str, list[dict]] = defaultdict(list)
+        if self._collection.count() > 0:
+            raw = self._collection.get(include=["documents", "metadatas", "embeddings"])
+            ids_c: list[str] = raw.get("ids") or []
+            docs: list[str | None] = raw.get("documents") or []
+            metas: list[dict] = raw.get("metadatas") or []
+            embeds: list[list[float] | None] = raw.get("embeddings") or []
+
+            for cid, doc, meta, emb in zip(ids_c, docs, metas, embeds):
+                mem_id: str = meta.get("memory_id") or memory_id_from_chunk_id(cid)
+                chunk_idx: int = int(meta.get("chunk_index", 0))
+                emb_list: list[float] = list(emb) if emb is not None else []
+                chroma_by_mem[mem_id].append(
+                    {
+                        "chunk_id": cid,
+                        "chunk_index": chunk_idx,
+                        "text": doc or "",
+                        "char_count": len(doc or ""),
+                        "embedding_dim": len(emb_list),
+                        "embedding_preview": emb_list[:embedding_preview_len],
+                    }
+                )
+
+        # 3 — Build result list (preserve SQLite ordering)
+        result: list[dict] = []
+        for row in rows:
+            chunks = sorted(
+                chroma_by_mem.get(row.id, []),
+                key=lambda c: c["chunk_index"],
+            )
+            result.append(
+                {
+                    "memory_id": row.id,
+                    "content": row.content,
+                    "salience": row.salience,
+                    "created_at": datetime.fromisoformat(row.created_at),
+                    "tags": json.loads(row.tags or "[]"),
+                    "chunk_count": len(chunks),
+                    "chunks": chunks,
+                }
+            )
+        return result
+
     async def apply_decay(self, elapsed_seconds: float) -> int:
         """Apply exponential decay I(t) = I₀·e^(−λ·Δt) to all semantic memories.
 

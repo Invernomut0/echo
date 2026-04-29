@@ -190,6 +190,38 @@ export async function fetchSemanticMemories(
   return r.json()
 }
 
+// ── Chunks (ChromaDB chunk viewer) ─────────────────────────────────────────
+export interface ChunkItem {
+  chunk_id: string
+  chunk_index: number
+  text: string
+  char_count: number
+  embedding_dim: number
+  embedding_preview: number[]  // first N dims for visualization
+}
+
+export interface MemoryWithChunks {
+  memory_id: string
+  content: string
+  salience: number
+  created_at: string
+  tags: string[]
+  chunk_count: number
+  chunks: ChunkItem[]
+}
+
+export interface ChunksResponse {
+  total_memories: number
+  total_chunks: number
+  memories: MemoryWithChunks[]
+}
+
+export async function fetchChunks(limit = 200): Promise<ChunksResponse> {
+  const r = await fetch(`${BASE}/memory/chunks?limit=${limit}`)
+  if (!r.ok) throw new Error(`chunks: ${r.status}`)
+  return r.json()
+}
+
 // ── Identity graph ─────────────────────────────────────────────────────────
 export async function fetchGraph(): Promise<GraphResponse> {
   const r = await fetch(`${BASE}/identity/graph`)

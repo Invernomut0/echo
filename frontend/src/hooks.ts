@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   fetchState, fetchHistory, fetchGraph, fetchMemories, fetchDreams, fetchHeartbeat,
-  fetchVectorStatus, fetchSemanticMemories, fetchPipelineTrace,
+  fetchVectorStatus, fetchSemanticMemories, fetchPipelineTrace, fetchChunks,
   type StateResponse, type HistoryPoint, type GraphResponse, type MemoryItem,
   type DreamEntry, type HeartbeatStatus, type VectorStoreStatus, type PipelineTrace,
+  type ChunksResponse,
 } from './api'
 
 // Polling interval for live data
@@ -172,6 +173,26 @@ export function useSemanticMemories(limit = 50) {
   }, [limit])
 
   return data
+}
+
+export function useChunks(active: boolean) {
+  const [data, setData] = useState<ChunksResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    setLoading(true)
+    fetchChunks()
+      .then(d => { if (!cancelled) { setData(d); setLoading(false) } })
+      .catch(() => { if (!cancelled) setLoading(false) })
+    const id = setInterval(() => {
+      fetchChunks().then(d => { if (!cancelled) setData(d) }).catch(() => {})
+    }, 10_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [active])
+
+  return { data, loading }
 }
 
 /** Poll /api/pipeline/trace every 1.5 s while the panel is active.

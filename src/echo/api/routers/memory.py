@@ -5,8 +5,10 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from echo.api.schemas import (
+    ChunksResponse,
     MemoriesResponse,
     MemoryListItem,
+    MemoryWithChunks,
     ResolveConflictRequest,
     ResolveConflictResponse,
     SemanticMemoriesResponse,
@@ -66,6 +68,19 @@ async def list_semantic_memories(limit: int = 50) -> SemanticMemoriesResponse:
     memories = await sem.get_all(limit=limit)
     items = [_to_item(m) for m in memories]
     return SemanticMemoriesResponse(total=await sem.acount(), items=items)
+
+
+@router.get("/chunks", response_model=ChunksResponse)
+async def list_memory_chunks(limit: int = 200) -> ChunksResponse:
+    """Return all semantic memories with their ChromaDB chunk texts + embedding previews."""
+    sem = SemanticMemoryStore()
+    data = await sem.get_all_chunks(limit=limit)
+    total_chunks = sum(m["chunk_count"] for m in data)
+    return ChunksResponse(
+        total_memories=len(data),
+        total_chunks=total_chunks,
+        memories=[MemoryWithChunks(**m) for m in data],
+    )
 
 
 @router.get("/search/{query}", response_model=MemoriesResponse)

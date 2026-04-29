@@ -126,6 +126,35 @@ class ConsolidationTriggerResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Chunks (ChromaDB chunk viewer)
+# ---------------------------------------------------------------------------
+
+class ChunkItem(BaseModel):
+    chunk_id: str
+    chunk_index: int
+    text: str
+    char_count: int
+    embedding_dim: int
+    embedding_preview: list[float]  # first N dimensions for UI preview
+
+
+class MemoryWithChunks(BaseModel):
+    memory_id: str
+    content: str
+    salience: float
+    created_at: datetime
+    tags: list[str]
+    chunk_count: int
+    chunks: list[ChunkItem]
+
+
+class ChunksResponse(BaseModel):
+    total_memories: int
+    total_chunks: int
+    memories: list[MemoryWithChunks]
+
+
+# ---------------------------------------------------------------------------
 # Health
 # ---------------------------------------------------------------------------
 
