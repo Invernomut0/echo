@@ -78,6 +78,8 @@ BACKEND_PID=$!
 # ── frontend ─────────────────────────────────────────────────────────────────
 echo -e "${CYAN}▶  Frontend${RESET} →  http://localhost:5173"
 cd "$PROJECT_ROOT/frontend"
+# Installa dipendenze se mancanti (es. primo avvio su server)
+[[ ! -d node_modules ]] && echo '  [frontend] npm install…' && npm install --silent
 npm run dev 2>&1 | sed 's/^/  [frontend] /' &
 FRONTEND_PID=$!
 
