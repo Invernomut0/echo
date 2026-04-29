@@ -91,19 +91,27 @@ class EpisodicMemoryStore:
         """Persist a memory entry (embedding + metadata)."""
         entry.compute_salience()
 
-        # Embed the content (may return [] if LM Studio is offline)
-        vector = await llm.embed_one(entry.content)
-        entry.embedding_id = entry.id
+        # Chunk long texts so each segment gets its own embedding vector.
+        # Short texts (≤ CHUNK_MIN_LEN chars) return a single-element list.
+        from echo.memory.chunker import chunk_ids, chunk_text
+        chunks = chunk_text(entry.content)
+        vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
 
-        # Store in ChromaDB only when a valid vector is available
+        ids_c = chunk_ids(entry.id, len(chunks))
+        entry.embedding_id = ids_c[0]
+
+        # Store in ChromaDB only when valid vectors are available
         has_vector = False
-        if vector:
+        if vectors and len(vectors) == len(chunks):
             try:
                 self._collection.upsert(
-                    ids=[entry.embedding_id],
-                    embeddings=[vector],
-                    documents=[entry.content],
-                    metadatas=[{"memory_id": entry.id, "salience": entry.salience}],
+                    ids=ids_c,
+                    embeddings=vectors,
+                    documents=chunks,
+                    metadatas=[
+                        {"memory_id": entry.id, "chunk_index": i, "salience": entry.salience}
+                        for i in range(len(chunks))
+                    ],
                 )
                 has_vector = True
             except Exception as exc:  # noqa: BLE001
@@ -160,10 +168,12 @@ class EpisodicMemoryStore:
             logger.debug("embed_one returned empty — skipping memory retrieval")
             return []
         try:
+            col_count = self._collection.count() or 1
             results = self._collection.query(
                 query_embeddings=[vector],
-                n_results=min(n_results, self._collection.count() or 1),
-                include=["metadatas", "distances"],
+                # Request n*3 raw chunk results so dedup still yields n unique memories
+                n_results=min(n_results * 3, col_count),
+                include=["ids", "metadatas", "distances"],
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ChromaDB query failed: %s", exc)
@@ -171,21 +181,29 @@ class EpisodicMemoryStore:
         if not results["ids"] or not results["ids"][0]:
             return []
 
-        ids = results["ids"][0]
+        chunk_ids_raw = results["ids"][0]
         distances = results["distances"][0]
         # Filter by cosine distance — discard memories too dissimilar to the query.
         # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
         # 0.5 → similarity ≥ 0.5, a reasonable relevance floor.
         _MAX_COSINE_DIST = 0.5
-        ids = [
-            id_ for id_, dist in zip(ids, distances) if dist <= _MAX_COSINE_DIST
-        ]
-        if not ids:
+
+        # Deduplicate chunk results → best cosine distance per parent memory ID.
+        # memory_id_from_chunk_id is backward-compatible: bare IDs pass through unchanged.
+        from echo.memory.chunker import memory_id_from_chunk_id
+        best_dist: dict[str, float] = {}
+        for cid, dist in zip(chunk_ids_raw, distances):
+            mem_id = memory_id_from_chunk_id(cid)
+            if mem_id not in best_dist or dist < best_dist[mem_id]:
+                best_dist[mem_id] = dist
+
+        mem_ids = [mid for mid, dist in best_dist.items() if dist <= _MAX_COSINE_DIST]
+        if not mem_ids:
             return []
 
         factory = get_session_factory()
         async with factory() as session:
-            stmt = select(MemoryRow).where(MemoryRow.id.in_(ids))
+            stmt = select(MemoryRow).where(MemoryRow.id.in_(mem_ids))
             rows = (await session.execute(stmt)).scalars().all()
 
         entries = [_row_to_entry(r) for r in rows if r.current_strength >= min_strength]
@@ -352,20 +370,27 @@ class EpisodicMemoryStore:
         succeeded = 0
         for row in rows:
             try:
-                vector = await llm.embed_one(row.content)
-                if not vector:
+                from echo.memory.chunker import chunk_ids, chunk_text
+                chunks = chunk_text(row.content)
+                vectors = await llm.embed(chunks)
+                if not vectors or len(vectors) != len(chunks):
                     continue
+                ids_c = chunk_ids(row.id, len(chunks))
                 self._collection.upsert(
-                    ids=[row.id],
-                    embeddings=[vector],
-                    documents=[row.content],
-                    metadatas=[{"memory_id": row.id, "salience": row.salience}],
+                    ids=ids_c,
+                    embeddings=vectors,
+                    documents=chunks,
+                    metadatas=[
+                        {"memory_id": row.id, "chunk_index": i, "salience": row.salience}
+                        for i in range(len(chunks))
+                    ],
                 )
                 async with factory() as session2:
                     stmt_u = select(MemoryRow).where(MemoryRow.id == row.id)
                     r = (await session2.execute(stmt_u)).scalar_one_or_none()
                     if r:
                         r.has_vector = True
+                        r.embedding_id = ids_c[0]
                         await session2.commit()
                 succeeded += 1
             except Exception as exc:  # noqa: BLE001

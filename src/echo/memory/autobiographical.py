@@ -11,6 +11,7 @@ from sqlalchemy import Column, Float, String, Text, select
 from echo.core.db import Base, get_or_create_collection, get_session_factory
 from echo.core.llm_client import llm
 from echo.core.types import MemoryEntry, MemoryType
+from echo.memory.chunker import chunk_ids, chunk_text, memory_id_from_chunk_id
 
 logger = logging.getLogger(__name__)
 
@@ -42,15 +43,25 @@ class AutobiographicalMemoryStore:
         salience: float = 0.8,
     ) -> MemoryEntry:
         entry_id = str(uuid.uuid4())
-        vector = await llm.embed_one(content)
 
-        if vector:
-            self._collection.upsert(
-                ids=[entry_id],
-                embeddings=[vector],
-                documents=[content],
-                metadatas=[{"chapter": chapter, "salience": salience}],
-            )
+        # Chunk long texts so each segment gets its own embedding vector.
+        chunks = chunk_text(content)
+        vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
+
+        ids_c = chunk_ids(entry_id, len(chunks))
+        if vectors and len(vectors) == len(chunks):
+            try:
+                self._collection.upsert(
+                    ids=ids_c,
+                    embeddings=vectors,
+                    documents=chunks,
+                    metadatas=[
+                        {"memory_id": entry_id, "chunk_index": i, "chapter": chapter, "salience": salience}
+                        for i in range(len(chunks))
+                    ],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ChromaDB upsert skipped for autobiographical %s: %s", entry_id[:8], exc)
 
         factory = get_session_factory()
         async with factory() as session:
@@ -59,7 +70,7 @@ class AutobiographicalMemoryStore:
                 content=content,
                 narrative_chapter=chapter,
                 salience=salience,
-                embedding_id=entry_id,
+                embedding_id=ids_c[0],
             )
             session.add(row)
             await session.commit()
@@ -70,7 +81,7 @@ class AutobiographicalMemoryStore:
             memory_type=MemoryType.AUTOBIOGRAPHICAL,
             salience=salience,
             self_relevance=1.0,
-            embedding_id=entry_id,
+            embedding_id=ids_c[0],
         )
 
     async def get_narrative(self, chapter: str | None = None) -> list[MemoryEntry]:
@@ -95,16 +106,30 @@ class AutobiographicalMemoryStore:
         ]
 
     async def retrieve_similar(self, query: str, n_results: int = 3) -> list[MemoryEntry]:
-        if self._collection.count() == 0:
+        col_count = self._collection.count()
+        if col_count == 0:
             return []
         vector = await llm.embed_one(query)
         if not vector:
             return []
         results = self._collection.query(
             query_embeddings=[vector],
-            n_results=min(n_results, self._collection.count()),
-            include=["documents", "metadatas"],
+            # Request n*3 raw chunk results so dedup still yields n unique memories
+            n_results=min(n_results * 3, col_count),
+            include=["ids", "documents", "metadatas", "distances"],
         )
+        ids_r = results.get("ids", [[]])[0]
+        docs = results.get("documents", [[]])[0]
+        metas = results.get("metadatas", [[]])[0]
+        dists = results.get("distances", [[]])[0]
+
+        # Deduplicate chunk results → keep the best-matching chunk per memory.
+        best_chunk: dict[str, tuple[str, dict, float]] = {}  # mem_id → (doc, meta, dist)
+        for cid, doc, meta, dist in zip(ids_r, docs, metas, dists):
+            mem_id = meta.get("memory_id") or memory_id_from_chunk_id(cid)
+            if mem_id not in best_chunk or dist < best_chunk[mem_id][2]:
+                best_chunk[mem_id] = (doc, meta, dist)
+
         return [
             MemoryEntry(
                 content=doc,
@@ -112,8 +137,5 @@ class AutobiographicalMemoryStore:
                 salience=meta.get("salience", 0.8),
                 self_relevance=1.0,
             )
-            for doc, meta in zip(
-                results.get("documents", [[]])[0],
-                results.get("metadatas", [[]])[0],
-            )
-        ]
+            for doc, meta, _dist in best_chunk.values()
+        ][:n_results]

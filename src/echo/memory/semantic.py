@@ -16,6 +16,7 @@ from sqlalchemy import Column, Float, Integer, String, Text, select
 from echo.core.db import Base, get_or_create_collection, get_session_factory
 from echo.core.llm_client import llm
 from echo.core.types import MemoryEntry, MemoryType
+from echo.memory.chunker import chunk_ids, chunk_text, memory_id_from_chunk_id
 
 logger = logging.getLogger(__name__)
 
@@ -69,20 +70,31 @@ class SemanticMemoryStore:
         self, content: str, tags: list[str] | None = None, salience: float = 0.7
     ) -> MemoryEntry:
         entry_id = str(uuid.uuid4())
-        vector = await llm.embed_one(content)
+
+        # Chunk long texts so each segment gets its own embedding vector.
+        # Short texts (≤ CHUNK_MIN_LEN chars) return a single-element list.
+        chunks = chunk_text(content)
+        vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
 
         decay_lambda = round(1.0 - salience, 4)
-        # Only set embedding_id when the vector is actually stored in ChromaDB.
-        # If embedding fails, embedding_id stays None so backfill can detect it later.
+        # Only set embedding_id when vectors are actually stored in ChromaDB.
+        # If embedding fails, embedding_id stays None so backfill can detect it.
         embedding_id: str | None = None
-        if vector:
-            self._collection.upsert(
-                ids=[entry_id],
-                embeddings=[vector],
-                documents=[content],
-                metadatas=[{"salience": salience}],
-            )
-            embedding_id = entry_id
+        if vectors and len(vectors) == len(chunks):
+            ids_c = chunk_ids(entry_id, len(chunks))
+            try:
+                self._collection.upsert(
+                    ids=ids_c,
+                    embeddings=vectors,
+                    documents=chunks,
+                    metadatas=[
+                        {"memory_id": entry_id, "chunk_index": i, "salience": salience}
+                        for i in range(len(chunks))
+                    ],
+                )
+                embedding_id = ids_c[0]
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ChromaDB upsert skipped for semantic %s: %s", entry_id[:8], exc)
         else:
             logger.warning(
                 "Embedding failed for semantic memory %s — stored in SQLite only; "
@@ -151,28 +163,38 @@ class SemanticMemoryStore:
         )
         backfilled = 0
         for row in orphans:
-            vector = await llm.embed_one(row.content)
-            if not vector:
+            chunks = chunk_text(row.content)
+            vectors = await llm.embed(chunks)
+            if not vectors or len(vectors) != len(chunks):
                 logger.warning(
                     "backfill: re-embed still failed for %s, skipping", row.id[:8]
                 )
                 continue
 
-            chroma_id = row.embedding_id or row.id
-            self._collection.upsert(
-                ids=[chroma_id],
-                embeddings=[vector],
-                documents=[row.content],
-                metadatas=[{"salience": row.salience}],
-            )
-            chroma_ids.add(chroma_id)
+            ids_c = chunk_ids(row.id, len(chunks))
+            try:
+                self._collection.upsert(
+                    ids=ids_c,
+                    embeddings=vectors,
+                    documents=chunks,
+                    metadatas=[
+                        {"memory_id": row.id, "chunk_index": i, "salience": row.salience}
+                        for i in range(len(chunks))
+                    ],
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("backfill: ChromaDB upsert failed for %s: %s", row.id[:8], exc)
+                continue
+
+            for cid in ids_c:
+                chroma_ids.add(cid)
 
             # Repair embedding_id in SQLite if it was None
             if not row.embedding_id:
                 async with factory() as session:
                     r = await session.get(SemanticRow, row.id)
                     if r:
-                        r.embedding_id = chroma_id
+                        r.embedding_id = ids_c[0]
                         await session.commit()
 
             backfilled += 1
@@ -210,25 +232,38 @@ class SemanticMemoryStore:
                 col_count = self._collection.count()
                 results = self._collection.query(
                     query_embeddings=[vector],
-                    n_results=min(n_results, col_count),
-                    include=["documents", "metadatas", "distances"],
+                    n_results=min(n_results * 3, col_count),
+                    include=["ids", "documents", "metadatas", "distances"],
                 )
                 # Filter by cosine distance — discard memories too dissimilar to the query.
                 # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
                 # 0.5 → similarity ≥ 0.5, a reasonable relevance floor.
                 _MAX_COSINE_DIST = 0.5
+                ids_c = results.get("ids", [[]])[0]
                 docs = results.get("documents", [[]])[0]
                 metas = results.get("metadatas", [[]])[0]
                 dists = results.get("distances", [[]])[0]
-                for doc, meta, dist in zip(docs, metas, dists):
-                    if dist <= _MAX_COSINE_DIST:
-                        entries.append(
-                            MemoryEntry(
-                                content=doc,
-                                memory_type=MemoryType.SEMANTIC,
-                                salience=meta.get("salience", 0.5),
-                            )
+
+                # Deduplicate chunk results → keep the best-matching chunk per memory.
+                # "best" = lowest cosine distance.  For legacy single-vector entries the
+                # memory_id is stored in metadata; for very old entries we fall back to
+                # extracting it from the chunk ID itself.
+                best_chunk: dict[str, tuple[str, dict, float]] = {}  # mem_id → (doc, meta, dist)
+                for chunk_id, doc, meta, dist in zip(ids_c, docs, metas, dists):
+                    if dist > _MAX_COSINE_DIST:
+                        continue
+                    mem_id = meta.get("memory_id") or memory_id_from_chunk_id(chunk_id)
+                    if mem_id not in best_chunk or dist < best_chunk[mem_id][2]:
+                        best_chunk[mem_id] = (doc, meta, dist)
+
+                for doc, meta, _dist in best_chunk.values():
+                    entries.append(
+                        MemoryEntry(
+                            content=doc,
+                            memory_type=MemoryType.SEMANTIC,
+                            salience=meta.get("salience", 0.5),
                         )
+                    )
 
         # Safety fallback: SQLite rows still missing a vector (embedding keeps failing)
         # Include high-salience ones so identity facts are never silently lost.
