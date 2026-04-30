@@ -323,6 +323,10 @@ class LLMClient:
             )
         return []
 
+    # paraphrase-multilingual-mpnet-base-v2 has a 512-token context limit.
+    # ~4 chars/token → 512 tokens ≈ 2048 chars; cap at 1800 for safety.
+    _EMBED_MAX_CHARS: int = 1800
+
     async def _ollama_embed(self, texts: list[str]) -> list[list[float]]:
         """Call Ollama /api/embed for batch embeddings (v0.3.6+ endpoint).
 
@@ -331,13 +335,16 @@ class LLMClient:
         Response: {"embeddings": [[float, ...], ...]}
 
         Timeout: 60 s — generous; first call may need to load model into RAM.
+        Texts longer than _EMBED_MAX_CHARS are truncated to avoid Ollama's
+        "input length exceeds the context length" error.
         """
+        truncated = [t[: self._EMBED_MAX_CHARS] for t in texts]
         url = f"{settings.ollama_base_url}/api/embed"
         try:
             async with httpx.AsyncClient(timeout=60.0) as client:
                 resp = await client.post(
                     url,
-                    json={"model": settings.ollama_embedding_model, "input": texts},
+                    json={"model": settings.ollama_embedding_model, "input": truncated},
                 )
                 resp.raise_for_status()
                 data = resp.json()
