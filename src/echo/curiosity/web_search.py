@@ -20,6 +20,17 @@ logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(20.0)
 
+# Wikimedia (and many APIs) require a descriptive User-Agent that identifies
+# the application and provides a contact point.  Without this Wikipedia returns
+# HTTP 403.
+_HEADERS = {
+    "User-Agent": (
+        "ECHO-CognitiveSystem/1.0 "
+        "(https://github.com/Invernomut0/echo; autonomous-agent) "
+        "python-httpx"
+    )
+}
+
 
 @dataclass
 class SearchResult:
@@ -45,7 +56,7 @@ async def arxiv_search(query: str, max_results: int = 3) -> list[SearchResult]:
         "sortOrder": "descending",
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
             r = await client.get("https://export.arxiv.org/api/query", params=params)
         r.raise_for_status()
 
@@ -91,7 +102,7 @@ async def hn_search(query: str, max_results: int = 4) -> list[SearchResult]:
         "hitsPerPage": max_results,
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
             r = await client.get("https://hn.algolia.com/api/v1/search", params=params)
         r.raise_for_status()
 
@@ -140,7 +151,7 @@ async def wikipedia_search(query: str, max_results: int = 2) -> list[SearchResul
         "utf8": "1",
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
             r = await client.get("https://en.wikipedia.org/w/api.php", params=params_search)
         r.raise_for_status()
 
@@ -190,9 +201,15 @@ async def duckduckgo_search(query: str, max_results: int = 2) -> list[SearchResu
         "skip_disambig": "1",
     }
     try:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        async with httpx.AsyncClient(timeout=_TIMEOUT, headers=_HEADERS) as client:
             r = await client.get("https://api.duckduckgo.com/", params=params)
-        r.raise_for_status()
+        # DDG Instant Answer API returns 202 when it has no immediate answer
+        # (accepted but not processed into a result).  Treat it as empty — do
+        # NOT raise_for_status() here so the fallback sources can still run.
+        if r.status_code not in (200, 202):
+            r.raise_for_status()
+        if not r.text.strip():
+            return []
         data = r.json()
 
         results: list[SearchResult] = []
