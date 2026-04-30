@@ -559,6 +559,15 @@ class CognitivePipeline:
                 )
                 logger.info("Stored user identity: name=%s", user_name)
 
+            # LLM Wiki — lightweight post-interaction update (fire-and-forget within post_interact)
+            try:
+                from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
+                result = await _wiki.update_from_interaction(user_input, response)
+                if result.get("pages_updated", 0):
+                    logger.debug("Wiki: updated %d page(s) from interaction", result["pages_updated"])
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Wiki update skipped: %s", exc)
+
             self._interaction_count += 1
 
             # BUG-1 / IM-4: Configurable reflection interval (was hardcoded)

@@ -17,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 
 from echo.api.routers import consolidation, identity, interact, memory, mcp as mcp_router, setup, state
 from echo.api.routers import curiosity as curiosity_router
+from echo.api.routers import wiki as wiki_router
 from echo.api.schemas import HealthResponse
 from echo.core.config import settings
 from echo.core.llm_client import llm
@@ -37,6 +38,8 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Starting PROJECT ECHO cognitive pipeline…")
     await pipeline.startup()
+    from echo.memory.wiki import wiki
+    wiki.startup()
     yield
     logger.info("Shutting down…")
     await pipeline.shutdown()
@@ -72,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(setup.router)
     app.include_router(mcp_router.router)
     app.include_router(curiosity_router.router)
+    app.include_router(wiki_router.router)
 
     # Health check
     @app.get("/health", response_model=HealthResponse, tags=["health"])

@@ -162,3 +162,54 @@ class HealthResponse(BaseModel):
     status: str
     lm_studio_available: bool
     version: str = "0.1.0"
+
+
+# ---------------------------------------------------------------------------
+# Wiki
+# ---------------------------------------------------------------------------
+
+class WikiIngestRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    source_text: str = Field(..., min_length=1, max_length=50_000)
+    source_type: str = Field(default="text", max_length=50)
+    file_back_synthesis: bool = True
+
+
+class WikiIngestResponse(BaseModel):
+    title: str
+    slug: str
+    pages_written: list[str]
+    entities: int
+    concepts: int
+    summary: str
+
+
+class WikiQueryRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=1000)
+    file_back: bool = True
+
+
+class WikiQueryResponse(BaseModel):
+    question: str
+    answer: str
+    pages_consulted: list[str]
+    synthesis_page: str | None = None
+
+
+class WikiPageItem(BaseModel):
+    title: str
+    path: str
+    category: str
+    tags: str
+    summary: str
+
+
+class WikiSearchResponse(BaseModel):
+    query: str
+    results: list[WikiPageItem]
+
+
+class WikiLintResponse(BaseModel):
+    total_pages: int
+    checked_pages: int
+    issues: list[dict[str, Any]]
