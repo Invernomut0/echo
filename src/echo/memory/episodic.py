@@ -350,6 +350,42 @@ class EpisodicMemoryStore:
             logger.info("Marked %d memories as dormant (strength < %.3f)", marked, threshold)
         return marked
 
+    async def mark_dormant_by_ids(self, ids: list[str]) -> int:
+        """Mark specific memories dormant by ID (used by dedup/synaptic pruning).
+
+        Returns the number of memories successfully marked.
+        """
+        if not ids:
+            return 0
+        factory = get_session_factory()
+        async with factory() as session:
+            rows = (await session.execute(select(MemoryRow).where(MemoryRow.id.in_(ids)))).scalars().all()
+            for row in rows:
+                row.is_dormant = True
+            await session.commit()
+        return len(rows)
+
+    async def delete_by_ids(self, ids: list[str]) -> int:
+        """Permanently delete specific memories by ID (deep dedup pruning).
+
+        Removes from both SQLite and ChromaDB. Returns count deleted.
+        """
+        if not ids:
+            return 0
+        factory = get_session_factory()
+        async with factory() as session:
+            rows = (await session.execute(select(MemoryRow).where(MemoryRow.id.in_(ids)))).scalars().all()
+            chroma_ids = [r.embedding_id for r in rows if r.embedding_id]
+            for row in rows:
+                await session.delete(row)
+            await session.commit()
+        if chroma_ids:
+            try:
+                self._collection.delete(ids=chroma_ids)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ChromaDB batch delete failed: %s", exc)
+        return len(rows)
+
     async def prune_weak(self, threshold: float = 0.01) -> int:
         """Delete memories below strength threshold (both dormant and active). Returns count deleted."""
         factory = get_session_factory()
