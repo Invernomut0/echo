@@ -24,16 +24,35 @@ const ACTION_COLOR: Record<string, string> = {
   pending: '#f59e0b',
 }
 
-function priorityBar(priority: number) {
-  const pct = Math.round(priority * 100)
-  const color = priority >= 0.7 ? '#f97316' : priority >= 0.4 ? '#06b6d4' : '#64748b'
+function completionBar(goal: Goal) {
+  let pct: number
+  if (goal.status === 'achieved') {
+    pct = 100
+  } else if (goal.actions.length === 0) {
+    pct = 0
+  } else {
+    const done = goal.actions.filter(a => a.status === 'done').length
+    pct = Math.round((done / goal.actions.length) * 100)
+  }
+  const color = pct === 100 ? '#10b981' : pct >= 50 ? '#06b6d4' : '#f59e0b'
+  const priorityPct = Math.round(goal.priority * 100)
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: '#94a3b8' }}>
-      <span>Priority</span>
-      <div style={{ flex: 1, background: '#1e293b', borderRadius: '4px', height: '6px', minWidth: '80px' }}>
-        <div style={{ width: `${pct}%`, height: '100%', borderRadius: '4px', background: color, transition: 'width .3s' }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', fontSize: '11px', color: '#94a3b8' }}>
+      {/* Completion bar */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <span style={{ minWidth: '70px' }}>Completion</span>
+        <div style={{ flex: 1, background: '#1e293b', borderRadius: '4px', height: '6px', minWidth: '80px' }}>
+          <div style={{ width: `${pct}%`, height: '100%', borderRadius: '4px', background: color, transition: 'width .4s' }} />
+        </div>
+        <span style={{ color, fontWeight: 600, minWidth: '32px', textAlign: 'right' }}>{pct}%</span>
       </div>
-      <span style={{ color, fontWeight: 600 }}>{pct}%</span>
+      {/* Priority as number only */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#475569' }}>
+        <span style={{ minWidth: '70px' }}>Priority</span>
+        <span style={{ fontWeight: 600, color: priorityPct >= 70 ? '#f97316' : priorityPct >= 40 ? '#94a3b8' : '#475569' }}>
+          {priorityPct}%
+        </span>
+      </div>
     </div>
   )
 }
@@ -123,7 +142,7 @@ function GoalCard({
           </div>
           <div style={{ fontSize: '14px', fontWeight: 600, color: '#f1f5f9', marginBottom: '4px' }}>{goal.title}</div>
           {goal.description && <div style={{ fontSize: '12px', color: '#94a3b8', marginBottom: '8px' }}>{goal.description}</div>}
-          {priorityBar(goal.priority)}
+          {completionBar(goal)}
         </div>
         {/* Expand toggle */}
         <button
