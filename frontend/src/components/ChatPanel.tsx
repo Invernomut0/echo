@@ -147,6 +147,10 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
   const [statusMessage, setStatusMessage] = useState('')
   const bottomRef = useRef<HTMLDivElement>(null)
   const stopRef = useRef<(() => void) | null>(null)
+  // Accumulate delta text between throttled flushes to avoid O(n) re-renders per token
+  const deltaBufferRef = useRef('')
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const streamingMsgIdRef = useRef<string | null>(null)
 
   // Persist to localStorage whenever streaming ends (not during, to avoid partial states)
   useEffect(() => {
@@ -175,8 +179,23 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
     const userMsg: Message = { id: genId(), role: 'user', content: text }
     const assistantMsg: Message = { id: genId(), role: 'assistant', content: '', streaming: true }
 
+    streamingMsgIdRef.current = assistantMsg.id
+    deltaBufferRef.current = ''
+
     setMessages((prev) => [...prev, userMsg, assistantMsg])
     setStreaming(true)
+
+    // Flush accumulated delta into state at most every 40ms (~25fps)
+    const flushDelta = () => {
+      const buf = deltaBufferRef.current
+      if (!buf) return
+      deltaBufferRef.current = ''
+      const id = streamingMsgIdRef.current
+      if (!id) return
+      setMessages((prev) =>
+        prev.map((m) => (m.id === id ? { ...m, content: m.content + buf } : m))
+      )
+    }
 
     const history = messages.map((m) => ({ role: m.role, content: m.content }))
 
@@ -185,34 +204,49 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
       history,
       (delta) => {
         setStatusMessage('')
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === assistantMsg.id
-              ? { ...m, content: m.content + delta }
-              : m
-          )
-        )
+        deltaBufferRef.current += delta
+        if (!flushTimerRef.current) {
+          flushTimerRef.current = setTimeout(() => {
+            flushTimerRef.current = null
+            flushDelta()
+          }, 40)
+        }
       },
       (ms, memorySources, toolsUsed) => {
+        // Flush any remaining buffered text immediately
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current)
+          flushTimerRef.current = null
+        }
+        flushDelta()
         setStatusMessage('')
+        const id = streamingMsgIdRef.current
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id ? { ...m, streaming: false, memorySources, toolsUsed } : m
+            m.id === id ? { ...m, streaming: false, memorySources, toolsUsed } : m
           )
         )
         setStreaming(false)
+        streamingMsgIdRef.current = null
         onMetaStateUpdate?.(ms)
       },
       (err) => {
+        if (flushTimerRef.current) {
+          clearTimeout(flushTimerRef.current)
+          flushTimerRef.current = null
+        }
+        flushDelta()
         setStatusMessage('')
+        const id = streamingMsgIdRef.current
         setMessages((prev) =>
           prev.map((m) =>
-            m.id === assistantMsg.id
+            m.id === id
               ? { ...m, content: `[Error: ${err}]`, streaming: false }
               : m
           )
         )
         setStreaming(false)
+        streamingMsgIdRef.current = null
       },
       (status) => {
         setStatusMessage(status)
