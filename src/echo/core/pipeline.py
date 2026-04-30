@@ -40,10 +40,24 @@ from echo.core.llm_client import llm
 logger = logging.getLogger(__name__)
 
 # Patterns that suggest the user is introducing their name.
+# NOTE: the generic "I'm X" pattern is intentionally excluded — it fires on
+# descriptive sentences like "I'm curious", "I'm not sure", etc.
 _NAME_PATTERNS = [
-    re.compile(r"\b(?:sono|mi chiamo|my name is|i am|chiamami|call me)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,30})", re.IGNORECASE),
-    re.compile(r"\bI'?m\s+([A-Za-z]{2,30})\b", re.IGNORECASE),
+    re.compile(r"\b(?:sono|mi chiamo|my name is|chiamami|call me)\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,30})", re.IGNORECASE),
+    # "i am X" only when followed by end-of-clause (punctuation or end-of-string)
+    re.compile(r"\bi am\s+([A-Za-zÀ-ÖØ-öø-ÿ]{2,30})(?:\s*[,.!?]|\s*$)", re.IGNORECASE),
 ]
+
+# Common words that are NOT names; reject any extraction matching these.
+_NAME_BLACKLIST: frozenset[str] = frozenset({
+    "curious", "happy", "sad", "sure", "just", "not", "here", "sorry",
+    "ok", "okay", "yes", "no", "going", "trying", "asking", "thinking",
+    "looking", "wondering", "doing", "getting", "having", "being",
+    "interested", "confused", "glad", "good", "fine", "ready", "back",
+    "new", "just", "only", "also", "still", "already", "always",
+    # Italian equivalents
+    "curioso", "felice", "triste", "sicuro", "pronto", "interessato",
+})
 
 
 def _extract_user_name(text: str) -> str | None:
@@ -51,7 +65,10 @@ def _extract_user_name(text: str) -> str | None:
     for pat in _NAME_PATTERNS:
         m = pat.search(text)
         if m:
-            return m.group(1).strip().capitalize()
+            name = m.group(1).strip().capitalize()
+            if name.lower() in _NAME_BLACKLIST:
+                continue
+            return name
     return None
 
 
@@ -724,11 +741,32 @@ Respond ONLY with valid JSON:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Workspace→belief promotion failed: %s", exc)
 
-            # Persist user identity if they introduced themselves
+            # Persist user identity if they introduced themselves.
+            # Delete any stale "The user's name is X." entries first so duplicates
+            # cannot pollute vector search with wrong names.
             user_name = _extract_user_name(user_input)
             if user_name:
+                new_content = f"The user's name is {user_name}."
+                try:
+                    from sqlalchemy import select as _sa_select  # noqa: PLC0415
+                    from echo.memory.semantic import SemanticRow as _SR  # noqa: PLC0415
+                    _fac = get_session_factory()
+                    async with _fac() as _sess:
+                        _old = (
+                            await _sess.execute(
+                                _sa_select(_SR).where(
+                                    _SR.content.like("The user's name is %")
+                                )
+                            )
+                        ).scalars().all()
+                    for _old_row in _old:
+                        if _old_row.content != new_content:
+                            await self.semantic.delete(_old_row.id)
+                            logger.info("Removed stale name memory: %s", _old_row.content)
+                except Exception as _de:  # noqa: BLE001
+                    logger.debug("Name dedup failed: %s", _de)
                 await self.semantic.store(
-                    content=f"The user's name is {user_name}.",
+                    content=new_content,
                     tags=["user_identity", "name"],
                     salience=0.95,
                 )

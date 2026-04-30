@@ -273,26 +273,34 @@ class SemanticMemoryStore:
                 )
                 # Filter by cosine distance — discard memories too dissimilar to the query.
                 # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
-                # 0.5 → similarity ≥ 0.5, a reasonable relevance floor.
-                _MAX_COSINE_DIST = 0.5
+                # High-salience items (≥ 0.9, e.g. user identity facts) use a relaxed threshold
+                # so they are included even when the query wording differs from the stored text.
                 ids_c = results.get("ids", [[]])[0]
                 docs = results.get("documents", [[]])[0]
                 metas = results.get("metadatas", [[]])[0]
                 dists = results.get("distances", [[]])[0]
 
                 # Deduplicate chunk results → keep the best-matching chunk per memory.
-                # "best" = lowest cosine distance.  For legacy single-vector entries the
-                # memory_id is stored in metadata; for very old entries we fall back to
-                # extracting it from the chunk ID itself.
                 best_chunk: dict[str, tuple[str, dict, float]] = {}  # mem_id → (doc, meta, dist)
                 for chunk_id, doc, meta, dist in zip(ids_c, docs, metas, dists):
-                    if dist > _MAX_COSINE_DIST:
+                    sal = meta.get("salience", 0.5)
+                    # Relax threshold for high-salience items (identity facts, user name, etc.)
+                    max_dist = 0.75 if sal >= 0.9 else 0.5
+                    if dist > max_dist:
                         continue
                     mem_id = meta.get("memory_id") or memory_id_from_chunk_id(chunk_id)
                     if mem_id not in best_chunk or dist < best_chunk[mem_id][2]:
                         best_chunk[mem_id] = (doc, meta, dist)
 
-                for doc, meta, _dist in best_chunk.values():
+                # Sort by combined score: 70% cosine similarity + 30% stored salience.
+                # This ensures high-salience identity facts (e.g. user name, salience=0.95)
+                # rank above incidentally-close but lower-salience memories.
+                sorted_chunks = sorted(
+                    best_chunk.values(),
+                    key=lambda x: (1.0 - x[2]) * 0.7 + x[1].get("salience", 0.5) * 0.3,
+                    reverse=True,
+                )
+                for doc, meta, _dist in sorted_chunks:
                     entries.append(
                         MemoryEntry(
                             content=doc,
@@ -301,7 +309,35 @@ class SemanticMemoryStore:
                         )
                     )
 
-        # Safety fallback: SQLite rows still missing a vector (embedding keeps failing)
+        # Safety fallback 1: Always inject user_identity tagged entries so the user's
+        # name and other critical facts are never missing from context regardless of
+        # cosine distance (the query phrasing may differ greatly from the stored text).
+        existing_contents = {e.content for e in entries}
+        try:
+            factory = get_session_factory()
+            async with factory() as session:
+                identity_rows = (
+                    await session.execute(
+                        select(SemanticRow)
+                        .where(SemanticRow.tags.like('%user_identity%'))
+                        .order_by(SemanticRow.salience.desc())
+                        .limit(5)
+                    )
+                ).scalars().all()
+            for row in identity_rows:
+                if row.content not in existing_contents:
+                    entries.insert(0, MemoryEntry(  # inject at front so they're always within n_results
+                        id=row.id,
+                        content=row.content,
+                        memory_type=MemoryType.SEMANTIC,
+                        salience=row.salience,
+                        tags=json.loads(row.tags or "[]"),
+                    ))
+                    existing_contents.add(row.content)
+        except Exception as _ie:  # noqa: BLE001
+            logger.debug("user_identity injection failed: %s", _ie)
+
+        # Safety fallback 2: SQLite rows still missing a vector (embedding keeps failing)
         # Include high-salience ones so identity facts are never silently lost.
         if len(entries) < n_results:
             factory = get_session_factory()
