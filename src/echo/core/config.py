@@ -47,12 +47,11 @@ class Settings(BaseSettings):
     # paraphrase-multilingual-mpnet-base-v2 is 768-dim AND multilingual (IT/EN/ES…)
     hf_embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
-    # Local sentence-transformers embedding model (in-process, no network, primary backend).
-    # ⚠️  MUST match the dimensionality of existing ChromaDB collections!
-    #   paraphrase-multilingual-mpnet-base-v2 → 768-dim, multilingual (IT/EN/ES)  ← safe default
-    #   all-MiniLM-L6-v2                      → 384-dim, faster, English-focused
-    #       If you switch to 384-dim, wipe data/chroma/ first, then run `uv run echo`.
-    local_embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+    # Ollama embeddings (primary backend — local daemon, no Python deps, fast).
+    # Pull the model once: `ollama pull paraphrase-multilingual:278m-mpnet-base-v2-fp16`
+    # ⚠️  Model MUST produce 768-dim vectors to match existing ChromaDB collections.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_embedding_model: str = "paraphrase-multilingual:278m-mpnet-base-v2-fp16"
 
     # API server
     api_host: str = "0.0.0.0"

@@ -7,7 +7,6 @@ import hashlib
 import json
 import logging
 import sys
-import threading
 import time
 from collections import OrderedDict
 from collections.abc import AsyncGenerator
@@ -93,35 +92,6 @@ class _EmbedCache:
 
 # Shared async HTTP client (reused across requests)
 _http_client = httpx.AsyncClient(timeout=120.0)
-
-# ---------------------------------------------------------------------------
-# Local sentence-transformers singleton (lazy-loaded on first embed call)
-# ---------------------------------------------------------------------------
-
-_local_st_model: Any = None
-_local_st_lock = threading.Lock()
-
-
-def _load_local_st_model_sync() -> Any:
-    """Load (or return cached) local SentenceTransformer. Thread-safe.
-
-    Import is deferred to avoid startup latency — model is downloaded (~420 MB
-    for multilingual-mpnet, ~90 MB for MiniLM) only on the first embed call.
-    """
-    global _local_st_model  # noqa: PLW0603
-    if _local_st_model is not None:
-        return _local_st_model
-    with _local_st_lock:
-        if _local_st_model is not None:  # double-checked locking
-            return _local_st_model
-        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
-        logger.info(
-            "Loading local embedding model '%s' (first call — may take a moment)",
-            settings.local_embedding_model,
-        )
-        _local_st_model = SentenceTransformer(settings.local_embedding_model)
-        logger.info("Local embedding model ready")
-        return _local_st_model
 
 # Headers required by the GitHub Copilot completions API
 _COPILOT_HEADERS: dict[str, str] = {
@@ -353,35 +323,51 @@ class LLMClient:
             )
         return []
 
+    async def _ollama_embed(self, texts: list[str]) -> list[list[float]]:
+        """Call Ollama /api/embed for batch embeddings (v0.3.6+ endpoint).
+
+        POST http://localhost:11434/api/embed
+        Body: {"model": "<name>", "input": ["text1", "text2", ...]}
+        Response: {"embeddings": [[float, ...], ...]}
+
+        Timeout: 60 s — generous; first call may need to load model into RAM.
+        """
+        url = f"{settings.ollama_base_url}/api/embed"
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    url,
+                    json={"model": settings.ollama_embedding_model, "input": texts},
+                )
+                resp.raise_for_status()
+                data = resp.json()
+            embeddings = data.get("embeddings", [])
+            if embeddings and len(embeddings) == len(texts):
+                return embeddings
+            logger.warning(
+                "Ollama embed: unexpected response shape — %s", str(data)[:200]
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "Ollama embedding unavailable (%s: %s)", type(exc).__name__, exc
+            )
+        return []
+
     async def embed(self, texts: list[str]) -> list[list[float]]:
         """Return embedding vectors.
 
         Priority:
-        1. Local sentence-transformers (in-process, ~200-800 ms, no network)
+        1. Ollama /api/embed (local daemon, ~20-100 ms, no Python deps)
         2. LM Studio embedding API (local network, requires LM Studio running)
         3. HuggingFace Inference API (cloud fallback, rate-limited)
         4. Empty list — callers handle graceful degradation
-
-        The local model is lazy-loaded on first call.  ECHO_LOCAL_EMBEDDING_MODEL
-        controls the model name (default: paraphrase-multilingual-mpnet-base-v2,
-        768-dim, multilingual).  Switch to all-MiniLM-L6-v2 (384-dim) only after
-        wiping data/chroma/ because ChromaDB enforces a fixed dimension per
-        collection.
         """
         if not texts:
             return []
-        # ── 1. Local sentence-transformers ────────────────────────────────────
-        try:
-            loop = asyncio.get_event_loop()
-            model = await loop.run_in_executor(None, _load_local_st_model_sync)
-            # encode() returns a numpy ndarray; convert each row to a plain list
-            raw = await loop.run_in_executor(None, lambda: model.encode(texts))
-            return [row.tolist() for row in raw]
-        except Exception as exc:  # noqa: BLE001
-            logger.info(
-                "Local ST embedding unavailable (%s) — trying LM Studio",
-                exc,
-            )
+        # ── 1. Ollama ─────────────────────────────────────────────────────────
+        vectors = await self._ollama_embed(texts)
+        if vectors:
+            return vectors
         # ── 2. LM Studio ──────────────────────────────────────────────────────
         try:
             response = await self._client.embeddings.create(
