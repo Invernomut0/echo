@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -34,6 +35,7 @@ from echo.self_model.identity_graph import IdentityGraph
 from echo.self_model.meta_state import MetaStateTracker
 from echo.self_model.self_prediction import predict_response
 from echo.workspace.global_workspace import GlobalWorkspace
+from echo.core.llm_client import llm
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +126,7 @@ class CognitivePipeline:
 
         await db_startup()
         await self.identity_graph.load()
+        await self._bootstrap_beliefs_if_empty()
         await self.meta_tracker.load_latest()
         self.consolidation.start()
         self.decay.start()
@@ -131,6 +134,51 @@ class CognitivePipeline:
         await self.learning.startup()
         self._ready = True
         logger.info("CognitivePipeline ready")
+
+    async def _bootstrap_beliefs_if_empty(self) -> None:
+        """Seed the identity graph with initial beliefs if it has none.
+
+        Called once at startup. Uses the LLM to generate a minimal set of
+        self-knowledge beliefs so the graph is never empty on a fresh install
+        or after a DB wipe. Beliefs are persisted to SQLite so the bootstrap
+        only runs once per instance.
+        """
+        if self.identity_graph.graph.number_of_nodes() > 0:
+            return  # already has beliefs — skip
+
+        logger.info("Identity graph is empty — bootstrapping initial beliefs via LLM…")
+        _BOOTSTRAP_PROMPT = """\
+You are ECHO — a persistent, self-modifying cognitive AI.
+Generate a concise list of 8–12 foundational self-knowledge beliefs about your own nature,
+capabilities, and values. These should be factual, specific, and relevant to your architecture.
+
+Respond ONLY with valid JSON:
+{
+  "beliefs": [
+    {"content": "...", "confidence": 0.8},
+    ...
+  ]
+}"""
+        try:
+            raw = await llm.chat(
+                [{"role": "user", "content": _BOOTSTRAP_PROMPT}],
+                temperature=0.4,
+                max_tokens=512,
+            )
+            start = raw.find("{")
+            end = raw.rfind("}") + 1
+            data = json.loads(raw[start:end])
+            for item in data.get("beliefs", []):
+                if isinstance(item, dict) and item.get("content"):
+                    belief = IdentityBelief(
+                        content=item["content"],
+                        confidence=float(item.get("confidence", 0.6)),
+                    )
+                    await self.identity_graph.add_belief(belief)
+            count = self.identity_graph.graph.number_of_nodes()
+            logger.info("Bootstrap complete: %d initial beliefs created", count)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Belief bootstrap failed (non-fatal): %s", exc)
 
     async def shutdown(self) -> None:
         self.consolidation.stop()

@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     # Cognitive parameters
     max_workspace_slots: int = 7
     consolidation_interval_seconds: int = 3600
-    reflection_trigger_interval: int = 5
+    reflection_trigger_interval: int = 3
     memory_decay_interval_seconds: int = 300
 
     # GitHub OAuth
