@@ -63,6 +63,13 @@ _kill_port() {
 _kill_port 8000
 _kill_port 5173
 
+# ── aggiorna lock (rigenera se pyproject.toml è cambiato) ───────────────────
+# Su Linux usa automaticamente il pytorch-cpu index (CPU-only, ~200 MB)
+# definito in [tool.uv.sources] — torch deve essere dep diretta per questo.
+cd "$PROJECT_ROOT"
+echo -e "  Risoluzione dipendenze..."
+uv lock --quiet
+
 # ── backend ──────────────────────────────────────────────────────────────────
 echo -e "${CYAN}▶  Backend${RESET}  →  http://localhost:8000"
 echo -e "           →  http://localhost:8000/docs  (Swagger)"
