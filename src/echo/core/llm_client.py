@@ -734,10 +734,9 @@ class LLMClient:
         Behaviour:
         - When *no* MCP tools are connected: falls back to ``stream_chat`` (true
           token-by-token streaming, no overhead).
-        - When tools *are* connected: runs the full agentic tool-call loop via
-          ``chat_with_tools()`` and yields the complete final answer as a single
-          chunk.  Streaming is sacrificed to support the tool-call round-trip,
-          which is an acceptable tradeoff — the user is waiting for real data.
+        - When tools *are* connected: runs tool-call round-trips non-streaming
+          (necessary to inspect tool_calls in the response), then streams the
+          **final** answer token-by-token once all tools have been executed.
 
         This is an ``AsyncGenerator[str, None]`` so callers can use it with
         ``async for delta in llm.stream_chat_with_tools(...)`` in the same way
@@ -754,17 +753,145 @@ class LLMClient:
                 yield delta
             return
 
-        # Tools available — run the agentic loop and yield the complete answer.
-        # The non-streaming call is necessary because we need to inspect the
-        # assistant message for ``tool_calls`` before continuing.
-        result = await self.chat_with_tools(
-            messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-            max_tool_rounds=max_tool_rounds,
-            model=model,
-        )
-        yield result
+        # ── Tool-call loop (non-streaming round-trips) ─────────────────────
+        # Run until the model stops requesting tools, then stream the final answer.
+
+        if settings.llm_provider == "copilot":
+            final_messages = await self._copilot_tool_rounds(
+                messages, tools, mcp_manager,
+                temperature=temperature, max_tokens=max_tokens,
+                max_rounds=max_tool_rounds, model=model,
+            )
+        elif settings.llm_provider == "anthropic":
+            # Anthropic doesn't support OpenAI tool format — stream directly
+            async for delta in self.stream_chat(
+                messages, temperature=temperature, max_tokens=max_tokens, model=model
+            ):
+                yield delta
+            return
+        else:
+            final_messages = await self._openai_tool_rounds(
+                messages, tools, mcp_manager,
+                temperature=temperature, max_tokens=max_tokens,
+                max_rounds=max_tool_rounds, model=model,
+            )
+
+        # ── Stream the final answer ────────────────────────────────────────
+        async for delta in self.stream_chat(
+            final_messages, temperature=temperature, max_tokens=max_tokens, model=model
+        ):
+            yield delta
+
+    async def _openai_tool_rounds(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        mcp_manager: Any,
+        *,
+        temperature: float,
+        max_tokens: int,
+        max_rounds: int,
+        model: str | None,
+    ) -> list[dict[str, Any]]:
+        """Run OpenAI-compatible tool-call rounds. Returns messages ready for final streaming."""
+        self._last_tools_used = []
+        current_messages = list(messages)
+        client = _build_provider_client()
+        for _round in range(max_rounds):
+            response = await client.chat.completions.create(
+                model=model or _provider_model(),
+                messages=current_messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+            msg = response.choices[0].message
+
+            # No tool calls → context is ready for final streaming call
+            if not msg.tool_calls:
+                return current_messages
+
+            current_messages.append(msg.model_dump(exclude_none=True))
+            for tc in msg.tool_calls:
+                fn_name: str = tc.function.name
+                if fn_name not in self._last_tools_used:
+                    self._last_tools_used.append(fn_name)
+                try:
+                    fn_args: dict[str, Any] = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError:
+                    fn_args = {}
+                logger.info("[MCP] calling tool %s %s", fn_name, fn_args)
+                tool_result = await mcp_manager.call_tool(fn_name, fn_args)
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc.id,
+                    "content": tool_result,
+                })
+
+        logger.warning("[MCP] max tool rounds (%d) reached", max_rounds)
+        return current_messages
+
+    async def _copilot_tool_rounds(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        mcp_manager: Any,
+        *,
+        temperature: float,
+        max_tokens: int,
+        max_rounds: int,
+        model: str | None,
+    ) -> list[dict[str, Any]]:
+        """Run Copilot tool-call rounds. Returns messages ready for final streaming."""
+        from echo.api.routers.setup import _get_copilot_token_cached  # noqa: PLC0415
+
+        self._last_tools_used = []
+        current_messages = list(messages)
+        for _round in range(max_rounds):
+            token_data = await _get_copilot_token_cached()
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                r = await client.post(
+                    f"{token_data['endpoint']}/chat/completions",
+                    headers={**_COPILOT_HEADERS, "Authorization": f"Bearer {token_data['token']}"},
+                    json={
+                        "model": model or settings.copilot_model,
+                        "messages": current_messages,
+                        "tools": tools,
+                        "tool_choice": "auto",
+                        "temperature": temperature,
+                        "max_tokens": max_tokens,
+                    },
+                )
+            if r.status_code == 401:
+                _clear_copilot_token_cache()
+            r.raise_for_status()
+            data = r.json()
+            msg = data["choices"][0]["message"]
+            tool_calls = msg.get("tool_calls")
+
+            if not tool_calls:
+                return current_messages
+
+            current_messages.append(msg)
+            for tc in tool_calls:
+                fn_name: str = tc["function"]["name"]
+                if fn_name not in self._last_tools_used:
+                    self._last_tools_used.append(fn_name)
+                try:
+                    fn_args: dict[str, Any] = json.loads(tc["function"].get("arguments", "{}"))
+                except json.JSONDecodeError:
+                    fn_args = {}
+                logger.info("[MCP] calling tool %s %s", fn_name, fn_args)
+                tool_result = await mcp_manager.call_tool(fn_name, fn_args)
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": tool_result,
+                })
+
+        logger.warning("[MCP] Copilot max tool rounds (%d) reached", max_rounds)
+        return current_messages
 
 
 # Module-level singleton
