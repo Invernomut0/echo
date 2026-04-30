@@ -254,6 +254,8 @@ class ConsolidationReport(BaseModel):
     memories_pruned: int = 0
     beliefs_updated: int = 0
     patterns_found: list[str] = Field(default_factory=list)
+    # Semantic memory count (populated during consolidation)
+    semantic_processed: int = 0  # total semantic memories processed this cycle
     # Synaptic pruning — vector-based deduplication counts
     episodic_deduped: int = 0    # episodic memories silenced/deleted as duplicates
     semantic_deduped: int = 0    # semantic memories deleted as duplicates

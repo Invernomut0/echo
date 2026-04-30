@@ -159,14 +159,6 @@ function GoalCard({
         <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
           <button
             disabled={busy}
-            onClick={async () => { setBusy(true); await onUpdate(goal.id, { status: 'achieved' }); setBusy(false) }}
-            style={{
-              fontSize: '11px', padding: '3px 10px', borderRadius: '5px', cursor: 'pointer',
-              background: '#052e16', color: '#10b981', border: '1px solid #10b981',
-            }}
-          >✓ Achieved</button>
-          <button
-            disabled={busy}
             onClick={async () => { setBusy(true); await onUpdate(goal.id, { status: 'abandoned' }); setBusy(false) }}
             style={{
               fontSize: '11px', padding: '3px 10px', borderRadius: '5px', cursor: 'pointer',

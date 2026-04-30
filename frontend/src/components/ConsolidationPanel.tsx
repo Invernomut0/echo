@@ -201,8 +201,12 @@ export default function ConsolidationPanel() {
             Memory Processing
           </div>
           <div className="report-row">
-            <span className="report-key">Processed</span>
+            <span className="report-key">Episodic processed</span>
             <span className="report-val">{report.memories_processed}</span>
+          </div>
+          <div className="report-row">
+            <span className="report-key">Semantic processed</span>
+            <span className="report-val" style={{ color: '#a78bfa' }}>{report.semantic_processed}</span>
           </div>
           <div className="report-row">
             <span className="report-key">Active</span>

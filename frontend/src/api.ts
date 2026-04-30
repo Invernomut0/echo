@@ -75,6 +75,7 @@ export interface GraphResponse {
 export interface ConsolidationReport {
   id: string
   memories_processed: number
+  semantic_processed: number
   memories_promoted: number
   memories_pruned: number
   beliefs_updated: number

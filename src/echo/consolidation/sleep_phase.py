@@ -314,6 +314,8 @@ class ConsolidationPhase:
         report.memories_promoted = promoted
 
         # 4. Semantic deduplication (after promotion so new entries are included)
+        sem_all_rows = await self._semantic._get_all_rows()
+        report.semantic_processed = len(sem_all_rows)
         sem_pairs, sem_pruned = await self._dedup_semantic(hard_prune=prune)
 
         # 5. Back-fill vectors for memories missing embeddings
@@ -336,9 +338,13 @@ class ConsolidationPhase:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Autobio promotion failed: %s", exc)
 
-        # 7. Pattern extraction
+        # 7. Pattern extraction — blend episodic + semantic for richer context
         try:
-            sample = "\n".join(f"- {m.content[:150]}" for m in memories[:30])
+            ep_sample = "\n".join(f"- [episodic] {m.content[:120]}" for m in memories[:20])
+            sem_sample = "\n".join(
+                f"- [semantic] {r.content[:120]}" for r in sem_all_rows[:15]
+            )
+            sample = (ep_sample + "\n" + sem_sample).strip()
             raw_patterns = await llm.chat(
                 [{"role": "user", "content": _PATTERN_PROMPT.format(memories=sample)}],
                 temperature=0.3,
