@@ -60,6 +60,7 @@ class EventTopic(str, Enum):
     CONSOLIDATION_COMPLETE = "consolidation_complete"
     META_STATE_UPDATE = "meta_state_update"
     PLASTICITY_UPDATE = "plasticity_update"
+    CURIOSITY_STIMULUS = "curiosity_stimulus"
 
 
 # ---------------------------------------------------------------------------

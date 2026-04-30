@@ -2033,6 +2033,219 @@ a.curiosity-finding-title:hover {
   to { transform: rotate(360deg); }
 }
 
+/* ── Co-Evolution Sections ─────────────────────────────────────────────── */
+
+.coevo-section {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  margin: 0 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.coevo-section-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  letter-spacing: 0.02em;
+}
+
+.coevo-section-subtitle {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: rgba(255,255,255,0.3);
+}
+
+.coevo-empty {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.3);
+  font-style: italic;
+}
+
+/* Interest Profile */
+.coevo-topic-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.coevo-topic-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coevo-topic-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.coevo-topic-label {
+  font-size: 0.8rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coevo-topic-count {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+
+.coevo-affinity-track {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 110px;
+  flex-shrink: 0;
+}
+
+.coevo-affinity-bar {
+  height: 4px;
+  background: linear-gradient(90deg, #22d3ee, #a78bfa);
+  border-radius: 2px;
+  transition: width 0.3s;
+  flex-shrink: 0;
+}
+
+.coevo-affinity-pct {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.4);
+  min-width: 28px;
+  text-align: right;
+}
+
+.coevo-exclude-btn {
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  background: rgba(248,113,113,0.07);
+  border: 1px solid rgba(248,113,113,0.15);
+  color: rgba(248,113,113,0.6);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.coevo-exclude-btn:hover {
+  background: rgba(248,113,113,0.18);
+  color: #f87171;
+}
+
+/* ZPD Zone */
+.coevo-zpd-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.coevo-zpd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.coevo-zpd-label {
+  font-size: 0.8rem;
+  color: #c4b5fd;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coevo-explore-btn {
+  padding: 0.2rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  background: rgba(196,181,253,0.1);
+  border: 1px solid rgba(196,181,253,0.25);
+  color: #c4b5fd;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.coevo-explore-btn:hover {
+  background: rgba(196,181,253,0.2);
+}
+
+/* Pending Findings */
+.coevo-findings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.coevo-finding-row {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 0.55rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.coevo-finding-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coevo-finding-topic {
+  font-size: 0.72rem;
+  color: #22d3ee;
+  font-weight: 500;
+}
+
+.coevo-finding-aff {
+  font-size: 0.68rem;
+  color: rgba(255,255,255,0.3);
+}
+
+.coevo-finding-content {
+  font-size: 0.78rem;
+  color: rgba(255,255,255,0.7);
+  line-height: 1.5;
+}
+
+/* Star rating */
+.coevo-stars {
+  display: flex;
+  gap: 0.15rem;
+  margin-top: 0.15rem;
+}
+
+.coevo-star {
+  font-size: 0.85rem;
+  color: rgba(255,255,255,0.2);
+  cursor: pointer;
+  transition: color 0.1s;
+  user-select: none;
+}
+
+.coevo-star.active {
+  color: #fbbf24;
+}
+
+.coevo-star:hover {
+  color: #fcd34d;
+}
+
 /* ── EchoMd Panel ──────────────────────────────────────────────────────── */
 
 .echo-md-panel {

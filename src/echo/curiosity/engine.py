@@ -81,6 +81,9 @@ Return ONLY a JSON array of strings. Example:
 # How many chars of each memory to show the LLM
 _MEMORY_SNIPPET_CHARS = 250
 
+# ZPD cycle: every N cycles use zpd_topics() instead of normal topics
+_ZPD_EVERY_N_CYCLES: int = 4
+
 # Max chars of a result snippet to persist in semantic memory
 _STORE_SNIPPET_CHARS = 600
 
@@ -158,11 +161,27 @@ class CuriosityEngine:
                 temperature=0.35,
                 max_tokens=150,
             )
-            topics = json.loads(raw.strip())
-            if isinstance(topics, list):
-                return [str(t).strip() for t in topics[:settings.curiosity_max_topics] if t]
+            memory_topics = json.loads(raw.strip())
+            if not isinstance(memory_topics, list):
+                memory_topics = []
         except Exception as exc:  # noqa: BLE001
             logger.warning("Topic extraction failed (%s) — using fallback", exc)
+            memory_topics = []
+
+        # Blend with user interest profile (50/50 when profile has data)
+        interest_seeds: list[str] = []
+        try:
+            from echo.curiosity.interest_profile import interest_profile  # noqa: PLC0415
+            primaries = await interest_profile.primary_interests(n=3)
+            interest_seeds = [p["topic"] for p in primaries]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Interest profile unavailable: %s", exc)
+
+        combined = memory_topics + [s for s in interest_seeds if s not in memory_topics]
+        topics = [str(t).strip() for t in combined[:settings.curiosity_max_topics] if t]
+
+        if topics:
+            return topics
 
         # Fallback: use the first few words of the most recent memory
         if memories:
@@ -506,8 +525,22 @@ Respond ONLY with valid JSON:
             # 2b. Goal management — always run when idle
             await self._run_goal_cycle(recent_memories)
 
-            # 3. Extract topics
-            topics = await self._extract_topics(recent_memories)
+            # 3. Extract topics (or use ZPD topics every N cycles)
+            _is_zpd_cycle = (_cycle_counter % _ZPD_EVERY_N_CYCLES == (_ZPD_EVERY_N_CYCLES - 1))
+            if _is_zpd_cycle:
+                try:
+                    from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
+                    zpd = await _ip.zpd_topics(n=3)
+                    if zpd:
+                        topics = zpd
+                        logger.info("Curiosity ZPD cycle: topics %s", topics)
+                    else:
+                        topics = await self._extract_topics(recent_memories)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("ZPD cycle fallback: %s", exc)
+                    topics = await self._extract_topics(recent_memories)
+            else:
+                topics = await self._extract_topics(recent_memories)
             record["topics_proposed"] = topics
             if not topics:
                 logger.debug("Curiosity skipped — no topics extracted")
@@ -611,6 +644,37 @@ Respond ONLY with valid JSON:
                         result.source,
                         result.title[:80],
                     )
+
+            # 8b. Enqueue top-3 findings by affinity into StimulusQueue
+            try:
+                from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
+                from echo.curiosity.stimulus_queue import stimulus_queue as _sq  # noqa: PLC0415
+                primaries = await _ip.primary_interests(n=10)
+                affinity_map = {p["topic"]: p["affinity_score"] for p in primaries}
+
+                # Score and sort findings for this topic by affinity match
+                ranked_findings = sorted(
+                    record["findings"],
+                    key=lambda f: affinity_map.get(f["topic"], 0.0),
+                    reverse=True,
+                )
+                enqueued = 0
+                for finding in ranked_findings:
+                    if enqueued >= 3:
+                        break
+                    aff = affinity_map.get(finding["topic"], 0.0)
+                    if aff < 0.3:
+                        continue  # only enqueue if topic has some affinity
+                    # Build a compact stimulus text
+                    stimulus_text = f"[{finding['source']}] {finding['title']}"
+                    await _sq.enqueue(
+                        content=stimulus_text,
+                        topic=finding["topic"],
+                        affinity_score=aff,
+                    )
+                    enqueued += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Stimulus enqueue failed: %s", exc)
 
             # 7. Periodically flush the recently-searched cache
             _cycle_counter += 1

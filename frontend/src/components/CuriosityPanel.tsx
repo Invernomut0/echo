@@ -2,10 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   fetchCuriosityActivity,
   triggerCuriosityCycle,
+  submitStimulusFeedback,
+  guideTopics,
+  triggerCuriosityCycle as _triggerForZpd,
   type CycleRecord,
   type CuriosityActivity,
   type CuriosityFinding,
+  type InterestTopic,
+  type StimulusItem,
 } from '../api'
+import { useCuriosityProfile } from '../hooks'
 
 // ── Constants ─────────────────────────────────────────────────────────────
 
@@ -335,12 +341,162 @@ function SourceLegend() {
 
 // ── Main Panel ────────────────────────────────────────────────────────────
 
+// ── Interest Profile Section ──────────────────────────────────────────────
+
+function InterestProfileSection({
+  topics,
+  onExclude,
+}: {
+  topics: InterestTopic[]
+  onExclude: (topic: string) => void
+}) {
+  if (topics.length === 0) {
+    return (
+      <div className="coevo-section">
+        <div className="coevo-section-title">◉ Interest Profile</div>
+        <div className="coevo-empty">No interests tracked yet. Start chatting to build your profile.</div>
+      </div>
+    )
+  }
+  return (
+    <div className="coevo-section">
+      <div className="coevo-section-title">◉ Interest Profile
+        <span className="coevo-section-subtitle">{topics.length} tracked topics</span>
+      </div>
+      <div className="coevo-topic-list">
+        {topics.map(t => (
+          <div key={t.topic} className="coevo-topic-row">
+            <div className="coevo-topic-meta">
+              <span className="coevo-topic-label">{t.topic}</span>
+              <span className="coevo-topic-count">{t.interaction_count}×</span>
+            </div>
+            <div className="coevo-affinity-track">
+              <div
+                className="coevo-affinity-bar"
+                style={{ width: `${Math.round(t.affinity_score * 100)}%` }}
+              />
+              <span className="coevo-affinity-pct">{Math.round(t.affinity_score * 100)}%</span>
+            </div>
+            <button
+              className="coevo-exclude-btn"
+              title="Exclude this topic"
+              onClick={() => onExclude(t.topic)}
+            >✕</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── ZPD Zone Section ──────────────────────────────────────────────────────
+
+function ZpdZoneSection({
+  topics,
+  onExplore,
+}: {
+  topics: string[]
+  onExplore: (topic: string) => void
+}) {
+  if (topics.length === 0) return null
+  return (
+    <div className="coevo-section">
+      <div className="coevo-section-title">⟡ ZPD Zone
+        <span className="coevo-section-subtitle">adjacent, unexplored topics</span>
+      </div>
+      <div className="coevo-zpd-list">
+        {topics.map(t => (
+          <div key={t} className="coevo-zpd-row">
+            <span className="coevo-zpd-label">{t}</span>
+            <button
+              className="coevo-explore-btn"
+              title="Ask ECHO to explore this topic now"
+              onClick={() => onExplore(t)}
+            >Explore →</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Pending Findings Section ──────────────────────────────────────────────
+
+function StarRating({
+  value,
+  onChange,
+}: {
+  value: number | null
+  onChange: (score: number) => void
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  return (
+    <div className="coevo-stars">
+      {[1, 2, 3, 4, 5].map(n => {
+        const score = n / 5
+        const active = hover !== null ? n <= (hover * 5) : value !== null && n <= Math.round(value * 5)
+        return (
+          <span
+            key={n}
+            className={`coevo-star${active ? ' active' : ''}`}
+            onMouseEnter={() => setHover(score)}
+            onMouseLeave={() => setHover(null)}
+            onClick={() => onChange(score)}
+          >★</span>
+        )
+      })}
+    </div>
+  )
+}
+
+function PendingFindingsSection({
+  findings,
+  onFeedback,
+}: {
+  findings: StimulusItem[]
+  onFeedback: (id: string, score: number) => void
+}) {
+  if (findings.length === 0) {
+    return (
+      <div className="coevo-section">
+        <div className="coevo-section-title">✦ Pending Findings
+          <span className="coevo-section-subtitle">stimuli waiting to be shown</span>
+        </div>
+        <div className="coevo-empty">No pending findings. They appear after curiosity cycles match your interests.</div>
+      </div>
+    )
+  }
+  return (
+    <div className="coevo-section">
+      <div className="coevo-section-title">✦ Pending Findings
+        <span className="coevo-section-subtitle">{findings.length} queued</span>
+      </div>
+      <div className="coevo-findings-list">
+        {findings.map(f => (
+          <div key={f.id} className="coevo-finding-row">
+            <div className="coevo-finding-meta">
+              <span className="coevo-finding-topic">{f.topic}</span>
+              <span className="coevo-finding-aff">{Math.round(f.affinity_score * 100)}% match</span>
+            </div>
+            <div className="coevo-finding-content">{f.content}</div>
+            <StarRating value={f.feedback_score} onChange={(s) => onFeedback(f.id, s)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Main Panel ────────────────────────────────────────────────────────────
+
 export default function CuriosityPanel() {
   const [data, setData] = useState<CuriosityActivity | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [triggering, setTriggering] = useState(false)
   const [triggerMsg, setTriggerMsg] = useState<string | null>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const { profile, findings, loading: profileLoading, refresh: refreshProfile } = useCuriosityProfile(true)
 
   const load = useCallback(async () => {
     try {
@@ -365,11 +521,35 @@ export default function CuriosityPanel() {
       const r = await triggerCuriosityCycle()
       setTriggerMsg(r.stored > 0 ? `✓ Stored ${r.stored} new memories` : '↷ Cycle complete (0 new)')
       await load()
+      refreshProfile()
     } catch (e) {
       setTriggerMsg(`✗ ${e}`)
     } finally {
       setTriggering(false)
     }
+  }
+
+  const handleExclude = async (topic: string) => {
+    try {
+      await guideTopics([], [topic])
+      refreshProfile()
+    } catch { /* ignore */ }
+  }
+
+  const handleFeedback = async (id: string, score: number) => {
+    try {
+      await submitStimulusFeedback(id, score)
+      refreshProfile()
+    } catch { /* ignore */ }
+  }
+
+  const handleExploreZpd = async (topic: string) => {
+    try {
+      await guideTopics([topic], [])
+      await triggerCuriosityCycle()
+      refreshProfile()
+      await load()
+    } catch { /* ignore */ }
   }
 
   return (
@@ -393,6 +573,32 @@ export default function CuriosityPanel() {
         <div className="curiosity-trigger-msg" data-ok={!triggerMsg.startsWith('✗')}>
           {triggerMsg}
         </div>
+      )}
+
+      {/* ── Co-evolution sections ── */}
+      {profileLoading && !profile && (
+        <div className="curiosity-loading" style={{ padding: '0.5rem 0' }}>
+          <span className="curiosity-spinner" /> Loading profile…
+        </div>
+      )}
+
+      {profile && (
+        <>
+          <InterestProfileSection
+            topics={profile.primary_interests}
+            onExclude={handleExclude}
+          />
+          <PendingFindingsSection
+            findings={findings}
+            onFeedback={handleFeedback}
+          />
+          {profile.zpd_topics.length > 0 && (
+            <ZpdZoneSection
+              topics={profile.zpd_topics}
+              onExplore={handleExploreZpd}
+            />
+          )}
+        </>
       )}
 
       {data ? (

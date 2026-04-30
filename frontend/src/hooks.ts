@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import {
   fetchState, fetchHistory, fetchGraph, fetchMemories, fetchDreams, fetchHeartbeat,
   fetchVectorStatus, fetchSemanticMemories, fetchPipelineTrace, fetchChunks,
+  getCuriosityProfile, getCuriosityFindings,
   type StateResponse, type HistoryPoint, type GraphResponse, type MemoryItem,
   type DreamEntry, type HeartbeatStatus, type VectorStoreStatus, type PipelineTrace,
-  type ChunksResponse,
+  type ChunksResponse, type InterestProfile, type StimulusItem,
 } from './api'
 
 // Polling interval for live data
@@ -219,4 +220,34 @@ export function usePipelineTrace(active: boolean) {
   }, [active, refresh])
 
   return { trace, refresh }
+}
+
+/** Poll /api/curiosity/profile every 15 s while the panel is active. */
+export function useCuriosityProfile(active: boolean) {
+  const [profile, setProfile] = useState<InterestProfile | null>(null)
+  const [findings, setFindings] = useState<StimulusItem[]>([])
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [p, f] = await Promise.all([
+        getCuriosityProfile(),
+        getCuriosityFindings(20),
+      ])
+      setProfile(p)
+      setFindings(f.pending)
+    } catch { /* ignore */ } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    refresh()
+    const id = setInterval(refresh, 15000)
+    return () => clearInterval(id)
+  }, [active, refresh])
+
+  return { profile, findings, loading, refresh }
 }

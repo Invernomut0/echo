@@ -816,3 +816,69 @@ export async function updateGoalAction(
   if (!r.ok) throw new Error(`update goal action: ${r.status}`)
   return r.json()
 }
+
+// ---------------------------------------------------------------------------
+// Co-evolution / Interest Profile
+// ---------------------------------------------------------------------------
+
+export interface InterestTopic {
+  topic: string
+  affinity_score: number
+  interaction_count: number
+  last_seen: string
+  is_excluded?: number
+  is_preferred?: number
+}
+
+export interface InterestProfile {
+  primary_interests: InterestTopic[]
+  zpd_topics: string[]
+  excluded_topics: string[]
+  total_topics: number
+}
+
+export interface StimulusItem {
+  id: string
+  content: string
+  topic: string
+  affinity_score: number
+  created_at: string
+  presented_at: string | null
+  feedback_score: number | null
+}
+
+export async function getCuriosityProfile(): Promise<InterestProfile> {
+  const r = await fetch(`${BASE}/curiosity/profile`)
+  if (!r.ok) throw new Error(`get profile: ${r.status}`)
+  return r.json()
+}
+
+export async function getCuriosityFindings(limit = 20): Promise<{ pending: StimulusItem[]; count: number }> {
+  const r = await fetch(`${BASE}/curiosity/findings?limit=${limit}`)
+  if (!r.ok) throw new Error(`get findings: ${r.status}`)
+  return r.json()
+}
+
+export async function getAllCuriosityFindings(limit = 50): Promise<{ items: StimulusItem[]; count: number }> {
+  const r = await fetch(`${BASE}/curiosity/findings/all?limit=${limit}`)
+  if (!r.ok) throw new Error(`get all findings: ${r.status}`)
+  return r.json()
+}
+
+export async function submitStimulusFeedback(stimulusId: string, score: number): Promise<void> {
+  const r = await fetch(`${BASE}/curiosity/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ stimulus_id: stimulusId, score }),
+  })
+  if (!r.ok) throw new Error(`feedback: ${r.status}`)
+}
+
+export async function guideTopics(preferred: string[], excluded: string[]): Promise<void> {
+  const r = await fetch(`${BASE}/curiosity/guide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preferred, excluded }),
+  })
+  if (!r.ok) throw new Error(`guide topics: ${r.status}`)
+}

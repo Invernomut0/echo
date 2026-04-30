@@ -269,27 +269,49 @@ Respond ONLY with valid JSON:
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
+        # CO-EVOLUTION: Proactive stimulus nudge — inject curiosity finding if available
+        # Probability scales with arousal: p = 0.2 + 0.3 * arousal
+        _injected_stimulus_id: str | None = None
+        try:
+            import random  # noqa: PLC0415
+            from echo.curiosity.stimulus_queue import stimulus_queue as _sq  # noqa: PLC0415
+            _nudge_p = 0.2 + 0.3 * self.meta_tracker.current.arousal
+            if random.random() < _nudge_p:  # noqa: S311
+                _stimulus = await _sq.pop_best()
+                if _stimulus:
+                    _injected_stimulus_id = _stimulus["id"]
+                    self.workspace.broadcast(
+                        f"[Curiosity Stimulus | topic: {_stimulus['topic']}] {_stimulus['content']}",
+                        source_agent="curiosity_stimulus",
+                        salience=0.55,
+                    )
+                    await bus.publish(CognitiveEvent(
+                        topic=EventTopic.CURIOSITY_STIMULUS,
+                        source_agent="curiosity_stimulus",
+                        payload={"stimulus_id": _stimulus["id"], "topic": _stimulus["topic"]},
+                    ))
+                    logger.info("CURIOSITY_STIMULUS injected (topic=%s)", _stimulus["topic"])
+        except Exception as _se:  # noqa: BLE001
+            logger.debug("Stimulus nudge failed: %s", _se)
+
         # LLM Wiki — always inject index summary + matched page bodies
         _wiki_context: list[str] = []
         try:
             from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
             _wiki_pages = _wiki.list_pages()
             if _wiki_pages:
-                # 1. Always include a compact index so ECHO knows what's available
                 _index_lines = [f"Wiki knowledge base ({len(_wiki_pages)} pages):"]
                 for _p in _wiki_pages:
-                    _index_lines.append(f"  • [{_p['category']}] {_p['title']} — {_p.get('summary','')[:120]}")
+                    _index_lines.append(
+                        f"  • [{_p['category']}] {_p['title']} — {_p.get('summary','')[:120]}"
+                    )
                 _wiki_context.append("\n".join(_index_lines))
-
-                # 2. Inject full body of best-matching pages
                 _wiki_hits = _wiki.search(user_input, max_results=5)
                 for _hit in _wiki_hits:
                     _body = _wiki.read_page_by_path(_hit["path"]) or ""
                     if _body.strip():
                         _wiki_context.append(f"[Wiki page: {_hit['title']}]\n{_body[:800]}")
                 self._last_memory_sources["wiki"] = len(_wiki_hits)
-
-                # 3. If no keyword hits, fall back to the 3 most recent pages
                 if not _wiki_hits:
                     for _p in _wiki_pages[-3:]:
                         _body = _wiki.read_page_by_path(_p["path"]) or ""
@@ -307,7 +329,7 @@ Respond ONLY with valid JSON:
         }
         meta_state = self.meta_tracker.current
 
-        # Capture workspace snapshot for post-interaction reflection (before streaming clears it)
+        # Capture workspace snapshot for post-interaction reflection
         workspace_summary = "\n".join(
             f"  [{item.source_agent}] {item.content[:80]}"
             for item in self.workspace.snapshot.items
@@ -393,6 +415,7 @@ Respond ONLY with valid JSON:
                 interaction_id, user_input, response_text, memories,
                 self_prediction=self_pred,
                 workspace_summary=workspace_summary,
+                injected_stimulus_id=_injected_stimulus_id,
             )
         )
         self._pending_tasks.add(task)
@@ -438,6 +461,30 @@ Respond ONLY with valid JSON:
         _style_hint = self.learning.personalization.style_hint()
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
+
+        # CO-EVOLUTION: Proactive stimulus nudge — inject curiosity finding if available
+        _injected_stimulus_id_sync: str | None = None
+        try:
+            import random  # noqa: PLC0415, S311
+            from echo.curiosity.stimulus_queue import stimulus_queue as _sq2  # noqa: PLC0415
+            _nudge_p2 = 0.2 + 0.3 * self.meta_tracker.current.arousal
+            if random.random() < _nudge_p2:  # noqa: S311
+                _stimulus2 = await _sq2.pop_best()
+                if _stimulus2:
+                    _injected_stimulus_id_sync = _stimulus2["id"]
+                    self.workspace.broadcast(
+                        f"[Curiosity Stimulus | topic: {_stimulus2['topic']}] {_stimulus2['content']}",
+                        source_agent="curiosity_stimulus",
+                        salience=0.55,
+                    )
+                    await bus.publish(CognitiveEvent(
+                        topic=EventTopic.CURIOSITY_STIMULUS,
+                        source_agent="curiosity_stimulus",
+                        payload={"stimulus_id": _stimulus2["id"], "topic": _stimulus2["topic"]},
+                    ))
+                    logger.info("CURIOSITY_STIMULUS injected (topic=%s)", _stimulus2["topic"])
+        except Exception as _se2:  # noqa: BLE001
+            logger.debug("Stimulus nudge failed: %s", _se2)
 
         # LLM Wiki — always inject index summary + matched page bodies
         _wiki_context: list[str] = []
@@ -492,6 +539,7 @@ Respond ONLY with valid JSON:
             interaction_id, user_input, response, memories,
             self_prediction=self_pred,
             workspace_summary=workspace_summary,
+            injected_stimulus_id=_injected_stimulus_id_sync,
         )
 
         record = InteractionRecord(
@@ -512,6 +560,7 @@ Respond ONLY with valid JSON:
         memories: list[MemoryEntry],
         self_prediction: str = "",
         workspace_summary: str = "",
+        injected_stimulus_id: str | None = None,
     ) -> None:
         """Store memory, reflect, adapt weights — runs async fire-and-forget.
 
@@ -627,6 +676,23 @@ Respond ONLY with valid JSON:
                 source_agent="pipeline",
             )
             stored_mem = await self.episodic.store(mem)
+
+            # CO-EVOLUTION: interest profile inference + implicit stimulus feedback
+            try:
+                from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
+                await _ip.infer_from_memories(user_input=user_input, response=response)
+            except Exception as _ipe:  # noqa: BLE001
+                logger.debug("Interest profile inference failed: %s", _ipe)
+
+            if injected_stimulus_id:
+                # Implicit positive feedback when memory is self-relevant
+                if mem.self_relevance > 0.7:
+                    try:
+                        from echo.curiosity.stimulus_queue import stimulus_queue as _sq3  # noqa: PLC0415
+                        await _sq3.record_feedback(injected_stimulus_id, score=0.8)
+                        logger.debug("Implicit stimulus feedback (self_relevance=%.2f)", mem.self_relevance)
+                    except Exception as _sfe:  # noqa: BLE001
+                        logger.debug("Implicit feedback failed: %s", _sfe)
 
             # NEW-3: Temporal causal link — new memory points back to the previous one
             try:
