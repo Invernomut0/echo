@@ -187,33 +187,103 @@ export default function ConsolidationPanel() {
 
       {report && (
         <div className="report-card">
-          <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: 8, fontSize: 12 }}>
-            Last Manual Report
+          <div style={{ fontWeight: 600, color: '#e2e8f0', marginBottom: 12, fontSize: 12, letterSpacing: '0.06em' }}>
+            Last Report
+            {report.finished_at && (
+              <span style={{ fontWeight: 400, color: '#475569', marginLeft: 8 }}>
+                {fmtDate(report.finished_at)}
+              </span>
+            )}
+          </div>
+
+          {/* ── Memory Processing ── */}
+          <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+            Memory Processing
           </div>
           <div className="report-row">
             <span className="report-key">Processed</span>
             <span className="report-val">{report.memories_processed}</span>
           </div>
           <div className="report-row">
-            <span className="report-key">Promoted</span>
-            <span className="report-val">{report.memories_promoted}</span>
+            <span className="report-key">Active</span>
+            <span className="report-val">{report.total_active > 0 ? report.total_active : report.memories_processed}</span>
           </div>
           <div className="report-row">
-            <span className="report-key">Pruned</span>
-            <span className="report-val">{report.memories_pruned}</span>
+            <span className="report-key">Dormant</span>
+            <span className="report-val" style={{ color: report.dormant_count > 0 ? '#94a3b8' : '#475569' }}>
+              {report.dormant_count}
+            </span>
           </div>
           <div className="report-row">
-            <span className="report-key">Patterns</span>
-            <span className="report-val">{report.patterns_found.length}</span>
+            <span className="report-key">Avg Salience</span>
+            <span className="report-val" style={{ color: '#38bdf8' }}>
+              {report.avg_salience > 0 ? report.avg_salience.toFixed(3) : '—'}
+            </span>
           </div>
+
+          {/* ── Synaptic Pruning ── */}
+          <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 12, marginBottom: 6 }}>
+            Synaptic Pruning (dedup)
+          </div>
+          <div className="report-row">
+            <span className="report-key">Episodic deduped</span>
+            <span className="report-val" style={{ color: report.episodic_deduped > 0 ? '#f59e0b' : '#475569' }}>
+              {report.episodic_deduped}
+            </span>
+          </div>
+          <div className="report-row">
+            <span className="report-key">Semantic deduped</span>
+            <span className="report-val" style={{ color: report.semantic_deduped > 0 ? '#f59e0b' : '#475569' }}>
+              {report.semantic_deduped}
+            </span>
+          </div>
+          <div className="report-row">
+            <span className="report-key">Re-embedded</span>
+            <span className="report-val" style={{ color: report.re_embedded > 0 ? '#a78bfa' : '#475569' }}>
+              {report.re_embedded}
+            </span>
+          </div>
+          <div className="report-row">
+            <span className="report-key">Weak pruned</span>
+            <span className="report-val" style={{ color: report.memories_pruned > 0 ? '#f43f5e' : '#475569' }}>
+              {report.memories_pruned}
+            </span>
+          </div>
+
+          {/* ── Knowledge Growth ── */}
+          <div style={{ fontSize: 10, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 12, marginBottom: 6 }}>
+            Knowledge Growth
+          </div>
+          <div className="report-row">
+            <span className="report-key">Promoted → semantic</span>
+            <span className="report-val" style={{ color: report.memories_promoted > 0 ? '#4ade80' : '#475569' }}>
+              {report.memories_promoted}
+            </span>
+          </div>
+          <div className="report-row">
+            <span className="report-key">Patterns extracted</span>
+            <span className="report-val" style={{ color: report.patterns_found.length > 0 ? '#4ade80' : '#475569' }}>
+              {report.patterns_found.length}
+            </span>
+          </div>
+
           {report.patterns_found.length > 0 && (
             <div style={{ marginTop: 10 }}>
               <div style={{ fontSize: 10, color: '#475569', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
                 Extracted Patterns
               </div>
               {report.patterns_found.map((p, i) => (
-                <div key={i} style={{ fontSize: 11, color: '#94a3b8', padding: '3px 0', borderBottom: '1px solid #1e293b' }}>
-                  {p}
+                <div key={i} style={{
+                  fontSize: 11,
+                  color: '#94a3b8',
+                  padding: '4px 0',
+                  borderBottom: '1px solid #1e293b',
+                  display: 'flex',
+                  gap: 6,
+                  alignItems: 'flex-start',
+                }}>
+                  <span style={{ color: '#4ade80', flexShrink: 0 }}>◈</span>
+                  <span>{p}</span>
                 </div>
               ))}
             </div>

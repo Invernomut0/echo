@@ -79,6 +79,12 @@ export interface ConsolidationReport {
   memories_pruned: number
   beliefs_updated: number
   patterns_found: string[]
+  episodic_deduped: number
+  semantic_deduped: number
+  re_embedded: number
+  dormant_count: number
+  avg_salience: number
+  total_active: number
   started_at: string
   finished_at: string | null
 }

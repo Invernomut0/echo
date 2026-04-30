@@ -281,6 +281,7 @@ class ConsolidationPhase:
         re_embedded = await self._episodic.re_embed_missing()
         if re_embedded:
             logger.info("Re-embedded %d memories that were missing vectors", re_embedded)
+        report.re_embedded = re_embedded
 
         # 6. Very high salience → autobiographical note
         very_high = [m for m in high_salience if m.salience >= 0.85 and m.self_relevance >= 0.7]
@@ -323,6 +324,8 @@ class ConsolidationPhase:
         else:
             report.memories_pruned = await self._episodic.mark_dormant()
 
+        report.episodic_deduped = ep_pruned
+        report.semantic_deduped = sem_pruned
         total_deduped = ep_pruned + sem_pruned
         report.finished_at = datetime.now(timezone.utc)
         logger.info(

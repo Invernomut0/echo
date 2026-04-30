@@ -187,6 +187,11 @@ class ConsolidationScheduler:
                     "avg_salience": round(avg_salience, 4),
                     "memories_promoted": report.memories_promoted,
                     "memories_processed": report.memories_processed,
+                    "episodic_deduped": report.episodic_deduped,
+                    "semantic_deduped": report.semantic_deduped,
+                    "re_embedded": report.re_embedded,
+                    "memories_pruned": report.memories_pruned,
+                    "patterns_found": len(report.patterns_found),
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             ))

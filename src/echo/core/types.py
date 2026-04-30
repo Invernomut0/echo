@@ -254,6 +254,10 @@ class ConsolidationReport(BaseModel):
     memories_pruned: int = 0
     beliefs_updated: int = 0
     patterns_found: list[str] = Field(default_factory=list)
+    # Synaptic pruning — vector-based deduplication counts
+    episodic_deduped: int = 0    # episodic memories silenced/deleted as duplicates
+    semantic_deduped: int = 0    # semantic memories deleted as duplicates
+    re_embedded: int = 0         # memories that had missing vectors and were re-embedded
     # IM-10: Memory health telemetry (populated by the scheduler after light/deep cycles)
     dormant_count: int = 0
     avg_salience: float = 0.0
