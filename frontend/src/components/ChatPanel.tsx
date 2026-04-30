@@ -53,7 +53,7 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 function MemoryBadges({ sources }: { sources?: MemorySources }) {
-  if (!sources || (sources.episodic === 0 && sources.semantic === 0)) return null
+  if (!sources || (sources.episodic === 0 && sources.semantic === 0 && !sources.wiki)) return null
   return (
     <div className="memory-badges">
       {sources.episodic > 0 && (
@@ -72,6 +72,15 @@ function MemoryBadges({ sources }: { sources?: MemorySources }) {
         >
           <span className="memory-badge-dot" />
           semantic&nbsp;&times;{sources.semantic}
+        </span>
+      )}
+      {(sources.wiki ?? 0) > 0 && (
+        <span
+          className="memory-badge wiki"
+          title={`${sources.wiki} wiki page${(sources.wiki ?? 0) > 1 ? 's' : ''} used`}
+        >
+          <span className="memory-badge-dot" />
+          wiki&nbsp;&times;{sources.wiki}
         </span>
       )}
     </div>
@@ -230,7 +239,7 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
         )}
         {messages.map((msg) => (
           <div key={msg.id} className={`chat-message ${msg.role}`}>
-            <div className={`chat-bubble${msg.role === 'assistant' ? ' md' : ''}${msg.streaming && !msg.content ? ' streaming-cursor' : ''}`}>
+            <div className={`chat-bubble${msg.role === 'assistant' ? ' md' : ''}${msg.streaming && msg.content ? ' streaming-cursor' : ''}`}>
               {msg.role === 'assistant'
                 ? <MarkdownContent content={msg.content} />
                 : msg.content}
@@ -239,7 +248,6 @@ export default function ChatPanel({ onMetaStateUpdate }: Props) {
                   {statusMessage || 'Thinking…'}
                 </span>
               )}
-              {msg.streaming && msg.content && <span className="streaming-cursor" />}
               {msg.role === 'assistant' && !msg.streaming && (
                 <>
                   <MemoryBadges sources={msg.memorySources} />

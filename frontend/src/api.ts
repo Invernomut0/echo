@@ -272,6 +272,7 @@ export async function fetchPipelineTrace(): Promise<PipelineTrace | null> {
 export interface MemorySources {
   episodic: number
   semantic: number
+  wiki?: number
 }
 
 export function streamInteract(

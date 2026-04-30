@@ -249,6 +249,7 @@ Respond ONLY with valid JSON:
         self._last_memory_sources = {
             "episodic": len(episodic_mems),
             "semantic": len(semantic_mems),
+            "wiki": 0,  # updated below after wiki search
         }
 
         # Status: workspace loading
@@ -286,6 +287,7 @@ Respond ONLY with valid JSON:
                     _body = _wiki.read_page_by_path(_hit["path"]) or ""
                     if _body.strip():
                         _wiki_context.append(f"[Wiki page: {_hit['title']}]\n{_body[:800]}")
+                self._last_memory_sources["wiki"] = len(_wiki_hits)
 
                 # 3. If no keyword hits, fall back to the 3 most recent pages
                 if not _wiki_hits:
@@ -455,6 +457,7 @@ Respond ONLY with valid JSON:
                     _body = _wiki.read_page_by_path(_hit["path"]) or ""
                     if _body.strip():
                         _wiki_context.append(f"[Wiki page: {_hit['title']}]\n{_body[:800]}")
+                self._last_memory_sources["wiki"] = len(_wiki_hits)
 
                 # 3. If no keyword hits, fall back to the 3 most recent pages
                 if not _wiki_hits:

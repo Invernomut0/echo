@@ -331,7 +331,9 @@ export default function VectorMemoriesPanel() {
   const active = episodic.filter(m => !m.is_dormant)
 
   const isChunksTab = tab === 'chunks'
-  const { data: chunksData, loading: chunksLoading } = useChunks(isChunksTab)
+  // Always load chunks so the count in the tab label is populated immediately;
+  // the hook uses a 10-second poll interval, so the cost is minimal.
+  const { data: chunksData, loading: chunksLoading } = useChunks(true)
 
   const tabs: { id: PanelTab; label: string; count: number }[] = [
     { id: 'episodic', label: 'Episodic', count: active.length },

@@ -403,6 +403,17 @@
   box-shadow: 0 0 4px rgba(34, 211, 238, 0.6);
 }
 
+.memory-badge.wiki {
+  background: rgba(167, 139, 250, 0.12);
+  border: 1px solid rgba(167, 139, 250, 0.32);
+  color: #a78bfa;
+}
+
+.memory-badge.wiki .memory-badge-dot {
+  background: #a78bfa;
+  box-shadow: 0 0 4px rgba(167, 139, 250, 0.6);
+}
+
 .chat-meta {
   font-size: 10px;
   color: var(--text-muted);
