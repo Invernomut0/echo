@@ -102,26 +102,14 @@ function CopyButton({ text }: { text: string }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ProviderSection({
-  config,
-  onSave,
+  activeProvider,
+  onSelect,
+  saving,
 }: {
-  config: SetupConfig
-  onSave: (updates: Partial<SetupConfig>) => Promise<void>
+  activeProvider: SetupConfig['llm_provider']
+  onSelect: (p: SetupConfig['llm_provider']) => void
+  saving: boolean
 }) {
-  const [provider, setProvider] = useState<SetupConfig['llm_provider']>(config.llm_provider)
-  const [saving, setSaving] = useState(false)
-
-  const select = async (p: SetupConfig['llm_provider']) => {
-    if (p === provider || saving) return
-    setProvider(p)
-    setSaving(true)
-    try {
-      await onSave({ llm_provider: p })
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const tiles: { id: SetupConfig['llm_provider']; icon: React.ReactNode; name: string; desc: string }[] = [
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
@@ -141,8 +129,8 @@ function ProviderSection({
         {tiles.map((t) => (
           <button
             key={t.id}
-            className={`provider-tile${provider === t.id ? ' provider-tile--active' : ''}`}
-            onClick={() => select(t.id)}
+            className={`provider-tile${activeProvider === t.id ? ' provider-tile--active' : ''}`}
+            onClick={() => onSelect(t.id)}
             disabled={saving}
           >
             {t.icon}
@@ -150,7 +138,7 @@ function ProviderSection({
               <span className="provider-tile-name">{t.name}</span>
               <span className="provider-tile-desc">{t.desc}</span>
             </div>
-            {provider === t.id && <CheckCircle size={15} className="provider-tile-check" />}
+            {activeProvider === t.id && <CheckCircle size={15} className="provider-tile-check" />}
           </button>
         ))}
       </div>
@@ -1222,19 +1210,37 @@ export default function SetupPanel() {
   const [config, setConfig] = useState<SetupConfig | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [activeProvider, setActiveProvider] = useState<SetupConfig['llm_provider']>('lm_studio')
+  const [savingProvider, setSavingProvider] = useState(false)
 
   useEffect(() => {
     fetchSetupConfig()
-      .then(setConfig)
+      .then((cfg) => {
+        setConfig(cfg)
+        setActiveProvider(cfg.llm_provider)
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false))
   }, [])
 
   const handleSave = async (updates: Partial<SetupConfig>) => {
     await saveSetupConfig(updates)
-    // Refresh config
+    // Refresh config (best-effort — UI already reflects selection)
     const fresh = await fetchSetupConfig()
     setConfig(fresh)
+  }
+
+  const handleSelectProvider = async (p: SetupConfig['llm_provider']) => {
+    if (p === activeProvider || savingProvider) return
+    setActiveProvider(p)  // update UI immediately
+    setSavingProvider(true)
+    try {
+      await saveSetupConfig({ llm_provider: p })
+      const fresh = await fetchSetupConfig()
+      setConfig(fresh)
+    } finally {
+      setSavingProvider(false)
+    }
   }
 
   if (loading)
@@ -1267,12 +1273,16 @@ export default function SetupPanel() {
       </div>
 
       <div className="setup-sections">
-        <ProviderSection config={config} onSave={handleSave} />
-        {config.llm_provider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
-        {config.llm_provider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
-        {config.llm_provider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}
-        {config.llm_provider === 'anthropic'   && <AnthropicSection config={config} onSave={handleSave} />}
-        {config.llm_provider === 'ollama'      && <OllamaSection config={config} onSave={handleSave} />}
+        <ProviderSection
+          activeProvider={activeProvider}
+          onSelect={handleSelectProvider}
+          saving={savingProvider}
+        />
+        {activeProvider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
+        {activeProvider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
+        {activeProvider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}
+        {activeProvider === 'anthropic'   && <AnthropicSection config={config} onSave={handleSave} />}
+        {activeProvider === 'ollama'      && <OllamaSection config={config} onSave={handleSave} />}
         {/* GitHub section always visible — needed for Copilot auth + device flow */}
         <GitHubSection config={config} onSave={handleSave} />
         <MCPSection />
