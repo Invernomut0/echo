@@ -231,7 +231,7 @@ Respond ONLY with valid JSON:
 
         # Status: memory retrieval
         _t_pipeline = time.monotonic()
-        yield {"_status": "Retrieving episodic memories…"}
+        yield {"_status": "Checking memories…"}
 
         # Retrieve memories + generate self-prediction concurrently (reduces latency)
         # Pre-compute the embedding vector once — episodic and semantic stores both
@@ -373,8 +373,8 @@ Respond ONLY with valid JSON:
         }
 
         full_response = []
-        # Status: generating response
-        yield {"_status": "Generating response…"}
+        # Status: thinking
+        yield {"_status": "Thinking…"}
         _t_generation = time.monotonic()
         async for delta in self.orchestrator.stream(
             user_input, self.workspace.snapshot, meta_state, context
