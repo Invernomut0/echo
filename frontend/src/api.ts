@@ -360,8 +360,21 @@ export interface SetupConfig {
   lm_studio_model: string
   lm_studio_embedding_model: string
   has_github_token: boolean
-  llm_provider: 'copilot' | 'lm_studio'
+  llm_provider: 'copilot' | 'lm_studio' | 'openai' | 'groq' | 'anthropic' | 'ollama'
   copilot_model: string
+  // OpenAI
+  openai_api_key: string
+  openai_model: string
+  openai_base_url: string
+  // Groq
+  groq_api_key: string
+  groq_model: string
+  // Anthropic
+  anthropic_api_key: string
+  anthropic_model: string
+  // Ollama chat
+  ollama_chat_model: string
+  ollama_base_url: string
 }
 
 export interface DeviceCodeResponse {

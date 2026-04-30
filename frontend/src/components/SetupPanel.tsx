@@ -108,10 +108,10 @@ function ProviderSection({
   config: SetupConfig
   onSave: (updates: Partial<SetupConfig>) => Promise<void>
 }) {
-  const [provider, setProvider] = useState<'copilot' | 'lm_studio'>(config.llm_provider)
+  const [provider, setProvider] = useState<SetupConfig['llm_provider']>(config.llm_provider)
   const [saving, setSaving] = useState(false)
 
-  const select = async (p: 'copilot' | 'lm_studio') => {
+  const select = async (p: SetupConfig['llm_provider']) => {
     if (p === provider || saving) return
     setProvider(p)
     setSaving(true)
@@ -122,6 +122,15 @@ function ProviderSection({
     }
   }
 
+  const tiles: { id: SetupConfig['llm_provider']; icon: React.ReactNode; name: string; desc: string }[] = [
+    { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
+    { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
+    { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
+    { id: 'groq',       icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Groq',            desc: 'Cloud · Llama 3 ultra-fast' },
+    { id: 'anthropic',  icon: <Shield size={22} className="provider-tile-icon" />,  name: 'Anthropic',       desc: 'Cloud · Claude 3.5 / 4' },
+    { id: 'copilot',    icon: <GitBranch size={22} className="provider-tile-icon" />, name: 'GitHub Copilot', desc: 'Cloud · GPT-4o, Claude & more' },
+  ]
+
   return (
     <SectionCard
       icon={<Settings size={18} />}
@@ -129,31 +138,21 @@ function ProviderSection({
       subtitle="Choose the language model backend for ECHO"
     >
       <div className="provider-tiles">
-        <button
-          className={`provider-tile${provider === 'lm_studio' ? ' provider-tile--active' : ''}`}
-          onClick={() => select('lm_studio')}
-          disabled={saving}
-        >
-          <Server size={22} className="provider-tile-icon" />
-          <div className="provider-tile-info">
-            <span className="provider-tile-name">LM Studio</span>
-            <span className="provider-tile-desc">Local · No internet required</span>
-          </div>
-          {provider === 'lm_studio' && <CheckCircle size={15} className="provider-tile-check" />}
-        </button>
-
-        <button
-          className={`provider-tile${provider === 'copilot' ? ' provider-tile--active' : ''}`}
-          onClick={() => select('copilot')}
-          disabled={saving}
-        >
-          <Zap size={22} className="provider-tile-icon" />
-          <div className="provider-tile-info">
-            <span className="provider-tile-name">GitHub Copilot</span>
-            <span className="provider-tile-desc">Cloud · GPT-4o, Claude & more</span>
-          </div>
-          {provider === 'copilot' && <CheckCircle size={15} className="provider-tile-check" />}
-        </button>
+        {tiles.map((t) => (
+          <button
+            key={t.id}
+            className={`provider-tile${provider === t.id ? ' provider-tile--active' : ''}`}
+            onClick={() => select(t.id)}
+            disabled={saving}
+          >
+            {t.icon}
+            <div className="provider-tile-info">
+              <span className="provider-tile-name">{t.name}</span>
+              <span className="provider-tile-desc">{t.desc}</span>
+            </div>
+            {provider === t.id && <CheckCircle size={15} className="provider-tile-check" />}
+          </button>
+        ))}
       </div>
     </SectionCard>
   )
@@ -292,6 +291,227 @@ function LMStudioSection({
             <CheckCircle size={12} /> Saved
           </span>
         )}
+      </div>
+    </SectionCard>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Generic API-key + model section (reused by OpenAI / Groq / Anthropic)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ApiKeySection({
+  icon,
+  title,
+  subtitle,
+  apiKeyLabel,
+  apiKeyPlaceholder,
+  apiKeyValue,
+  modelLabel,
+  modelValue,
+  modelPlaceholder,
+  modelSuggestions,
+  extraFields,
+  onSave,
+}: {
+  icon: React.ReactNode
+  title: string
+  subtitle: string
+  apiKeyLabel: string
+  apiKeyPlaceholder: string
+  apiKeyValue: string
+  modelLabel: string
+  modelValue: string
+  modelPlaceholder: string
+  modelSuggestions: string[]
+  extraFields?: React.ReactNode
+  onSave: (apiKey: string, model: string) => Promise<void>
+}) {
+  const [apiKey, setApiKey] = useState(apiKeyValue === '***' ? '' : apiKeyValue)
+  const [model, setModel] = useState(modelValue)
+  const [saving, setSaving] = useState(false)
+  const dirty = (apiKey !== '' && apiKey !== apiKeyValue) || model !== modelValue
+
+  const handleSave = async () => {
+    setSaving(true)
+    try { await onSave(apiKey, model) } finally { setSaving(false) }
+  }
+
+  const listId = `model-list-${title.replace(/\s/g, '-').toLowerCase()}`
+
+  return (
+    <SectionCard icon={icon} title={title} subtitle={subtitle}>
+      <div className="setup-field-group">
+        <label className="setup-label">{apiKeyLabel}</label>
+        <input
+          className="setup-input"
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={apiKeyPlaceholder}
+          autoComplete="off"
+        />
+        {apiKeyValue === '***' && (
+          <p className="setup-mcp-hint" style={{ color: '#10b981' }}>
+            <CheckCircle size={11} style={{ display: 'inline', marginRight: 4 }} />
+            API key is stored — enter a new one to update
+          </p>
+        )}
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">{modelLabel}</label>
+        <input
+          className="setup-input"
+          list={listId}
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder={modelPlaceholder}
+        />
+        <datalist id={listId}>
+          {modelSuggestions.map((m) => <option key={m} value={m} />)}
+        </datalist>
+      </div>
+
+      {extraFields}
+
+      <div className="setup-actions">
+        <button
+          className="setup-btn setup-btn--primary"
+          onClick={handleSave}
+          disabled={!dirty || saving}
+        >
+          {saving ? <Loader size={14} className="spin" /> : <Settings size={14} />}
+          Save Changes
+        </button>
+        {!dirty && apiKeyValue === '***' && (
+          <span className="setup-saved-label"><CheckCircle size={12} /> Saved</span>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
+function OpenAISection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  const [baseUrl, setBaseUrl] = useState(config.openai_base_url)
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="OpenAI"
+      subtitle="Connect to OpenAI or any OpenAI-compatible endpoint"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="sk-..."
+      apiKeyValue={config.openai_api_key}
+      modelLabel="Model"
+      modelValue={config.openai_model}
+      modelPlaceholder="gpt-4o-mini"
+      modelSuggestions={['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'gpt-4.1-mini', 'o3', 'o3-mini', 'o4-mini']}
+      extraFields={
+        <div className="setup-field-group">
+          <label className="setup-label">Base URL</label>
+          <input
+            className="setup-input"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.openai.com/v1"
+          />
+          <p className="setup-mcp-hint">Change to use any OpenAI-compatible endpoint</p>
+        </div>
+      }
+      onSave={async (apiKey, model) => {
+        await onSave({ openai_api_key: apiKey || undefined, openai_model: model, openai_base_url: baseUrl })
+      }}
+    />
+  )
+}
+
+function GroqSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="Groq"
+      subtitle="Ultra-fast inference — free tier available at console.groq.com"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="gsk_..."
+      apiKeyValue={config.groq_api_key}
+      modelLabel="Model"
+      modelValue={config.groq_model}
+      modelPlaceholder="llama-3.3-70b-versatile"
+      modelSuggestions={['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'llama-3.2-90b-vision-preview', 'mixtral-8x7b-32768', 'gemma2-9b-it']}
+      onSave={async (apiKey, model) => {
+        await onSave({ groq_api_key: apiKey || undefined, groq_model: model })
+      }}
+    />
+  )
+}
+
+function AnthropicSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  return (
+    <ApiKeySection
+      icon={<Shield size={18} />}
+      title="Anthropic"
+      subtitle="Claude models — get your key at console.anthropic.com"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="sk-ant-..."
+      apiKeyValue={config.anthropic_api_key}
+      modelLabel="Model"
+      modelValue={config.anthropic_model}
+      modelPlaceholder="claude-3-5-haiku-20241022"
+      modelSuggestions={['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022', 'claude-opus-4-5', 'claude-sonnet-4-5']}
+      onSave={async (apiKey, model) => {
+        await onSave({ anthropic_api_key: apiKey || undefined, anthropic_model: model })
+      }}
+    />
+  )
+}
+
+function OllamaSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  const [baseUrl, setBaseUrl] = useState(config.ollama_base_url)
+  const [model, setModel] = useState(config.ollama_chat_model)
+  const [saving, setSaving] = useState(false)
+  const dirty = baseUrl !== config.ollama_base_url || model !== config.ollama_chat_model
+
+  return (
+    <SectionCard icon={<Power size={18} />} title="Ollama" subtitle="Local models via Ollama daemon — ollama.ai">
+      <div className="setup-field-group">
+        <label className="setup-label">Ollama Base URL</label>
+        <input
+          className="setup-input"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="http://localhost:11434"
+        />
+      </div>
+      <div className="setup-field-group">
+        <label className="setup-label">Chat Model</label>
+        <input
+          className="setup-input"
+          list="ollama-models-list"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="llama3.2"
+        />
+        <datalist id="ollama-models-list">
+          {['llama3.2', 'llama3.1', 'mistral', 'gemma3', 'qwen2.5', 'phi4', 'deepseek-r1'].map((m) => (
+            <option key={m} value={m} />
+          ))}
+        </datalist>
+        <p className="setup-mcp-hint">Run <code>ollama pull &lt;model&gt;</code> first</p>
+      </div>
+      <div className="setup-actions">
+        <button
+          className="setup-btn setup-btn--primary"
+          onClick={async () => {
+            setSaving(true)
+            try { await onSave({ ollama_base_url: baseUrl, ollama_chat_model: model }) }
+            finally { setSaving(false) }
+          }}
+          disabled={!dirty || saving}
+        >
+          {saving ? <Loader size={14} className="spin" /> : <Settings size={14} />}
+          Save Changes
+        </button>
+        {!dirty && <span className="setup-saved-label"><CheckCircle size={12} /> Saved</span>}
       </div>
     </SectionCard>
   )
@@ -1048,7 +1268,12 @@ export default function SetupPanel() {
 
       <div className="setup-sections">
         <ProviderSection config={config} onSave={handleSave} />
-        <LMStudioSection config={config} onSave={handleSave} />
+        {config.llm_provider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
+        {config.llm_provider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
+        {config.llm_provider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}
+        {config.llm_provider === 'anthropic'   && <AnthropicSection config={config} onSave={handleSave} />}
+        {config.llm_provider === 'ollama'      && <OllamaSection config={config} onSave={handleSave} />}
+        {/* GitHub section always visible — needed for Copilot auth + device flow */}
         <GitHubSection config={config} onSave={handleSave} />
         <MCPSection />
       </div>

@@ -38,8 +38,24 @@ class Settings(BaseSettings):
     github_token: str = ""
 
     # LLM provider selection
-    llm_provider: Literal["copilot", "lm_studio"] = "lm_studio"
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama"] = "lm_studio"
     copilot_model: str = "gpt-4o"
+
+    # OpenAI
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
+
+    # Groq
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
+
+    # Anthropic (Claude)
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-3-5-haiku-20241022"
+
+    # Ollama (chat — separate from embedding config above)
+    ollama_chat_model: str = "llama3.2"
 
     # HuggingFace fallback embeddings (free Inference API)
     hf_token: str = ""  # optional — higher rate limits if provided

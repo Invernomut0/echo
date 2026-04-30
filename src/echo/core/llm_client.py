@@ -1,4 +1,4 @@
-"""Async LLM client — routes to LM Studio or GitHub Copilot depending on settings."""
+"""Async LLM client — routes to LM Studio, GitHub Copilot, OpenAI, Groq, Anthropic or Ollama."""
 
 from __future__ import annotations
 
@@ -111,6 +111,45 @@ def _build_openai_client() -> AsyncOpenAI:
     )
 
 
+def _build_provider_client() -> AsyncOpenAI:
+    """Build an OpenAI-compatible async client for the currently selected provider."""
+    p = settings.llm_provider
+    if p == "openai":
+        return AsyncOpenAI(
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key or "sk-none",
+            http_client=_http_client,
+        )
+    if p == "groq":
+        return AsyncOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=settings.groq_api_key or "gsk-none",
+            http_client=_http_client,
+        )
+    if p == "ollama":
+        return AsyncOpenAI(
+            base_url=f"{settings.ollama_base_url}/v1",
+            api_key="ollama",
+            http_client=_http_client,
+        )
+    # lm_studio or fallback
+    return _build_openai_client()
+
+
+def _provider_model() -> str:
+    """Return the model name for the currently selected provider."""
+    p = settings.llm_provider
+    if p == "openai":
+        return settings.openai_model
+    if p == "groq":
+        return settings.groq_model
+    if p == "ollama":
+        return settings.ollama_chat_model
+    if p == "copilot":
+        return settings.copilot_model
+    return settings.lm_studio_model
+
+
 def _clear_copilot_token_cache() -> None:
     """Force the next Copilot call to fetch a fresh token (called after a 401)."""
     m = sys.modules.get("echo.api.routers.setup")
@@ -125,6 +164,78 @@ class LLMClient:
         self.embedding_model = settings.lm_studio_embedding_model
         self._last_tools_used: list[str] = []
         self._embed_cache = _EmbedCache(max_size=256, ttl_seconds=300.0)
+
+    # ── Anthropic helpers ──────────────────────────────────────────────────────
+
+    async def _anthropic_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        model: str | None = None,
+    ) -> str:
+        """Non-streaming chat via the Anthropic Messages API."""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            r = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model or settings.anthropic_model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": messages,
+                },
+            )
+        r.raise_for_status()
+        data = r.json()
+        return data["content"][0]["text"] if data.get("content") else ""
+
+    async def _anthropic_stream_chat(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        model: str | None = None,
+    ) -> AsyncGenerator[str, None]:
+        """Streaming chat via the Anthropic Messages API (SSE)."""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model or settings.anthropic_model,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "messages": messages,
+                    "stream": True,
+                },
+            ) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload in ("[DONE]", ""):
+                        continue
+                    try:
+                        chunk = json.loads(payload)
+                        if chunk.get("type") == "content_block_delta":
+                            delta = chunk.get("delta", {}).get("text", "")
+                            if delta:
+                                yield delta
+                    except Exception:  # noqa: BLE001
+                        pass
 
     # ── Copilot helpers ────────────────────────────────────────────────────────
 
@@ -217,12 +328,19 @@ class LLMClient:
         model: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> str:
-        if settings.llm_provider == "copilot":
+        p = settings.llm_provider
+        if p == "copilot":
             return await self._copilot_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model
             )
-        response = await self._client.chat.completions.create(
-            model=model or self.model,
+        if p == "anthropic":
+            return await self._anthropic_chat(
+                messages, temperature=temperature, max_tokens=max_tokens, model=model
+            )
+        # OpenAI-compatible providers (lm_studio, openai, groq, ollama)
+        client = _build_provider_client()
+        response = await client.chat.completions.create(
+            model=model or _provider_model(),
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -238,15 +356,24 @@ class LLMClient:
         max_tokens: int = 1024,
         model: str | None = None,
     ) -> AsyncGenerator[str, None]:
-        if settings.llm_provider == "copilot":
+        p = settings.llm_provider
+        if p == "copilot":
             async for delta in self._copilot_stream_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model
             ):
                 yield delta
             return
+        if p == "anthropic":
+            async for delta in self._anthropic_stream_chat(
+                messages, temperature=temperature, max_tokens=max_tokens, model=model
+            ):
+                yield delta
+            return
 
-        stream = await self._client.chat.completions.create(
-            model=model or self.model,
+        # OpenAI-compatible providers (lm_studio, openai, groq, ollama)
+        client = _build_provider_client()
+        stream = await client.chat.completions.create(
+            model=model or _provider_model(),
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
@@ -412,15 +539,28 @@ class LLMClient:
     # ── Health check ───────────────────────────────────────────────────────────
 
     async def is_available(self) -> bool:
-        if settings.llm_provider == "copilot":
+        p = settings.llm_provider
+        if p == "copilot":
             try:
                 from echo.api.routers.setup import _get_copilot_token_cached  # noqa: PLC0415
                 await _get_copilot_token_cached()
                 return True
             except Exception:  # noqa: BLE001
                 return False
+        if p == "anthropic":
+            try:
+                # Light probe: list models endpoint
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.get(
+                        "https://api.anthropic.com/v1/models",
+                        headers={"x-api-key": settings.anthropic_api_key, "anthropic-version": "2023-06-01"},
+                    )
+                return r.status_code == 200
+            except Exception:  # noqa: BLE001
+                return False
         try:
-            await self._client.models.list()
+            client = _build_provider_client()
+            await client.models.list()
             return True
         except Exception:  # noqa: BLE001
             return False
@@ -467,12 +607,17 @@ class LLMClient:
                 max_rounds=max_tool_rounds, model=model,
             )
 
-        # OpenAI-compatible path (LM Studio)
+        if settings.llm_provider == "anthropic":
+            # Anthropic doesn't support OpenAI tool format — fall back to plain chat
+            return await self.chat(messages, temperature=temperature, max_tokens=max_tokens, model=model)
+
+        # OpenAI-compatible providers (lm_studio, openai, groq, ollama)
         self._last_tools_used = []
         current_messages = list(messages)
+        client = _build_provider_client()
         for _round in range(max_tool_rounds):
-            response = await self._client.chat.completions.create(
-                model=model or self.model,
+            response = await client.chat.completions.create(
+                model=model or _provider_model(),
                 messages=current_messages,
                 tools=tools,
                 tool_choice="auto",

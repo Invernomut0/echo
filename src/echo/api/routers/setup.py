@@ -104,8 +104,21 @@ class ConfigPayload(BaseModel):
     lm_studio_model: str | None = None
     lm_studio_embedding_model: str | None = None
     github_token: str | None = None
-    llm_provider: Literal["copilot", "lm_studio"] | None = None
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama"] | None = None
     copilot_model: str | None = None
+    # OpenAI
+    openai_api_key: str | None = None
+    openai_model: str | None = None
+    openai_base_url: str | None = None
+    # Groq
+    groq_api_key: str | None = None
+    groq_model: str | None = None
+    # Anthropic
+    anthropic_api_key: str | None = None
+    anthropic_model: str | None = None
+    # Ollama chat
+    ollama_chat_model: str | None = None
+    ollama_base_url: str | None = None
 
 
 class PollRequest(BaseModel):
@@ -138,6 +151,19 @@ async def get_config() -> dict:
         "lm_studio_embedding_model": settings.lm_studio_embedding_model,
         "llm_provider": settings.llm_provider,
         "copilot_model": settings.copilot_model,
+        # OpenAI
+        "openai_api_key": "***" if settings.openai_api_key else "",
+        "openai_model": settings.openai_model,
+        "openai_base_url": settings.openai_base_url,
+        # Groq
+        "groq_api_key": "***" if settings.groq_api_key else "",
+        "groq_model": settings.groq_model,
+        # Anthropic
+        "anthropic_api_key": "***" if settings.anthropic_api_key else "",
+        "anthropic_model": settings.anthropic_model,
+        # Ollama chat
+        "ollama_chat_model": settings.ollama_chat_model,
+        "ollama_base_url": settings.ollama_base_url,
         # Never return the actual token value to the frontend
         "has_github_token": bool(settings.github_token),
     }
@@ -154,6 +180,15 @@ async def save_config(payload: ConfigPayload) -> dict:
         "GITHUB_TOKEN": payload.github_token,
         "LLM_PROVIDER": payload.llm_provider,
         "COPILOT_MODEL": payload.copilot_model,
+        "OPENAI_API_KEY": payload.openai_api_key,
+        "OPENAI_MODEL": payload.openai_model,
+        "OPENAI_BASE_URL": payload.openai_base_url,
+        "GROQ_API_KEY": payload.groq_api_key,
+        "GROQ_MODEL": payload.groq_model,
+        "ANTHROPIC_API_KEY": payload.anthropic_api_key,
+        "ANTHROPIC_MODEL": payload.anthropic_model,
+        "OLLAMA_CHAT_MODEL": payload.ollama_chat_model,
+        "OLLAMA_BASE_URL": payload.ollama_base_url,
     }
 
     for env_key, value in mapping.items():
