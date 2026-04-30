@@ -76,9 +76,11 @@ class SemanticMemoryStore:
         async with factory() as session:
             existing_row = (
                 await session.execute(
-                    select(SemanticRow).where(SemanticRow.content == norm_content)
+                    select(SemanticRow)
+                    .where(SemanticRow.content == norm_content)
+                    .limit(1)
                 )
-            ).scalar_one_or_none()
+            ).scalars().first()
             if existing_row is not None:
                 # If the new salience is higher, update it
                 if salience > existing_row.salience:
