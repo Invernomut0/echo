@@ -25,12 +25,20 @@ _STOPWORDS = frozenset({
     "this", "they", "will", "can", "be", "it", "at", "on", "from", "also",
     "very", "well", "more", "most", "both", "when", "where", "which",
     "who", "its", "have", "had", "does", "did", "was", "were",
+    # Italian stopwords
+    "che", "con", "una", "uno", "gli", "del", "della", "delle", "degli",
+    "nel", "nella", "nelle", "negli", "sui", "sulla", "sulle", "sugli",
+    "per", "non", "tra", "fra", "come", "cosa", "quando", "dove", "sono",
+    "hai", "lui", "lei", "loro", "noi", "voi", "era", "fatto", "ecco",
+    "anche", "solo", "poi", "dopo", "prima", "sempre", "mai", "già",
+    "echo", "utente",
 })
 
 
 def _tokenize(text: str) -> frozenset[str]:
-    words = re.findall(r"\b[a-z]+\b", text.lower())
-    return frozenset(w for w in words if len(w) > 3 and w not in _STOPWORDS)
+    # Unicode word chars — handles Italian accented letters (è, à, ò, ì, ù)
+    words = re.findall(r"\b[\w']+\b", text.lower(), re.UNICODE)
+    return frozenset(w for w in words if len(w) > 3 and w not in _STOPWORDS and not w.isdigit())
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
@@ -59,16 +67,29 @@ async def get_graph() -> GraphResponse:
         nodes.append({**n, "node_type": "belief"})
     edges: list[dict] = list(belief_data["edges"])
 
-    # ── 2. Semantic memory nodes ──────────────────────────────────────────
+    # ── 2. Semantic memory nodes — deduplicated by content ──────────────
     try:
         store = SemanticMemoryStore()
-        sem_entries = await store.get_all(limit=60)
-        # Sort by salience * current_strength DESC, keep top 40
-        sem_entries.sort(
-            key=lambda e: (e.salience or 0.5) * (e.current_strength or 1.0),
+        all_entries = await store.get_all(limit=400)  # wider pool for dedup
+
+        # Deduplicate: keep highest-scoring copy of each unique content
+        seen: dict[str, object] = {}
+        for e in all_entries:
+            key = e.content.strip().lower()
+            score = (e.salience or 0.5) * (e.current_strength or 1.0)
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = e
+            else:
+                existing_score = (existing.salience or 0.5) * (existing.current_strength or 1.0)  # type: ignore[union-attr]
+                if score > existing_score:
+                    seen[key] = e
+
+        sem_entries = sorted(
+            seen.values(),
+            key=lambda e: (e.salience or 0.5) * (e.current_strength or 1.0),  # type: ignore[union-attr]
             reverse=True,
-        )
-        sem_entries = sem_entries[:40]
+        )[:60]  # up to 60 unique memories
     except Exception:
         logger.exception("Could not load semantic memories for graph")
         sem_entries = []

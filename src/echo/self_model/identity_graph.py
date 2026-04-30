@@ -254,6 +254,12 @@ class IdentityGraph:
             "this", "they", "will", "can", "be", "it", "at", "on", "from", "also",
             "very", "well", "more", "most", "both", "when", "where", "which",
             "who", "its", "have", "had", "does", "did", "was", "were",
+            # Italian
+            "che", "con", "una", "uno", "gli", "del", "della", "delle", "degli",
+            "nel", "nella", "nelle", "negli", "per", "non", "tra", "fra",
+            "come", "cosa", "quando", "dove", "sono", "hai", "lui", "lei",
+            "loro", "noi", "voi", "era", "fatto", "ecco", "anche", "solo",
+            "poi", "dopo", "prima", "sempre", "mai", "già", "echo", "utente",
         })
 
         beliefs = self.all_beliefs()
@@ -261,8 +267,8 @@ class IdentityGraph:
             return []
 
         def tokenize(text: str) -> frozenset:
-            words = re.findall(r"\b[a-z]+\b", text.lower())
-            return frozenset(w for w in words if len(w) > 3 and w not in STOPWORDS)
+            words = re.findall(r"\b[\w']+\b", text.lower(), re.UNICODE)
+            return frozenset(w for w in words if len(w) > 3 and w not in STOPWORDS and not w.isdigit())
 
         def jaccard(a: frozenset, b: frozenset) -> float:
             u = a | b

@@ -70,11 +70,40 @@ class SemanticMemoryStore:
     async def store(
         self, content: str, tags: list[str] | None = None, salience: float = 0.7
     ) -> MemoryEntry:
+        # ── Dedup: skip exact-content duplicates ─────────────────────────
+        norm_content = content.strip()
+        factory = get_session_factory()
+        async with factory() as session:
+            existing_row = (
+                await session.execute(
+                    select(SemanticRow).where(SemanticRow.content == norm_content)
+                )
+            ).scalar_one_or_none()
+            if existing_row is not None:
+                # If the new salience is higher, update it
+                if salience > existing_row.salience:
+                    existing_row.salience = salience
+                    existing_row.decay_lambda = round(1.0 - salience, 4)
+                    await session.commit()
+                logger.debug(
+                    "Semantic store dedup: content already exists (%s), skipping",
+                    existing_row.id[:8],
+                )
+                return MemoryEntry(
+                    id=existing_row.id,
+                    content=existing_row.content,
+                    memory_type=MemoryType.SEMANTIC,
+                    salience=max(salience, existing_row.salience),
+                    decay_lambda=existing_row.decay_lambda,
+                    tags=json.loads(existing_row.tags or "[]"),
+                    embedding_id=existing_row.embedding_id,
+                )
+
         entry_id = str(uuid.uuid4())
 
         # Chunk long texts so each segment gets its own embedding vector.
         # Short texts (≤ CHUNK_MIN_LEN chars) return a single-element list.
-        chunks = chunk_text(content)
+        chunks = chunk_text(norm_content)
         vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
 
         decay_lambda = round(1.0 - salience, 4)
@@ -107,7 +136,7 @@ class SemanticMemoryStore:
         async with factory() as session:
             row = SemanticRow(
                 id=entry_id,
-                content=content,
+                content=norm_content,
                 salience=salience,
                 decay_lambda=decay_lambda,
                 embedding_id=embedding_id,  # None when embedding failed
@@ -118,7 +147,7 @@ class SemanticMemoryStore:
 
         return MemoryEntry(
             id=entry_id,
-            content=content,
+            content=norm_content,
             memory_type=MemoryType.SEMANTIC,
             salience=salience,
             decay_lambda=decay_lambda,
