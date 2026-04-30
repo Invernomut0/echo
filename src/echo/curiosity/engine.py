@@ -235,6 +235,23 @@ Respond ONLY with valid JSON:
   "next_step": "..." (if not achieved, what to do next)
 }}"""
 
+    @staticmethod
+    def _extract_json(raw: str) -> dict:
+        """Extract JSON from LLM output that may be wrapped in markdown code fences."""
+        text = raw.strip()
+        # Strip ```json ... ``` or ``` ... ``` fences
+        if text.startswith("```"):
+            lines = text.splitlines()
+            # drop first line (```json or ```) and last line (```)
+            inner = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
+            text = inner.strip()
+        # Find first { and last }
+        start = text.find("{")
+        end = text.rfind("}")
+        if start != -1 and end != -1:
+            text = text[start : end + 1]
+        return json.loads(text)
+
     async def _run_goal_cycle(self, recent_memories: list[Any]) -> None:
         """Review state, update goals, and pursue active goals with searches."""
         try:
@@ -281,11 +298,17 @@ Respond ONLY with valid JSON:
                 max_tokens=600,
             )
 
+            logger.debug("[Goals] reflect raw: %s", reflect_raw[:400])
             try:
-                plan = json.loads(reflect_raw.strip())
-            except json.JSONDecodeError:
-                logger.warning("Goal reflection returned non-JSON: %s", reflect_raw[:200])
+                plan = self._extract_json(reflect_raw)
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning("[Goals] reflection parse error (%s): %s", exc, reflect_raw[:300])
                 return
+            logger.info("[Goals] plan — new:%d achieved:%d abandoned:%d actions:%d",
+                        len(plan.get('new_goals', [])),
+                        len(plan.get('achieved_ids', [])),
+                        len(plan.get('abandoned_ids', [])),
+                        len(plan.get('next_actions', [])))
 
             # Step 2: Mark achieved goals
             for gid in plan.get("achieved_ids", []):
@@ -380,7 +403,7 @@ Respond ONLY with valid JSON:
                         temperature=0.3,
                         max_tokens=300,
                     )
-                    pursue = json.loads(pursue_raw.strip())
+                    pursue = self._extract_json(pursue_raw)
                 except Exception:  # noqa: BLE001
                     pursue = {"summary": search_text[:300], "achieved": False}
 
@@ -415,7 +438,7 @@ Respond ONLY with valid JSON:
                     logger.info("[Goals] Goal achieved via research: %s", goal["title"])
 
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Goal cycle failed: %s", exc, exc_info=True)
+            logger.error("[Goals] Goal cycle failed: %s", exc, exc_info=True)
 
     # ------------------------------------------------------------------
     # Main cycle
