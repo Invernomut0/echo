@@ -87,6 +87,12 @@ function MemoryCard({ m }: { m: MemoryItem }) {
         {m.tags.slice(0, 3).map(t => (
           <Badge key={t} label={t} color="#312e81" />
         ))}
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: '#4b5563', flexShrink: 0 }}>
+          {new Date(m.created_at).toLocaleString('en-GB', {
+            day: '2-digit', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })}
+        </span>
       </div>
 
       {/* Content */}

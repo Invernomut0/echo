@@ -41,15 +41,16 @@ function rgb(hex: string, alpha = 1): string {
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 interface PhaseCardProps {
-  color:    string
-  label:    string
-  icon:     string
-  badge?:   string
-  badgeClr?: string
-  loading?: boolean
-  children: React.ReactNode
+  color:       string
+  label:       string
+  icon:        string
+  badge?:      string
+  badgeClr?:   string
+  loading?:    boolean
+  durationMs?: number
+  children:    React.ReactNode
 }
-function PhaseCard({ color, label, icon, badge, badgeClr, loading, children }: PhaseCardProps) {
+function PhaseCard({ color, label, icon, badge, badgeClr, loading, durationMs, children }: PhaseCardProps) {
   return (
     <div style={{
       background:    rgb(color, 0.04),
@@ -77,8 +78,16 @@ function PhaseCard({ color, label, icon, badge, badgeClr, loading, children }: P
           }}>{badge}</span>
         )}
 
+        {durationMs !== undefined && (
+          <span style={{
+            marginLeft: badge ? 6 : 'auto',
+            fontSize: 10, color: '#4b5563',
+            fontVariantNumeric: 'tabular-nums',
+          }}>{durationMs} ms</span>
+        )}
+
         {loading && (
-          <span style={{ marginLeft: badge ? 6 : 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ marginLeft: (badge || durationMs !== undefined) ? 6 : 'auto', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{
               width: 7, height: 7, borderRadius: '50%',
               background: color, opacity: 0.9,
@@ -161,7 +170,9 @@ function RetrievalSection({ trace }: { trace: PipelineTrace }) {
   const { episodic_count, semantic_count, episodic_snippets, semantic_snippets } = trace.retrieval
   const total = episodic_count + semantic_count
   return (
-    <PhaseCard color={CLR.retrieval} label="Retrieval" icon="◈">
+    <PhaseCard color={CLR.retrieval} label="Retrieval" icon="◈"
+      durationMs={trace.step_times?.retrieval_ms ?? undefined}
+    >
       <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
         <StatPill label="Episodic" value={episodic_count} color={CLR.retrieval} />
         <StatPill label="Semantic" value={semantic_count} color={CLR.prediction} />
@@ -530,6 +541,17 @@ export default function PipelinePanel({ active }: Props) {
             <div style={{ fontSize: 10.5, color: '#44445a', marginTop: 1 }}>
               {timeStr} · id:{idShort}
             </div>
+            {trace.step_times?.total_ms != null && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                {trace.step_times.retrieval_ms != null && (
+                  <Chip text={`↳ retrieval ${trace.step_times.retrieval_ms} ms`} color={CLR.retrieval} />
+                )}
+                {trace.step_times.generation_ms != null && (
+                  <Chip text={`↳ gen ${trace.step_times.generation_ms} ms`} color={CLR.prediction} />
+                )}
+                <Chip text={`⏱ ${trace.step_times.total_ms} ms total`} color={CLR.slate} />
+              </div>
+            )}
           </div>
           {/* post_interact status dot */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>

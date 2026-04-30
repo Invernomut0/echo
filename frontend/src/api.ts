@@ -145,6 +145,11 @@ export interface PipelineTrace {
   valence_after: number | null
   arousal_after: number | null
   response_length: number | null
+  step_times: {
+    retrieval_ms: number | null
+    generation_ms: number | null
+    total_ms: number | null
+  } | null
 }
 
 // ── State ──────────────────────────────────────────────────────────────────

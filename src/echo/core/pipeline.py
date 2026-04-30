@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
@@ -156,14 +157,17 @@ class CognitivePipeline:
         )
 
         # Status: memory retrieval
+        _t_pipeline = time.monotonic()
         yield {"_status": "Retrieving episodic memories…"}
 
         # Retrieve memories + generate self-prediction concurrently (reduces latency)
+        _t_retrieval = time.monotonic()
         episodic_mems, semantic_mems, self_pred = await asyncio.gather(
             self.episodic.retrieve_similar(user_input, n_results=5),
             self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
             predict_response(user_input, self.meta_tracker.current),
         )
+        _retrieval_ms = round((time.monotonic() - _t_retrieval) * 1000)
         # Track source counts for downstream SSE metadata
         self._last_memory_sources = {
             "episodic": len(episodic_mems),
@@ -253,16 +257,26 @@ class CognitivePipeline:
             "valence_after": None,
             "arousal_after": None,
             "response_length": None,
+            "step_times": {
+                "retrieval_ms": _retrieval_ms,
+                "generation_ms": None,  # filled after streaming completes
+                "total_ms": None,
+            },
         }
 
         full_response = []
         # Status: generating response
         yield {"_status": "Generating response…"}
+        _t_generation = time.monotonic()
         async for delta in self.orchestrator.stream(
             user_input, self.workspace.snapshot, meta_state, context
         ):
             full_response.append(delta)
             yield delta
+        _generation_ms = round((time.monotonic() - _t_generation) * 1000)
+        _total_ms = round((time.monotonic() - _t_pipeline) * 1000)
+        self._last_pipeline_trace["step_times"]["generation_ms"] = _generation_ms
+        self._last_pipeline_trace["step_times"]["total_ms"] = _total_ms
 
         # Post-interaction (async, non-blocking — tracked for graceful shutdown)
         response_text = "".join(full_response)
