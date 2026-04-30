@@ -10,6 +10,7 @@ from fastapi import APIRouter
 from echo.api.schemas import GraphResponse
 from echo.core.pipeline import pipeline
 from echo.memory.semantic import SemanticMemoryStore
+from echo.memory.episodic import EpisodicMemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +53,15 @@ def _jaccard(a: frozenset, b: frozenset) -> float:
 
 @router.get("/graph", response_model=GraphResponse)
 async def get_graph() -> GraphResponse:
-    """Return combined identity + semantic memory graph for 3D visualisation.
+    """Return combined identity + semantic + episodic memory graph for 3D visualisation.
 
     Belief nodes are type='belief' (cyan); semantic memory nodes are
-    type='semantic' (violet).  Edges:
+    type='semantic' (violet); episodic memory nodes are type='episodic' (amber).
+    Edges:
     - Persisted belief–belief edges (SUPPORTS, CONTRADICTS, REFINES, DERIVES_FROM)
     - INFORMS  : best-matching belief for each semantic node (text similarity ≥ 0.12)
     - SEMANTIC_RELATED : semantic nodes sharing a source: tag or text sim ≥ 0.22
+    - RECALLS  : each episodic node → best matching belief (text similarity ≥ 0.12)
     """
     # ── 1. Identity belief graph ──────────────────────────────────────────
     belief_data = pipeline.identity_graph.to_dict()
@@ -160,6 +163,51 @@ async def get_graph() -> GraphResponse:
                     "relation": "SEMANTIC_RELATED",
                     "weight": round(sim, 3),
                 })
+
+    # ── 5. Episodic memory nodes ──────────────────────────────────────────
+    try:
+        ep_store = EpisodicMemoryStore()
+        ep_entries = await ep_store.get_all(limit=40)  # cap at 40 to keep graph readable
+    except Exception:
+        logger.exception("Could not load episodic memories for graph")
+        ep_entries = []
+
+    ep_nodes: list[dict] = []
+    for e in ep_entries:
+        ep_nodes.append({
+            "id": f"ep:{e.id}",
+            "content": e.content[:150],
+            "confidence": round(e.salience or 0.5, 3),
+            "tags": e.tags or [],
+            "node_type": "episodic",
+            "source_agent": e.source_agent or "",
+        })
+    nodes.extend(ep_nodes)
+
+    ep_tokens: dict[str, frozenset] = {
+        en["id"]: _tokenize(en["content"])
+        for en in ep_nodes
+    }
+
+    # ── 6. RECALLS edges: each episodic node → best matching belief ───────
+    for en in ep_nodes:
+        et = ep_tokens[en["id"]]
+        if not et:
+            continue
+        best_bid: str | None = None
+        best_sim = 0.0
+        for bid, bt in belief_tokens.items():
+            sim = _jaccard(et, bt)
+            if sim > best_sim:
+                best_sim = sim
+                best_bid = bid
+        if best_bid and best_sim >= 0.12:
+            edges.append({
+                "source": en["id"],
+                "target": best_bid,
+                "relation": "RECALLS",
+                "weight": round(best_sim, 3),
+            })
 
     return GraphResponse(
         nodes=nodes,

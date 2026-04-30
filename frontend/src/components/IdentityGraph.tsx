@@ -17,10 +17,11 @@ const RELATION_CFG: Record<string, { color: string; label: string; sym: string }
   DERIVES_FROM: { color: '#94a3b8', label: 'Deriva da',   sym: '↙' },
 }
 
-// Semantic link types — coloured but NOT filterable (always visible)
+// Semantic / episodic link types — coloured but NOT filterable (always visible)
 const SEMANTIC_LINK_CFG: Record<string, { color: string; label: string; sym: string }> = {
-  INFORMS:          { color: '#a78bfa', label: 'Informa',  sym: '⟶' },
-  SEMANTIC_RELATED: { color: '#7c3aed', label: 'Correlato', sym: '≈' },
+  INFORMS:          { color: '#a78bfa', label: 'Informa',    sym: '⟶' },
+  SEMANTIC_RELATED: { color: '#7c3aed', label: 'Correlato',  sym: '≈' },
+  RECALLS:          { color: '#f59e0b', label: 'Ricorda',    sym: '↺' },
 }
 
 const ALL_LINK_CFG = { ...RELATION_CFG, ...SEMANTIC_LINK_CFG }
@@ -82,22 +83,25 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
       .height(h || 600)
       .nodeLabel((n: object) => {
         const node = n as GraphNode
-        const isSem = node.node_type === 'semantic'
-        const typeLabel = isSem ? 'semantic memory' : 'belief'
-        const scoreLabel = isSem ? 'salience' : 'conf'
+        const typeLabel = node.node_type === 'semantic' ? 'semantic memory'
+          : node.node_type === 'episodic' ? 'episodic memory'
+          : 'belief'
+        const scoreLabel = node.node_type === 'belief' ? 'conf' : 'salience'
         return `<span style="font-size:11px;color:#e2e8f0">${node.content}<br/><small style="color:#94a3b8">${typeLabel} · ${scoreLabel}: ${(node.confidence * 100).toFixed(0)}%</small></span>`
       })
       .nodeVal((n: object) => {
         const node = n as GraphNode
-        return node.node_type === 'semantic'
-          ? 1.5 + (node.confidence ?? 0.5) * 5
-          : 2 + (node.confidence ?? 0.5) * 8
+        if (node.node_type === 'semantic') return 1.5 + (node.confidence ?? 0.5) * 5
+        if (node.node_type === 'episodic') return 1.2 + (node.confidence ?? 0.5) * 4
+        return 2 + (node.confidence ?? 0.5) * 8
       })
       .nodeColor((n: object) => {
         const node = n as GraphNode
         if (selectedNodeRef.current?.id === node.id) return '#ffffff'
         const alpha = Math.round((0.4 + (node.confidence ?? 0.5) * 0.6) * 255).toString(16).padStart(2, '0')
-        return node.node_type === 'semantic' ? `#a78bfa${alpha}` : `#06b6d4${alpha}`
+        if (node.node_type === 'semantic') return `#a78bfa${alpha}`
+        if (node.node_type === 'episodic') return `#f59e0b${alpha}`
+        return `#06b6d4${alpha}`
       })
       .nodeOpacity(0.9)
       .linkColor((l: object) => {
@@ -183,7 +187,9 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
       const n = node as GraphNode
       if (selectedNode && n.id === selectedNode.id) return '#ffffff'
       const alpha = Math.round((0.4 + (n.confidence ?? 0.5) * 0.6) * 255).toString(16).padStart(2, '0')
-      return n.node_type === 'semantic' ? `#a78bfa${alpha}` : `#06b6d4${alpha}`
+      if (n.node_type === 'semantic') return `#a78bfa${alpha}`
+      if (n.node_type === 'episodic') return `#f59e0b${alpha}`
+      return `#06b6d4${alpha}`
     })
   }, [selectedNode])
 
@@ -210,8 +216,8 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
             {nodes.map(n => (
               <tr key={n.id} style={{ borderBottom: '1px solid #0f172a' }}>
                 <td style={{ padding: '6px 8px', color: '#e2e8f0', lineHeight: 1.4 }}>{n.content}</td>
-                <td style={{ padding: '6px 8px', color: n.node_type === 'semantic' ? '#a78bfa' : '#06b6d4' }}>
-                  {n.node_type === 'semantic' ? 'semantic' : 'belief'}
+                <td style={{ padding: '6px 8px', color: n.node_type === 'semantic' ? '#a78bfa' : n.node_type === 'episodic' ? '#f59e0b' : '#06b6d4' }}>
+                  {n.node_type === 'semantic' ? 'semantic' : n.node_type === 'episodic' ? 'episodic' : 'belief'}
                 </td>
                 <td style={{ padding: '6px 8px', color: '#94a3b8' }}>{(n.confidence * 100).toFixed(0)}%</td>
               </tr>
@@ -286,12 +292,17 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
         <span style={{ color: '#1e293b' }}>·</span>
         <span>
           <span style={{ color: '#06b6d4' }}>●</span>
-          &nbsp;{nodes.filter(n => n.node_type !== 'semantic').length} credenze
+          &nbsp;{nodes.filter(n => n.node_type === 'belief').length} credenze
         </span>
         <span style={{ color: '#1e293b' }}>·</span>
         <span>
           <span style={{ color: '#a78bfa' }}>●</span>
-          &nbsp;{nodes.filter(n => n.node_type === 'semantic').length} memorie
+          &nbsp;{nodes.filter(n => n.node_type === 'semantic').length} semantiche
+        </span>
+        <span style={{ color: '#1e293b' }}>·</span>
+        <span>
+          <span style={{ color: '#f59e0b' }}>●</span>
+          &nbsp;{nodes.filter(n => n.node_type === 'episodic').length} episodiche
         </span>
         <span style={{ color: '#1e293b' }}>·</span>
         <span>{edges.length} relazioni</span>
@@ -320,9 +331,9 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
               <div style={{
                 fontSize: 9, textTransform: 'uppercase',
                 letterSpacing: '0.08em', marginBottom: 5,
-                color: selectedNode.node_type === 'semantic' ? '#a78bfa' : '#475569',
+                color: selectedNode.node_type === 'semantic' ? '#a78bfa' : selectedNode.node_type === 'episodic' ? '#f59e0b' : '#475569',
               }}>
-                {selectedNode.node_type === 'semantic' ? 'Semantic Memory' : 'Selected Belief'}
+                {selectedNode.node_type === 'semantic' ? 'Semantic Memory' : selectedNode.node_type === 'episodic' ? 'Episodic Memory' : 'Selected Belief'}
               </div>
               <div style={{ fontSize: 12, color: '#e2e8f0', lineHeight: 1.55 }}>
                 {selectedNode.content}
