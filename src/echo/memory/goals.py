@@ -185,7 +185,7 @@ class GoalStore:
             )
             session.add(row)
             await session.commit()
-            await session.refresh(row)
+            await session.refresh(row, ["actions"])
             return _row_to_goal(row)
 
     async def update_status(
