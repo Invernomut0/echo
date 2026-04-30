@@ -80,6 +80,7 @@ Background loops (always running):
   • ConsolidationScheduler  — 5-min light cycle + 12-h REM dream phase
   • DecayScheduler          — exponential memory strength decay (every 5 min)
   • CuriosityEngine         — idle-time autonomous web research
+  • StimulusNudge           — proactive injection of findings into pipeline (p = 0.2 + 0.3·arousal)
 ```
 
 ---
@@ -107,7 +108,8 @@ src/echo/
 ├── self_model/         ← Identity layer
 │   ├── identity_graph.py   NetworkX DiGraph of IdentityBelief nodes
 │   ├── meta_state.py       MetaStateTracker — drives + agent weights
-│   └── self_prediction.py  Predict ECHO's likely response before generation
+│   ├── self_prediction.py  Predict ECHO's likely response before generation
+│   └── echo_md.py          EchoMdManager — self-maintained personality file
 │
 ├── motivation/         ← Drive layer
 │   ├── drives.py           DriveScores model + descriptions
@@ -147,6 +149,8 @@ src/echo/
 │
 ├── curiosity/
 │   ├── engine.py            Idle-time autonomous research
+│   ├── interest_profile.py  EMA-based user interest tracking + ZPD generation
+│   ├── stimulus_queue.py    Ranked findings queue with feedback propagation
 │   ├── web_search.py        arXiv / HackerNews / Wikipedia / DuckDuckGo
 │   └── mcp_search.py        Brave Search + URL fetch via MCP
 │
@@ -161,8 +165,10 @@ src/echo/
         ├── state.py          GET /api/state, GET /api/state/history
         ├── memory.py         GET/DELETE /api/memory/*
         ├── identity.py       GET /api/identity/graph
-        ├── consolidation.py  POST /api/consolidation/trigger
-        ├── curiosity.py      GET /api/curiosity/status
+        ├── consolidation.py  POST /api/consolidation/trigger; GET+POST /api/consolidation/echo-md
+        ├── curiosity.py      GET /api/curiosity/activity; POST /api/curiosity/trigger;
+        │                     GET /api/curiosity/profile; GET /api/curiosity/findings;
+        │                     POST /api/curiosity/feedback; POST /api/curiosity/guide
         ├── setup.py          POST /api/setup (first-run)
         └── mcp.py            GET /api/mcp/tools
 ```
@@ -195,9 +201,11 @@ After the last token is sent, `_post_interact()` runs asynchronously:
 1. **Motivational scoring** — LLM evaluates which drives were activated (0–1 per drive).
 2. **Agent weight update** — drive scores drive routing weight deltas via `_DRIVE_AGENT_MAP`.
 3. **Memory storage** — interaction stored as episodic memory; key facts extracted to semantic memory.
-4. **Reflection** — LLM produces insights, new identity beliefs, and drive adjustments.
-5. **Plasticity** — `PlasticityAdapter.apply()` fine-tunes weights from reflection insights + prediction error.
-6. **Learning** — `LearningEngine.observe()` updates personalization style and prediction priors.
+4. **Interest profile inference** — `interest_profile.infer_from_memories()` extracts topics from the interaction via LLM and updates EMA affinity scores.
+5. **Implicit stimulus feedback** — if a stimulus was injected and `mem.self_relevance > 0.7`, a positive feedback score (0.8) is recorded in the stimulus queue.
+6. **Reflection** — LLM produces insights, new identity beliefs, and drive adjustments.
+7. **Plasticity** — `PlasticityAdapter.apply()` fine-tunes weights from reflection insights + prediction error.
+8. **Learning** — `LearningEngine.observe()` updates personalization style and prediction priors.
 7. **Persistence** — full `MetaState` snapshot appended to SQLite.
 
 ### 7. Background Loops

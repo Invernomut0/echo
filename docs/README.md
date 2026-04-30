@@ -25,6 +25,7 @@
 | 09 | Plasticity Adapter | [modules/09-plasticity.md](modules/09-plasticity.md) |
 | 10 | Deep Real-Time Learning | [modules/10-learning.md](modules/10-learning.md) |
 | 11 | Curiosity Engine | [modules/11-curiosity.md](modules/11-curiosity.md) |
+| 12 | Co-Evolutionary Cognitive Partner | [modules/12-co-evolution.md](modules/12-co-evolution.md) |
 
 ### API Reference
 - [REST API](api/rest-api.md) — all HTTP endpoints with request/response schemas
@@ -43,12 +44,11 @@
 # Clone and install
 git clone https://github.com/Invernomut0/echo.git
 cd echo
-cp .env.example .env          # edit LLM settings as needed
+cp .env.example .env          # configure GITHUB_TOKEN and other vars
 uv sync --extra dev
 
-# Start LM Studio with:
-#   Qwen2.5-7B-Instruct-Q4_K_M  (completions, port 1234)
-#   nomic-embed-text-v1.5        (embeddings, port 1234)
+# Start Ollama with the embedding model
+ollama pull nomic-embed-text
 
 # Run backend
 uv run uvicorn echo.api.server:app --host 0.0.0.0 --port 8000
@@ -56,6 +56,8 @@ uv run uvicorn echo.api.server:app --host 0.0.0.0 --port 8000
 # Open the UI
 open http://localhost:8000
 ```
+
+> **Note:** ECHO uses **GitHub Copilot** as the LLM backend (chat + streaming) and **Ollama** for embeddings only. LM Studio is no longer required.
 
 ---
 
@@ -93,6 +95,8 @@ open http://localhost:8000
 | Self-Prediction | ✅ Complete |
 | Deep Real-Time Learning (module 16) | ✅ Complete |
 | Curiosity Engine | ✅ Complete |
+| Co-Evolutionary Cognitive Partner | ✅ Complete |
+| Self-Maintained Personality File (echo.md) | ✅ Complete |
 | MCP tool integration | ✅ Complete |
 | REST API + WebSocket events | ✅ Complete |
 | React frontend | ✅ Complete |

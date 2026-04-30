@@ -205,11 +205,57 @@ result = await mcp_manager.call_tool("brave_search", {"query": q, "count": 3})
 
 ---
 
+## Co-Evolution Extension (v0.4.0)
+
+Starting from v0.4.0, the CuriosityEngine is extended with **interest profile awareness** and **ZPD cycling**. See [Module 12 — Co-Evolutionary Cognitive Partner](12-co-evolution.md) for the full specification.
+
+### Interest Profile Blending
+
+Query extraction now blends two sources 50/50:
+- Topics derived from recent semantic memories (existing behaviour)
+- Top-3 topics from `UserInterestProfile.primary_interests()` (user affinity signal)
+
+```python
+# engine.py — simplified
+profile_topics = [t["topic"] for t in await interest_profile.primary_interests(n=3)]
+memory_topics  = await self._extract_from_memories()
+queries = _blend(memory_topics, profile_topics)   # 50/50 mix, deduplicated
+```
+
+### ZPD Cycles
+
+Every 4th cycle (`cycle_counter % 4 == 3`) switches to **ZPD mode**: instead of extracting queries from memories, the engine calls `interest_profile.zpd_topics()` which asks the LLM for adjacent, unexplored topics.
+
+```python
+if self._cycle_counter % self._ZPD_EVERY_N_CYCLES == 3:
+    queries = await interest_profile.zpd_topics(n=3)
+else:
+    queries = await self._extract_queries()
+```
+
+### Enqueueing Findings
+
+After each cycle, the top-3 discoveries (ranked by topic affinity score) are enqueued into `StimulusQueue` for later injection:
+
+```python
+for finding in top_findings[:3]:
+    await stimulus_queue.enqueue(
+        content=finding.content,
+        topic=finding.topic,
+        affinity_score=affinity,
+        source_memory_id=finding.memory_id,
+    )
+```
+
+---
+
 ## Integration Points
 
 | Component | Interaction |
 |-----------|-------------|
 | `CognitivePipeline.startup` | Starts the CuriosityEngine background loop |
 | `SemanticMemoryStore` | Receives discovered content |
-| `LLMClient` | Extracts search queries |
+| `LLMClient` | Extracts search queries + ZPD topics |
 | `MCPManager` | Optionally provides Brave search tool |
+| `UserInterestProfile` | Provides primary interests for query blending |
+| `StimulusQueue` | Receives top-3 findings per cycle |

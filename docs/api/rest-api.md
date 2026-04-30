@@ -390,8 +390,209 @@ Live event stream of all internal cognitive events.
 | `consolidation.started` | Consolidation phase begins |
 | `dream.generated` | Dream narrative created |
 | `curiosity.discovered` | New knowledge found |
+| `curiosity.stimulus_injected` | Proactive stimulus pushed to workspace |
 | `agent.weight_updated` | Agent weight changed |
 | `drive.updated` | Drive score changed |
+
+---
+
+## Error Responses
+
+---
+
+### Curiosity
+
+#### `GET /api/curiosity/activity`
+
+Returns curiosity cycle history and activity statistics.
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `hours` | integer | 24 | Look-back window |
+
+**Response:**
+```json
+{
+  "cycles": [
+    {
+      "id": "uuid",
+      "timestamp": "2026-04-30T10:00:00Z",
+      "queries_run": 3,
+      "results_found": 8,
+      "stored": 2,
+      "sources": ["arxiv", "wikipedia"],
+      "topics": ["machine learning", "cognitive science"]
+    }
+  ],
+  "recently_searched": ["machine learning", "consciousness"],
+  "total_discoveries": 42
+}
+```
+
+---
+
+#### `POST /api/curiosity/trigger`
+
+Manually triggers one curiosity cycle (ignores idle guard).
+
+**Response:**
+```json
+{"stored": 2, "queries": ["machine learning", "cognitive architectures"]}
+```
+
+---
+
+#### `GET /api/curiosity/profile`
+
+Returns the user interest profile built by ECHO through conversation.
+
+**Response:**
+```json
+{
+  "primary_interests": [
+    {
+      "topic": "machine learning",
+      "affinity_score": 0.82,
+      "interaction_count": 14,
+      "last_seen": "2026-04-30T09:15:00Z",
+      "is_excluded": false,
+      "is_preferred": false
+    }
+  ],
+  "zpd_topics": ["transfer learning", "cognitive architectures"],
+  "excluded_topics": ["cryptocurrency"],
+  "total_topics": 23
+}
+```
+
+`zpd_topics` are adjacent, unexplored topics suggested by the LLM based on the user's primary interests (Zone of Proximal Development).
+
+---
+
+#### `GET /api/curiosity/findings`
+
+Returns pending (not-yet-rated) stimuli from the queue.
+
+**Query parameters:**
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `limit` | integer | 20 |
+
+**Response:**
+```json
+{
+  "pending": [
+    {
+      "id": "uuid",
+      "content": "New paper: Scaling laws for neural language models...",
+      "topic": "machine learning",
+      "affinity_score": 0.75,
+      "created_at": "2026-04-30T08:00:00Z",
+      "presented_at": "2026-04-30T10:00:00Z",
+      "feedback_score": null
+    }
+  ],
+  "count": 3
+}
+```
+
+---
+
+#### `GET /api/curiosity/findings/all`
+
+Returns all stimuli (pending + rated), ordered by affinity descending.
+
+**Query parameters:**
+
+| Parameter | Type | Default |
+|-----------|------|---------|
+| `limit` | integer | 50 |
+
+**Response:**
+```json
+{"items": [...], "count": 12}
+```
+
+---
+
+#### `POST /api/curiosity/feedback`
+
+Rate how relevant a finding was. Propagates feedback to the interest profile affinity score.
+
+**Request body:**
+```json
+{"stimulus_id": "uuid", "score": 0.8}
+```
+
+`score` is `[0, 1]` (0 = irrelevant, 1 = very relevant).
+
+**Response:**
+```json
+{"ok": true}
+```
+
+---
+
+#### `POST /api/curiosity/guide`
+
+Guide ECHO's curiosity by marking topics as preferred or excluded.
+
+**Request body:**
+```json
+{
+  "preferred": ["cognitive science", "neuroscience"],
+  "excluded": ["cryptocurrency"]
+}
+```
+
+**Response:**
+```json
+{"ok": true, "preferred_added": 2, "excluded_added": 1}
+```
+
+---
+
+### Consolidation & Self-Model
+
+#### `POST /api/consolidation/trigger`
+
+Manually triggers a consolidation cycle.
+
+**Response:**
+```json
+{"triggered": true, "phase": "light"}
+```
+
+---
+
+#### `GET /api/consolidation/echo-md`
+
+Returns the current content of ECHO's self-maintained personality file (`data/echo.md`). This file is written and updated by ECHO itself after every consolidation cycle.
+
+**Response:**
+```json
+{
+  "content": "# ECHO\n\nI am ECHO...",
+  "last_modified": "2026-04-30T06:00:00Z",
+  "path": "data/echo.md"
+}
+```
+
+---
+
+#### `POST /api/consolidation/echo-md/review`
+
+Manually triggers a personality self-review. ECHO reads its current `echo.md` and the latest MetaState, then rewrites the file to reflect its current state.
+
+**Response:**
+```json
+{"updated": true, "changed": true}
+```
+
+`changed` is `false` if ECHO decided no update was necessary.
 
 ---
 

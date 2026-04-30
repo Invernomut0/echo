@@ -203,5 +203,61 @@ Available via `GET /api/state/history?limit=N`.
 | `ReflectionEngine` | Reads and writes beliefs to IdentityGraph |
 | `GlobalWorkspace` | Uses agent weights in broadcast scoring |
 | `PlasticityAdapter` | Reads and writes agent weights |
-| `ConsolidationScheduler` | Uses coherence score to prioritize belief consolidation |
+| `ConsolidationScheduler` | Uses coherence score to prioritize belief consolidation; also triggers `EchoMdManager.review_and_update()` |
+| `StimulusQueue` | Reads `meta_state.arousal` to compute nudge probability |
 | `API /api/state` | Exposes current MetaState and belief count |
+
+---
+
+## EchoMd — Self-Maintained Personality File
+
+**File:** `src/echo/self_model/echo_md.py`  
+**Output:** `data/echo.md` (gitignored)  
+**Added in:** v0.3.0
+
+`EchoMdManager` allows ECHO to write and maintain its own personality file. This is ECHO's self-understanding in natural language — its mood, values, dominant tendencies, and current concerns — updated automatically after every consolidation heartbeat.
+
+```python
+class EchoMdManager:
+    PATH: Path = Path("data/echo.md")
+
+    async def read(self) -> str:
+        """Return current content; initialise with default template on first run."""
+
+    async def review_and_update(
+        self,
+        meta_state: MetaState,
+        patterns: list[str],
+    ) -> bool:
+        """Ask the LLM to rewrite echo.md given current state.
+        Returns True if the file changed, False if unchanged (NO_CHANGE guard)."""
+```
+
+### Update Flow
+
+```
+ConsolidationScheduler._run_light() / _run_deep()
+        │
+        ▼
+EchoMdManager().review_and_update(meta_state, patterns)
+        │
+        ├─► read current echo.md
+        ├─► build prompt: current content + MetaState + patterns
+        ├─► LLM call → candidate new content
+        ├─► if "NO_CHANGE" in response → skip write
+        ├─► length sanity check (reject if < 50 chars)
+        └─► atomic write (temp file + rename)
+```
+
+### Safety Guards
+
+- **NO_CHANGE guard**: if the LLM decides nothing needs updating, it returns `"NO_CHANGE"` and the file is untouched.
+- **Length check**: the new content must be at least 50 characters to prevent accidental empty writes.
+- **Atomic write**: content is written to a `.tmp` file first, then renamed to `data/echo.md`.
+
+### API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/consolidation/echo-md` | Read current `echo.md` content |
+| POST | `/api/consolidation/echo-md/review` | Manually trigger a self-review |
