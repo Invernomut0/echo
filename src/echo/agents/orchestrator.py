@@ -63,13 +63,16 @@ User message: {user_input}
 Retrieved long-term memories (most relevant to this conversation):
 {memories}
 
-Knowledge from LLM Wiki (structured knowledge base, may contain directly relevant facts):
+LLM Wiki — structured knowledge base (ALWAYS use this when answering questions about loaded documents, architecture, or specific topics):
 {wiki}
 
 Internal deliberations from cognitive agents:
 {deliberations}
 
-Synthesise a single response. If memories reveal the user's name or past context, use it naturally. If the wiki contains directly relevant knowledge, draw from it but do not quote verbatim."""
+Synthesise a single response. Rules:
+- If the wiki contains relevant information, USE IT DIRECTLY and cite the content. Do NOT say you cannot see the wiki.
+- If memories reveal the user's name or past context, use it naturally.
+- If the wiki block starts with "Wiki knowledge base (N pages):" you CAN see those pages — reference them by title."""
 
 
 def _build_synthesis_system() -> str:
@@ -125,11 +128,12 @@ def _fmt_memories(context: dict[str, Any] | None) -> str:
 def _fmt_wiki(context: dict[str, Any] | None) -> str:
     """Format wiki search results for the synthesis prompt."""
     if not context:
-        return "(nessuna pagina wiki rilevante)"
+        return "(wiki vuota — nessun documento ancora caricato)"
     pages: list[str] = context.get("wiki") or []
     if not pages:
-        return "(nessuna pagina wiki rilevante)"
-    return "\n\n---\n\n".join(pages[:3])
+        return "(wiki vuota — nessun documento ancora caricato)"
+    # First entry is always the index summary; rest are page bodies
+    return "\n\n---\n\n".join(pages)
 
 
 class Orchestrator:

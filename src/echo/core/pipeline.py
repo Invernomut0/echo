@@ -268,15 +268,31 @@ Respond ONLY with valid JSON:
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
-        # LLM Wiki — search for relevant pages and inject into context
+        # LLM Wiki — always inject index summary + matched page bodies
         _wiki_context: list[str] = []
         try:
             from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
-            _wiki_hits = _wiki.search(user_input, max_results=4)
-            for _hit in _wiki_hits:
-                _body = _wiki.read_page_by_path(_hit["path"]) or ""
-                if _body.strip():
-                    _wiki_context.append(f"[Wiki: {_hit['title']}]\n{_body[:600]}")
+            _wiki_pages = _wiki.list_pages()
+            if _wiki_pages:
+                # 1. Always include a compact index so ECHO knows what's available
+                _index_lines = [f"Wiki knowledge base ({len(_wiki_pages)} pages):"]
+                for _p in _wiki_pages:
+                    _index_lines.append(f"  • [{_p['category']}] {_p['title']} — {_p.get('summary','')[:120]}")
+                _wiki_context.append("\n".join(_index_lines))
+
+                # 2. Inject full body of best-matching pages
+                _wiki_hits = _wiki.search(user_input, max_results=5)
+                for _hit in _wiki_hits:
+                    _body = _wiki.read_page_by_path(_hit["path"]) or ""
+                    if _body.strip():
+                        _wiki_context.append(f"[Wiki page: {_hit['title']}]\n{_body[:800]}")
+
+                # 3. If no keyword hits, fall back to the 3 most recent pages
+                if not _wiki_hits:
+                    for _p in _wiki_pages[-3:]:
+                        _body = _wiki.read_page_by_path(_p["path"]) or ""
+                        if _body.strip():
+                            _wiki_context.append(f"[Wiki page: {_p['title']}]\n{_body[:600]}")
         except Exception as _wex:  # noqa: BLE001
             logger.debug("Wiki context search skipped: %s", _wex)
 
@@ -421,15 +437,31 @@ Respond ONLY with valid JSON:
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
-        # LLM Wiki — search for relevant pages and inject into context
+        # LLM Wiki — always inject index summary + matched page bodies
         _wiki_context: list[str] = []
         try:
             from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
-            _wiki_hits = _wiki.search(user_input, max_results=4)
-            for _hit in _wiki_hits:
-                _body = _wiki.read_page_by_path(_hit["path"]) or ""
-                if _body.strip():
-                    _wiki_context.append(f"[Wiki: {_hit['title']}]\n{_body[:600]}")
+            _wiki_pages = _wiki.list_pages()
+            if _wiki_pages:
+                # 1. Always include a compact index so ECHO knows what's available
+                _index_lines = [f"Wiki knowledge base ({len(_wiki_pages)} pages):"]
+                for _p in _wiki_pages:
+                    _index_lines.append(f"  • [{_p['category']}] {_p['title']} — {_p.get('summary','')[:120]}")
+                _wiki_context.append("\n".join(_index_lines))
+
+                # 2. Inject full body of best-matching pages
+                _wiki_hits = _wiki.search(user_input, max_results=5)
+                for _hit in _wiki_hits:
+                    _body = _wiki.read_page_by_path(_hit["path"]) or ""
+                    if _body.strip():
+                        _wiki_context.append(f"[Wiki page: {_hit['title']}]\n{_body[:800]}")
+
+                # 3. If no keyword hits, fall back to the 3 most recent pages
+                if not _wiki_hits:
+                    for _p in _wiki_pages[-3:]:
+                        _body = _wiki.read_page_by_path(_p["path"]) or ""
+                        if _body.strip():
+                            _wiki_context.append(f"[Wiki page: {_p['title']}]\n{_body[:600]}")
         except Exception as _wex:  # noqa: BLE001
             logger.debug("Wiki context search skipped: %s", _wex)
 
