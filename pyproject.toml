@@ -77,3 +77,16 @@ strict = false
 warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true
+
+# ── PyTorch: CPU-only on Linux to avoid downloading 2 GB of CUDA packages ──
+# On macOS / Windows, uv falls back to the default PyPI wheel (MPS / CUDA).
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    # Linux → CPU-only wheel (~200 MB instead of ~2 GB CUDA variant)
+    { index = "pytorch-cpu", marker = "sys_platform == 'linux'" },
+]
