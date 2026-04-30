@@ -8,6 +8,7 @@ import {
   fetchWikiPage,
   fetchWikiLog,
   ingestWikiSource,
+  ingestWikiFiles,
   queryWiki,
 } from '../api'
 import type { WikiNode, WikiLink, WikiGraphData } from '../api'
@@ -101,58 +102,173 @@ function NodeDetail({
 }
 
 function IngestPanel({ onDone }: { onDone: () => void }) {
+  const [tab, setTab] = useState<'file' | 'text'>('file')
   const [title, setTitle] = useState('')
   const [text, setText] = useState('')
-  const [type, setType] = useState('text')
+  const [type, setType] = useState('document')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
+  const [results, setResults] = useState<string[]>([])
+  const [dragOver, setDragOver] = useState(false)
+  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  async function handleIngest() {
-    if (!title.trim() || !text.trim()) return
+  const ACCEPTED = '.txt,.md,.pdf'
+
+  function addFiles(newFiles: FileList | File[]) {
+    const arr = Array.from(newFiles).filter(f => /\.(txt|md|pdf)$/i.test(f.name))
+    if (!arr.length) return
+    setPendingFiles(prev => {
+      const names = new Set(prev.map(f => f.name))
+      return [...prev, ...arr.filter(f => !names.has(f.name))]
+    })
+  }
+
+  function removeFile(name: string) {
+    setPendingFiles(prev => prev.filter(f => f.name !== name))
+  }
+
+  async function handleFileIngest() {
+    if (!pendingFiles.length) return
     setLoading(true)
-    setResult(null)
+    setResults([])
     try {
-      const r = await ingestWikiSource(title.trim(), text.trim(), type)
-      setResult(`✓ Ingerito: ${r.entities} entità, ${r.concepts} concetti, ${r.pages_written.length} pagine.`)
-      setTimeout(onDone, 1200)
+      const res = await ingestWikiFiles(pendingFiles, type)
+      const msgs = res.map(r => `✓ ${r.title}: ${r.entities} entità, ${r.concepts} concetti, ${r.pages_written.length} pagine`)
+      setResults(msgs)
+      setPendingFiles([])
+      setTimeout(onDone, 1600)
     } catch (e) {
-      setResult(`✗ Errore: ${String(e)}`)
+      setResults([`✗ Errore: ${String(e)}`])
     } finally {
       setLoading(false)
     }
   }
 
+  async function handleTextIngest() {
+    if (!title.trim() || !text.trim()) return
+    setLoading(true)
+    setResults([])
+    try {
+      const r = await ingestWikiSource(title.trim(), text.trim(), type)
+      setResults([`✓ ${r.title}: ${r.entities} entità, ${r.concepts} concetti, ${r.pages_written.length} pagine.`])
+      setTimeout(onDone, 1200)
+    } catch (e) {
+      setResults([`✗ Errore: ${String(e)}`])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const tabBtnStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1, padding: '5px 0', fontSize: 12, cursor: 'pointer', border: 'none',
+    borderRadius: 4, background: active ? '#1e293b' : 'transparent',
+    color: active ? '#e2e8f0' : '#64748b', fontWeight: active ? 600 : 400,
+  })
+
+  const dropZoneStyle: React.CSSProperties = {
+    border: `2px dashed ${dragOver ? '#f59e0b' : '#334155'}`,
+    borderRadius: 6, padding: '18px 12px', textAlign: 'center',
+    cursor: 'pointer', marginTop: 8,
+    background: dragOver ? '#f59e0b08' : 'transparent',
+    color: '#64748b', fontSize: 12, transition: 'all .15s',
+  }
+
   return (
     <div style={panelStyle}>
-      <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 10 }}>📥 Ingesta sorgente</div>
-      <input
-        value={title}
-        onChange={e => setTitle(e.target.value)}
-        placeholder="Titolo…"
-        style={inputStyle}
-      />
-      <select value={type} onChange={e => setType(e.target.value)} style={{ ...inputStyle, marginTop: 6 }}>
-        <option value="text">Testo</option>
+      <div style={{ color: '#e2e8f0', fontWeight: 600, marginBottom: 10 }}>📥 Ingesta nella Wiki</div>
+
+      {/* Tipo sorgente */}
+      <select value={type} onChange={e => setType(e.target.value)} style={{ ...inputStyle, marginBottom: 8 }}>
+        <option value="document">Documento</option>
         <option value="article">Articolo</option>
-        <option value="note">Nota</option>
         <option value="paper">Paper</option>
         <option value="book">Libro</option>
+        <option value="note">Nota</option>
+        <option value="text">Testo generico</option>
       </select>
-      <textarea
-        value={text}
-        onChange={e => setText(e.target.value)}
-        placeholder="Contenuto della sorgente…"
-        rows={6}
-        style={{ ...inputStyle, marginTop: 6, resize: 'vertical', fontFamily: 'inherit' }}
-      />
-      <button
-        onClick={handleIngest}
-        disabled={loading || !title.trim() || !text.trim()}
-        style={btnStyle}
-      >
-        {loading ? 'Elaborazione…' : 'Ingesta'}
-      </button>
-      {result && <div style={{ marginTop: 8, color: result.startsWith('✓') ? '#10b981' : '#f43f5e', fontSize: 12 }}>{result}</div>}
+
+      {/* Tab switcher */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+        <button style={tabBtnStyle(tab === 'file')} onClick={() => setTab('file')}>📎 File</button>
+        <button style={tabBtnStyle(tab === 'text')} onClick={() => setTab('text')}>✏️ Testo</button>
+      </div>
+
+      {tab === 'file' ? (
+        <>
+          {/* Drop zone */}
+          <div
+            style={dropZoneStyle}
+            onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files) }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Trascina qui i file o clicca<br />
+            <span style={{ color: '#475569' }}>.txt · .md · .pdf — più file contemporaneamente</span>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept={ACCEPTED}
+            style={{ display: 'none' }}
+            onChange={e => { if (e.target.files) addFiles(e.target.files); e.target.value = '' }}
+          />
+
+          {/* File list */}
+          {pendingFiles.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              {pendingFiles.map(f => (
+                <div key={f.name} style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#0f172a', borderRadius: 4, padding: '4px 8px' }}>
+                  <span style={{ fontSize: 11, color: '#cbd5e1', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {f.name} <span style={{ color: '#475569' }}>({(f.size / 1024).toFixed(0)} KB)</span>
+                  </span>
+                  <button onClick={() => removeFile(f.name)} style={{ border: 'none', background: 'none', color: '#f43f5e', cursor: 'pointer', fontSize: 13, lineHeight: 1 }}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <button
+            onClick={handleFileIngest}
+            disabled={loading || !pendingFiles.length}
+            style={{ ...btnStyle, marginTop: 10 }}
+          >
+            {loading ? `Elaborazione ${pendingFiles.length} file…` : `Ingesta ${pendingFiles.length || ''} file`}
+          </button>
+        </>
+      ) : (
+        <>
+          <input
+            value={title}
+            onChange={e => setTitle(e.target.value)}
+            placeholder="Titolo…"
+            style={inputStyle}
+          />
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder="Contenuto della sorgente…"
+            rows={6}
+            style={{ ...inputStyle, marginTop: 6, resize: 'vertical', fontFamily: 'inherit' }}
+          />
+          <button
+            onClick={handleTextIngest}
+            disabled={loading || !title.trim() || !text.trim()}
+            style={btnStyle}
+          >
+            {loading ? 'Elaborazione…' : 'Ingesta testo'}
+          </button>
+        </>
+      )}
+
+      {results.length > 0 && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          {results.map((r, i) => (
+            <div key={i} style={{ fontSize: 11, color: r.startsWith('✓') ? '#10b981' : '#f43f5e' }}>{r}</div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

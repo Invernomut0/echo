@@ -665,6 +665,25 @@ export async function ingestWikiSource(
   return r.json()
 }
 
+export type WikiIngestResult = { title: string; slug: string; pages_written: string[]; entities: number; concepts: number; summary: string }
+
+export async function ingestWikiFiles(
+  files: File[],
+  sourceType = 'document',
+): Promise<WikiIngestResult[]> {
+  const form = new FormData()
+  for (const f of files) form.append('files', f)
+  const r = await fetch(`${BASE}/wiki/ingest_files?source_type=${encodeURIComponent(sourceType)}`, {
+    method: 'POST',
+    body: form,
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `wiki ingest_files: ${r.status}`)
+  }
+  return r.json()
+}
+
 export async function queryWiki(
   question: string,
 ): Promise<{ question: string; answer: string; pages_consulted: string[]; synthesis_page: string | null }> {

@@ -220,11 +220,24 @@ class CognitivePipeline:
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
+        # LLM Wiki — search for relevant pages and inject into context
+        _wiki_context: list[str] = []
+        try:
+            from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
+            _wiki_hits = _wiki.search(user_input, max_results=4)
+            for _hit in _wiki_hits:
+                _body = _wiki.read_page_by_path(_hit["path"]) or ""
+                if _body.strip():
+                    _wiki_context.append(f"[Wiki: {_hit['title']}]\n{_body[:600]}")
+        except Exception as _wex:  # noqa: BLE001
+            logger.debug("Wiki context search skipped: %s", _wex)
+
         context: dict[str, Any] = {
             "memories": memories,
             "interaction_id": interaction_id,
             "history": history or [],
             "self_prediction": self_pred,
+            "wiki": _wiki_context,
         }
         meta_state = self.meta_tracker.current
 
@@ -360,10 +373,23 @@ class CognitivePipeline:
         if _style_hint:
             self.workspace.broadcast(_style_hint, "learning", salience=0.40)
 
+        # LLM Wiki — search for relevant pages and inject into context
+        _wiki_context: list[str] = []
+        try:
+            from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
+            _wiki_hits = _wiki.search(user_input, max_results=4)
+            for _hit in _wiki_hits:
+                _body = _wiki.read_page_by_path(_hit["path"]) or ""
+                if _body.strip():
+                    _wiki_context.append(f"[Wiki: {_hit['title']}]\n{_body[:600]}")
+        except Exception as _wex:  # noqa: BLE001
+            logger.debug("Wiki context search skipped: %s", _wex)
+
         context: dict[str, Any] = {
             "memories": memories,
             "history": history or [],
             "self_prediction": self_pred,
+            "wiki": _wiki_context,
         }
         meta_state_before = self.meta_tracker.current.model_copy(deep=True)
         meta_state = self.meta_tracker.current

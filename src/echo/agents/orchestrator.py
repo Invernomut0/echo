@@ -63,10 +63,13 @@ User message: {user_input}
 Retrieved long-term memories (most relevant to this conversation):
 {memories}
 
+Knowledge from LLM Wiki (structured knowledge base, may contain directly relevant facts):
+{wiki}
+
 Internal deliberations from cognitive agents:
 {deliberations}
 
-Synthesise a single response. If memories reveal the user's name or past context, use it naturally."""
+Synthesise a single response. If memories reveal the user's name or past context, use it naturally. If the wiki contains directly relevant knowledge, draw from it but do not quote verbatim."""
 
 
 def _build_synthesis_system() -> str:
@@ -117,6 +120,16 @@ def _fmt_memories(context: dict[str, Any] | None) -> str:
     for i, e in enumerate(entries, 1):
         lines.append(f"{i}. {e.content[:300]}")
     return "\n".join(lines)
+
+
+def _fmt_wiki(context: dict[str, Any] | None) -> str:
+    """Format wiki search results for the synthesis prompt."""
+    if not context:
+        return "(nessuna pagina wiki rilevante)"
+    pages: list[str] = context.get("wiki") or []
+    if not pages:
+        return "(nessuna pagina wiki rilevante)"
+    return "\n\n---\n\n".join(pages[:3])
 
 
 class Orchestrator:
@@ -188,6 +201,7 @@ class Orchestrator:
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
                 memories=_fmt_memories(context),
+                wiki=_fmt_wiki(context),
                 deliberations=deliberations,
             ),
         })
@@ -239,6 +253,7 @@ class Orchestrator:
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
                 memories=_fmt_memories(context),
+                wiki=_fmt_wiki(context),
                 deliberations=deliberations,
             ),
         })
