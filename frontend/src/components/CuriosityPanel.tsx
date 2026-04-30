@@ -576,29 +576,19 @@ export default function CuriosityPanel() {
       )}
 
       {/* ── Co-evolution sections ── */}
-      {profileLoading && !profile && (
-        <div className="curiosity-loading" style={{ padding: '0.5rem 0' }}>
-          <span className="curiosity-spinner" /> Loading profile…
-        </div>
-      )}
-
-      {profile && (
-        <>
-          <InterestProfileSection
-            topics={profile.primary_interests}
-            onExclude={handleExclude}
-          />
-          <PendingFindingsSection
-            findings={findings}
-            onFeedback={handleFeedback}
-          />
-          {profile.zpd_topics.length > 0 && (
-            <ZpdZoneSection
-              topics={profile.zpd_topics}
-              onExplore={handleExploreZpd}
-            />
-          )}
-        </>
+      <InterestProfileSection
+        topics={profile?.primary_interests ?? []}
+        onExclude={handleExclude}
+      />
+      <PendingFindingsSection
+        findings={findings}
+        onFeedback={handleFeedback}
+      />
+      {(profile?.zpd_topics ?? []).length > 0 && (
+        <ZpdZoneSection
+          topics={profile!.zpd_topics}
+          onExplore={handleExploreZpd}
+        />
       )}
 
       {data ? (
