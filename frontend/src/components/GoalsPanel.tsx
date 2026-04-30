@@ -7,6 +7,7 @@ import {
   createGoal,
   deleteGoal,
   fetchGoals,
+  updateGoalAction,
   updateGoalStatus,
 } from '../api'
 
@@ -59,7 +60,16 @@ function completionBar(goal: Goal) {
 
 // ── Action timeline ────────────────────────────────────────────────────────────
 
-function ActionTimeline({ actions }: { actions: GoalAction[] }) {
+function ActionTimeline({
+  actions,
+  goalId,
+  onMarkDone,
+}: {
+  actions: GoalAction[]
+  goalId: string
+  onMarkDone: (goalId: string, actionId: string) => Promise<void>
+}) {
+  const [busy, setBusy] = useState<string | null>(null)
   if (!actions.length) return <div style={{ color: '#475569', fontSize: '12px', padding: '8px 0' }}>No actions logged yet.</div>
   return (
     <div style={{ borderLeft: '2px solid #1e293b', paddingLeft: '12px', marginTop: '8px' }}>
@@ -84,6 +94,18 @@ function ActionTimeline({ actions }: { actions: GoalAction[] }) {
             <span style={{ fontSize: '10px', color: '#475569', marginLeft: 'auto' }}>
               {new Date(a.created_at).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}
             </span>
+            {a.status === 'pending' && (
+              <button
+                disabled={busy === a.id}
+                onClick={async () => { setBusy(a.id); await onMarkDone(goalId, a.id); setBusy(null) }}
+                title="Mark as done"
+                style={{
+                  fontSize: '11px', padding: '1px 8px', borderRadius: '4px', cursor: 'pointer',
+                  background: '#052e16', color: '#10b981', border: '1px solid #10b981',
+                  marginLeft: '4px',
+                }}
+              >✓ Done</button>
+            )}
           </div>
           <div style={{ fontSize: '12px', color: '#cbd5e1' }}>{a.description}</div>
           {a.result && <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px', fontStyle: 'italic' }}>{a.result}</div>}
@@ -100,11 +122,13 @@ function GoalCard({
   onUpdate,
   onDelete,
   onAddAction,
+  onMarkActionDone,
 }: {
   goal: Goal
   onUpdate: (id: string, data: Partial<{ status: Goal['status']; description: string }>) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAddAction: (id: string, description: string, result?: string) => Promise<void>
+  onMarkActionDone: (goalId: string, actionId: string) => Promise<void>
 }) {
   const [expanded, setExpanded] = useState(false)
   const [addingAction, setAddingAction] = useState(false)
@@ -226,7 +250,7 @@ function GoalCard({
       {/* Actions timeline */}
       {expanded && (
         <div style={{ marginTop: '12px' }}>
-          <ActionTimeline actions={goal.actions} />
+          <ActionTimeline actions={goal.actions} goalId={goal.id} onMarkDone={onMarkActionDone} />
         </div>
       )}
 
@@ -367,6 +391,11 @@ export default function GoalsPanel({ active }: { active: boolean }) {
     await refresh()
   }
 
+  const handleMarkActionDone = async (goalId: string, actionId: string) => {
+    await updateGoalAction(goalId, actionId, { status: 'done' })
+    await refresh()
+  }
+
   const activeGoals = data?.active ?? []
   const historyGoals = data?.history ?? []
   const maxActive = data?.max_active ?? 5
@@ -437,6 +466,7 @@ export default function GoalsPanel({ active }: { active: boolean }) {
             onUpdate={handleUpdate}
             onDelete={handleDelete}
             onAddAction={handleAddAction}
+            onMarkActionDone={handleMarkActionDone}
           />
         ))
       )}
@@ -462,6 +492,7 @@ export default function GoalsPanel({ active }: { active: boolean }) {
               onUpdate={handleUpdate}
               onDelete={handleDelete}
               onAddAction={handleAddAction}
+              onMarkActionDone={handleMarkActionDone}
             />
           ))}
         </div>

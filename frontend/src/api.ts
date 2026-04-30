@@ -802,3 +802,17 @@ export async function addGoalAction(
   if (!r.ok) throw new Error(`add goal action: ${r.status}`)
   return r.json()
 }
+
+export async function updateGoalAction(
+  goalId: string,
+  actionId: string,
+  data: { status: 'done' | 'failed' | 'pending'; result?: string },
+): Promise<GoalAction> {
+  const r = await fetch(`${BASE}/goals/${goalId}/actions/${actionId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) throw new Error(`update goal action: ${r.status}`)
+  return r.json()
+}

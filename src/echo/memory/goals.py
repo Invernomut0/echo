@@ -227,7 +227,7 @@ class GoalStore:
         goal_id: str,
         description: str,
         result: str = "",
-        status: str = "done",
+        status: str = "pending",
     ) -> dict[str, Any] | None:
         """Append a new action step to a goal. Returns the action dict."""
         factory = get_session_factory()
@@ -252,6 +252,33 @@ class GoalStore:
                 status=status,
             )
             session.add(action)
+            await session.commit()
+            await session.refresh(action)
+            return {
+                "id": action.id,
+                "goal_id": action.goal_id,
+                "step": action.step,
+                "description": action.description,
+                "result": action.result,
+                "status": action.status,
+                "created_at": action.created_at.isoformat() if action.created_at else None,
+            }
+
+    async def update_action(
+        self,
+        action_id: str,
+        status: str,
+        result: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Update an action's status (and optionally result). Returns action dict or None."""
+        factory = get_session_factory()
+        async with factory() as session:
+            action = await session.get(GoalActionRow, action_id)
+            if action is None:
+                return None
+            action.status = status
+            if result is not None:
+                action.result = result
             await session.commit()
             await session.refresh(action)
             return {

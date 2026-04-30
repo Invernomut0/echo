@@ -31,7 +31,12 @@ class UpdateGoalRequest(BaseModel):
 class AddActionRequest(BaseModel):
     description: str = Field(..., min_length=1, max_length=500)
     result: str = Field(default="", max_length=1000)
-    status: Literal["done", "failed", "pending"] = "done"
+    status: Literal["done", "failed", "pending"] = "pending"
+
+
+class UpdateActionRequest(BaseModel):
+    status: Literal["done", "failed", "pending"]
+    result: str | None = None
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -149,7 +154,7 @@ async def delete_goal(goal_id: str) -> None:
 
 @router.post("/{goal_id}/actions", status_code=201)
 async def add_action(goal_id: str, payload: AddActionRequest) -> dict:
-    """Append an action step to a goal."""
+    """Append an action step to a goal (pending by default)."""
     goal = await goal_store.get(goal_id)
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
@@ -159,4 +164,17 @@ async def add_action(goal_id: str, payload: AddActionRequest) -> dict:
         result=payload.result,
         status=payload.status,
     )
+    return action
+
+
+@router.patch("/{goal_id}/actions/{action_id}")
+async def update_action(goal_id: str, action_id: str, payload: UpdateActionRequest) -> dict:
+    """Update an action's status (mark done/failed/pending)."""
+    action = await goal_store.update_action(
+        action_id=action_id,
+        status=payload.status,
+        result=payload.result,
+    )
+    if action is None:
+        raise HTTPException(status_code=404, detail="Action not found")
     return action
