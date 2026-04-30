@@ -311,6 +311,47 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("REM memory conflict cleanup error: %s", exc)
 
+        # Collect memory health telemetry and emit CONSOLIDATION_COMPLETE
+        try:
+            from echo.memory.episodic import EpisodicMemoryStore  # noqa: PLC0415
+            store = EpisodicMemoryStore()
+            active_mems = await store.get_all(limit=500, include_dormant=False)
+            dormant_mems = await store.get_dormant(limit=500)
+            total_active = len(active_mems)
+            dormant_count = len(dormant_mems)
+            avg_salience = (
+                sum(m.salience for m in active_mems) / total_active
+                if total_active else 0.0
+            )
+            report.dormant_count = dormant_count
+            report.avg_salience = round(avg_salience, 4)
+            report.total_active = total_active
+            await bus.publish(CognitiveEvent(
+                topic=EventTopic.CONSOLIDATION_COMPLETE,
+                source_agent="scheduler",
+                payload={
+                    "cycle": "rem",
+                    "total_active": total_active,
+                    "dormant_count": dormant_count,
+                    "avg_salience": round(avg_salience, 4),
+                    "memories_promoted": report.memories_promoted,
+                    "memories_processed": report.memories_processed,
+                    "episodic_deduped": report.episodic_deduped,
+                    "semantic_deduped": report.semantic_deduped,
+                    "re_embedded": report.re_embedded,
+                    "memories_pruned": report.memories_pruned,
+                    "patterns_found": len(report.patterns_found),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            ))
+            logger.info(
+                "REM health: active=%d dormant=%d avg_salience=%.3f deduped=ep%d/sem%d",
+                total_active, dormant_count, avg_salience,
+                report.episodic_deduped, report.semantic_deduped,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("REM health metrics collection failed: %s", exc)
+
         return report
 
     # ------------------------------------------------------------------
@@ -360,7 +401,7 @@ class ConsolidationScheduler:
         from echo.memory.dream_store import DreamStore
 
         phase = ConsolidationPhase()
-        await phase.run(elapsed_seconds=0)  # consolidate without extra decay
+        report = await phase.run(elapsed_seconds=0, prune=True)
 
         _meta_state = None
         try:
@@ -372,6 +413,26 @@ class ConsolidationScheduler:
 
         dream = await DreamPhase().run(meta_state=_meta_state)
         await DreamStore().store(dream)
+
+        # Collect health telemetry and update last report
+        try:
+            from echo.memory.episodic import EpisodicMemoryStore  # noqa: PLC0415
+            store = EpisodicMemoryStore()
+            active_mems = await store.get_all(limit=500, include_dormant=False)
+            dormant_mems = await store.get_dormant(limit=500)
+            total_active = len(active_mems)
+            dormant_count = len(dormant_mems)
+            avg_salience = (
+                sum(m.salience for m in active_mems) / total_active
+                if total_active else 0.0
+            )
+            report.dormant_count = dormant_count
+            report.avg_salience = round(avg_salience, 4)
+            report.total_active = total_active
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("REM telemetry in trigger_rem_now failed: %s", exc)
+
+        self._last_report = report
         self._last_deep_at = datetime.now(timezone.utc)
         return dream
 

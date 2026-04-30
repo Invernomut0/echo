@@ -138,6 +138,32 @@ def _find_duplicate_pairs(
     return pairs
 
 
+def _find_exact_duplicates(memories: list[MemoryEntry]) -> list[tuple[str, str, float]]:
+    """Hash-based fallback dedup when embedding is unavailable.
+
+    Groups memories by SHA-256 of their content; for each group of duplicates
+    keeps the winner (highest _memory_score) and marks all others as losers.
+    Returns the same (winner_id, loser_id, 1.0) format as _find_duplicate_pairs.
+    """
+    from hashlib import sha256
+
+    score = {m.id: _memory_score(m) for m in memories}
+    buckets: dict[str, list[str]] = {}
+    for mem in memories:
+        h = sha256(mem.content.encode()).hexdigest()
+        buckets.setdefault(h, []).append(mem.id)
+
+    pairs: list[tuple[str, str, float]] = []
+    for group in buckets.values():
+        if len(group) < 2:
+            continue
+        winner = max(group, key=lambda mid: score[mid])
+        for mid in group:
+            if mid != winner:
+                pairs.append((winner, mid, 1.0))
+    return pairs
+
+
 # ── Main consolidation phase ──────────────────────────────────────────────────
 
 class ConsolidationPhase:
@@ -163,7 +189,12 @@ class ConsolidationPhase:
 
         vectors = await _embed_memories(memories)
         threshold = SOFT_DEDUP_SIM if hard_prune else HARD_DEDUP_SIM
-        pairs = _find_duplicate_pairs(memories, vectors, threshold)
+        if len(vectors) >= 2:
+            pairs = _find_duplicate_pairs(memories, vectors, threshold)
+        else:
+            # Embedding unavailable (Ollama down) — fall back to exact hash dedup
+            logger.debug("[Dedup·episodic] embedding unavailable, using hash fallback")
+            pairs = _find_exact_duplicates(memories)
         if not pairs:
             return 0, 0
 
@@ -211,8 +242,16 @@ class ConsolidationPhase:
         ]
 
         vectors = await _embed_memories(proxies)
+        # Semantic dedup always uses HARD threshold regardless of cycle type —
+        # semantic memories are already abstract, even soft similarity is enough
+        # to call something a duplicate. Only deep/REM cycle crosses SOFT.
         threshold = SOFT_DEDUP_SIM if hard_prune else HARD_DEDUP_SIM
-        pairs = _find_duplicate_pairs(proxies, vectors, threshold)
+        if len(vectors) >= 2:
+            pairs = _find_duplicate_pairs(proxies, vectors, threshold)
+        else:
+            # Embedding unavailable — fall back to exact hash dedup
+            logger.debug("[Dedup·semantic] embedding unavailable, using hash fallback")
+            pairs = _find_exact_duplicates(proxies)
         if not pairs:
             return 0, 0
 
