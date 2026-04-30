@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import logging
 import sys
+import threading
+import time
+from collections import OrderedDict
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -16,8 +21,107 @@ from echo.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+# ---------------------------------------------------------------------------
+# Embedding LRU cache
+# ---------------------------------------------------------------------------
+
+class _EmbedCache:
+    """Thread-safe LRU cache for embedding vectors with TTL expiry.
+
+    On slow hardware (e.g. a phone acting as LM Studio server) a single
+    embed call can take 30-40 s.  Caching avoids repeated calls for the
+    same text within a conversation session.
+
+    Parameters
+    ----------
+    max_size:
+        Maximum number of entries.  Oldest are evicted when full.
+    ttl_seconds:
+        Time-to-live; stale entries are silently dropped on next access.
+        Default 300 s (5 min) — vectors don't change for the same text.
+    """
+
+    def __init__(self, max_size: int = 256, ttl_seconds: float = 300.0) -> None:
+        # {md5_key: (vector, monotonic_timestamp)}
+        self._cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
+        self.max_size = max_size
+        self.ttl = ttl_seconds
+        self._hits = 0
+        self._misses = 0
+
+    @staticmethod
+    def _key(text: str) -> str:
+        return hashlib.md5(text.encode(), usedforsecurity=False).hexdigest()
+
+    def get(self, text: str) -> list[float] | None:
+        key = self._key(text)
+        entry = self._cache.get(key)
+        if entry is None:
+            self._misses += 1
+            return None
+        vector, ts = entry
+        if time.monotonic() - ts > self.ttl:
+            del self._cache[key]
+            self._misses += 1
+            return None
+        # Move to end → recently-used
+        self._cache.move_to_end(key)
+        self._hits += 1
+        return vector
+
+    def put(self, text: str, vector: list[float]) -> None:
+        if not vector:
+            return
+        key = self._key(text)
+        self._cache[key] = (vector, time.monotonic())
+        self._cache.move_to_end(key)
+        # Evict oldest entries when over capacity
+        while len(self._cache) > self.max_size:
+            self._cache.popitem(last=False)
+
+    @property
+    def stats(self) -> dict[str, int]:
+        total = self._hits + self._misses
+        return {
+            "hits": self._hits,
+            "misses": self._misses,
+            "ratio": round(self._hits / total, 3) if total else 0,
+            "size": len(self._cache),
+        }
+
+
 # Shared async HTTP client (reused across requests)
 _http_client = httpx.AsyncClient(timeout=120.0)
+
+# ---------------------------------------------------------------------------
+# Local sentence-transformers singleton (lazy-loaded on first embed call)
+# ---------------------------------------------------------------------------
+
+_local_st_model: Any = None
+_local_st_lock = threading.Lock()
+
+
+def _load_local_st_model_sync() -> Any:
+    """Load (or return cached) local SentenceTransformer. Thread-safe.
+
+    Import is deferred to avoid startup latency — model is downloaded (~420 MB
+    for multilingual-mpnet, ~90 MB for MiniLM) only on the first embed call.
+    """
+    global _local_st_model  # noqa: PLW0603
+    if _local_st_model is not None:
+        return _local_st_model
+    with _local_st_lock:
+        if _local_st_model is not None:  # double-checked locking
+            return _local_st_model
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415
+        logger.info(
+            "Loading local embedding model '%s' (first call — may take a moment)",
+            settings.local_embedding_model,
+        )
+        _local_st_model = SentenceTransformer(settings.local_embedding_model)
+        logger.info("Local embedding model ready")
+        return _local_st_model
 
 # Headers required by the GitHub Copilot completions API
 _COPILOT_HEADERS: dict[str, str] = {
@@ -50,6 +154,7 @@ class LLMClient:
         self.model = settings.lm_studio_model
         self.embedding_model = settings.lm_studio_embedding_model
         self._last_tools_used: list[str] = []
+        self._embed_cache = _EmbedCache(max_size=256, ttl_seconds=300.0)
 
     # ── Copilot helpers ────────────────────────────────────────────────────────
 
@@ -252,31 +357,64 @@ class LLMClient:
         """Return embedding vectors.
 
         Priority:
-        1. LM Studio (local, fast, no rate-limit)
-        2. HuggingFace free Inference API (cloud fallback, rate-limited)
-        3. Empty list — callers handle graceful degradation
+        1. Local sentence-transformers (in-process, ~200-800 ms, no network)
+        2. LM Studio embedding API (local network, requires LM Studio running)
+        3. HuggingFace Inference API (cloud fallback, rate-limited)
+        4. Empty list — callers handle graceful degradation
+
+        The local model is lazy-loaded on first call.  ECHO_LOCAL_EMBEDDING_MODEL
+        controls the model name (default: paraphrase-multilingual-mpnet-base-v2,
+        768-dim, multilingual).  Switch to all-MiniLM-L6-v2 (384-dim) only after
+        wiping data/chroma/ because ChromaDB enforces a fixed dimension per
+        collection.
         """
         if not texts:
             return []
-        # ── 1. Try LM Studio ──────────────────────────────────────────────────
+        # ── 1. Local sentence-transformers ────────────────────────────────────
+        try:
+            loop = asyncio.get_event_loop()
+            model = await loop.run_in_executor(None, _load_local_st_model_sync)
+            # encode() returns a numpy ndarray; convert each row to a plain list
+            raw = await loop.run_in_executor(None, lambda: model.encode(texts))
+            return [row.tolist() for row in raw]
+        except Exception as exc:  # noqa: BLE001
+            logger.info(
+                "Local ST embedding unavailable (%s) — trying LM Studio",
+                exc,
+            )
+        # ── 2. LM Studio ──────────────────────────────────────────────────────
         try:
             response = await self._client.embeddings.create(
                 model=self.embedding_model, input=texts
             )
             return [item.embedding for item in response.data]
         except Exception as exc:  # noqa: BLE001
-            logger.info("LM Studio embedding unavailable (%s) — trying HuggingFace fallback", exc)
-        # ── 2. Try HuggingFace free API ───────────────────────────────────────
+            logger.info(
+                "LM Studio embedding unavailable (%s) — trying HuggingFace fallback",
+                exc,
+            )
+        # ── 3. HuggingFace cloud ──────────────────────────────────────────────
         vectors = await self._hf_embed(texts)
         if vectors:
             return vectors
-        # ── 3. Complete degradation ───────────────────────────────────────────
+        # ── 4. Complete degradation ───────────────────────────────────────────
         logger.warning("All embedding backends unavailable — returning empty vectors")
         return []
 
     async def embed_one(self, text: str) -> list[float]:
+        """Return the embedding vector for *text*, using the in-process cache.
+
+        On a cache hit (same text within the TTL window) this returns in
+        microseconds instead of making an LM Studio HTTP round-trip.
+        """
+        cached = self._embed_cache.get(text)
+        if cached is not None:
+            logger.debug("embed cache hit — %s", self._embed_cache.stats)
+            return cached
         vectors = await self.embed([text])
-        return vectors[0] if vectors else []
+        result = vectors[0] if vectors else []
+        self._embed_cache.put(text, result)
+        return result
 
     # ── Health check ───────────────────────────────────────────────────────────
 

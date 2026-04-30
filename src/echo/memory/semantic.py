@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -210,7 +211,7 @@ class SemanticMemoryStore:
         )
         return backfilled
 
-    async def retrieve_similar(self, query: str, n_results: int = 5) -> list[MemoryEntry]:
+    async def retrieve_similar(self, query: str, n_results: int = 5, query_vector: list[float] | None = None) -> list[MemoryEntry]:
         # Self-healing: backfill missing ChromaDB vectors on first call per process
         if not SemanticMemoryStore._backfill_done:
             SemanticMemoryStore._backfill_done = True
@@ -219,21 +220,25 @@ class SemanticMemoryStore:
             except Exception as exc:
                 logger.warning("backfill_embeddings failed during retrieve: %s", exc)
 
+        loop = asyncio.get_event_loop()
         entries: list[MemoryEntry] = []
 
         # Primary path: vector search in ChromaDB.
         # The multilingual embedding model (paraphrase-multilingual-mpnet-base-v2)
         # maps queries in any language close to their English equivalents, so a
         # single vector search is enough — no language-specific expansion needed.
-        if self._collection.count() > 0:
-            vector = await llm.embed_one(query)
+        col_count = await loop.run_in_executor(None, self._collection.count)
+        if col_count > 0:
+            vector = query_vector if query_vector else await llm.embed_one(query)
 
             if vector:
-                col_count = self._collection.count()
-                results = self._collection.query(
-                    query_embeddings=[vector],
-                    n_results=min(n_results * 3, col_count),
-                    include=["documents", "metadatas", "distances"],
+                results = await loop.run_in_executor(
+                    None,
+                    lambda: self._collection.query(
+                        query_embeddings=[vector],
+                        n_results=min(n_results * 3, col_count),
+                        include=["documents", "metadatas", "distances"],
+                    ),
                 )
                 # Filter by cosine distance — discard memories too dissimilar to the query.
                 # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).

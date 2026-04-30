@@ -70,6 +70,31 @@ def _compute_prediction_error(prediction: str, response: str) -> float:
     return round(1.0 - overlap, 4)
 
 
+async def _predict_with_timeout(user_input: str, meta_state: MetaState) -> str:
+    """Run predict_response with a configurable timeout.
+
+    On slow hardware (e.g. a phone CPU acting as LM Studio server) the
+    self-prediction LLM call can easily take 40–100 s.  We cap it at
+    ``settings.predict_timeout_s`` and return an empty string on timeout so
+    the rest of the pipeline is not blocked.  Lower the cap in .env via
+    ``ECHO_PREDICT_TIMEOUT_S=5`` for very constrained hardware.
+    """
+    try:
+        return await asyncio.wait_for(
+            predict_response(user_input, meta_state),
+            timeout=settings.predict_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        logger.debug(
+            "Self-prediction timed out after %.1f s — skipping",
+            settings.predict_timeout_s,
+        )
+        return ""
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Self-prediction failed: %s", exc)
+        return ""
+
+
 class CognitivePipeline:
     """Top-level controller for a single interact() call."""
 
@@ -161,11 +186,15 @@ class CognitivePipeline:
         yield {"_status": "Retrieving episodic memories…"}
 
         # Retrieve memories + generate self-prediction concurrently (reduces latency)
+        # Pre-compute the embedding vector once — episodic and semantic stores both
+        # need the same vector so this avoids two sequential LM Studio embed calls.
         _t_retrieval = time.monotonic()
+        from echo.core.llm_client import llm as _llm  # noqa: PLC0415
+        query_vector = await _llm.embed_one(user_input)
         episodic_mems, semantic_mems, self_pred = await asyncio.gather(
-            self.episodic.retrieve_similar(user_input, n_results=5),
-            self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
-            predict_response(user_input, self.meta_tracker.current),
+            self.episodic.retrieve_similar(user_input, n_results=5, query_vector=query_vector or None),
+            self.semantic.retrieve_similar(user_input, n_results=5, query_vector=query_vector or None),  # 5 → more room for identity facts
+            _predict_with_timeout(user_input, self.meta_tracker.current),
         )
         _retrieval_ms = round((time.monotonic() - _t_retrieval) * 1000)
         # Track source counts for downstream SSE metadata
@@ -309,11 +338,14 @@ class CognitivePipeline:
             )
         )
 
-        # Retrieve memories + generate self-prediction concurrently
+        # Retrieve memories + generate self-prediction concurrently.
+        # Pre-compute the embedding vector once — both stores share it.
+        from echo.core.llm_client import llm as _llm  # noqa: PLC0415
+        query_vector = await _llm.embed_one(user_input)
         episodic_mems, semantic_mems, self_pred = await asyncio.gather(
-            self.episodic.retrieve_similar(user_input, n_results=5),
-            self.semantic.retrieve_similar(user_input, n_results=5),  # 5 → more room for identity facts
-            predict_response(user_input, self.meta_tracker.current),
+            self.episodic.retrieve_similar(user_input, n_results=5, query_vector=query_vector or None),
+            self.semantic.retrieve_similar(user_input, n_results=5, query_vector=query_vector or None),  # 5 → more room for identity facts
+            _predict_with_timeout(user_input, self.meta_tracker.current),
         )
         memories = semantic_mems + episodic_mems  # semantic facts first
         self.workspace.clear()

@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     # paraphrase-multilingual-mpnet-base-v2 is 768-dim AND multilingual (IT/EN/ES…)
     hf_embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
+    # Local sentence-transformers embedding model (in-process, no network, primary backend).
+    # ⚠️  MUST match the dimensionality of existing ChromaDB collections!
+    #   paraphrase-multilingual-mpnet-base-v2 → 768-dim, multilingual (IT/EN/ES)  ← safe default
+    #   all-MiniLM-L6-v2                      → 384-dim, faster, English-focused
+    #       If you switch to 384-dim, wipe data/chroma/ first, then run `uv run echo`.
+    local_embedding_model: str = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+
     # API server
     api_host: str = "0.0.0.0"
     api_port: int = 8000
@@ -65,6 +72,12 @@ class Settings(BaseSettings):
     curiosity_max_arxiv_results: int = 2   # papers per topic
     curiosity_max_hn_results: int = 3      # news articles per topic
     curiosity_max_brave_results: int = 3   # web results per topic (Brave Search MCP)
+
+    # Self-prediction timeout (seconds).
+    # On low-power devices (e.g. phone CPUs) the LLM call inside predict_response
+    # can take tens of seconds. Reduce this value (e.g. ECHO_PREDICT_TIMEOUT_S=5)
+    # in .env to cap it and keep retrieval snappy.
+    predict_timeout_s: float = 10.0
 
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"

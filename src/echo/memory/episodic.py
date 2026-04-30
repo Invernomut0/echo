@@ -157,23 +157,33 @@ class EpisodicMemoryStore:
         query: str,
         n_results: int = 5,
         min_strength: float = 0.1,
+        query_vector: list[float] | None = None,
     ) -> list[MemoryEntry]:
         """Semantic search — returns top-k memories by cosine similarity.
 
+        ``query_vector`` may be supplied by the caller to avoid a redundant
+        embedding round-trip when the same query is already embedded elsewhere
+        (e.g. pipeline.py pre-computes one vector shared by episodic + semantic).
+
         Returns [] gracefully when the embedding service (LM Studio) is offline.
         """
-        vector = await llm.embed_one(query)
+        loop = asyncio.get_event_loop()
+
+        vector = query_vector if query_vector else await llm.embed_one(query)
         if not vector:
             # Embedding service unavailable — skip memory retrieval
             logger.debug("embed_one returned empty — skipping memory retrieval")
             return []
         try:
-            col_count = self._collection.count() or 1
-            results = self._collection.query(
-                query_embeddings=[vector],
-                # Request n*3 raw chunk results so dedup still yields n unique memories
-                n_results=min(n_results * 3, col_count),
-                include=["metadatas", "distances"],
+            col_count = await loop.run_in_executor(None, self._collection.count) or 1
+            results = await loop.run_in_executor(
+                None,
+                lambda: self._collection.query(
+                    query_embeddings=[vector],
+                    # Request n*3 raw chunk results so dedup still yields n unique memories
+                    n_results=min(n_results * 3, col_count),
+                    include=["metadatas", "distances"],
+                ),
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("ChromaDB query failed: %s", exc)
@@ -208,18 +218,21 @@ class EpisodicMemoryStore:
 
         entries = [_row_to_entry(r) for r in rows if r.current_strength >= min_strength]
 
-        # Touch access stats
-        now_iso = datetime.now(timezone.utc).isoformat()
-        async with factory() as session:
-            for e in entries:
-                stmt_u = (
-                    select(MemoryRow).where(MemoryRow.id == e.id)
+        # Bulk-update access stats — single statement replaces the old N+1 loop.
+        if entries:
+            from sqlalchemy import update as sa_update  # noqa: PLC0415
+            now_iso = datetime.now(timezone.utc).isoformat()
+            entry_ids = [e.id for e in entries]
+            async with factory() as session:
+                await session.execute(
+                    sa_update(MemoryRow)
+                    .where(MemoryRow.id.in_(entry_ids))
+                    .values(
+                        access_count=MemoryRow.access_count + 1,
+                        last_accessed=now_iso,
+                    )
                 )
-                row = (await session.execute(stmt_u)).scalar_one_or_none()
-                if row:
-                    row.access_count = row.access_count + 1
-                    row.last_accessed = now_iso
-            await session.commit()
+                await session.commit()
 
         return entries
 
