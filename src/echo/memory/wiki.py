@@ -252,6 +252,92 @@ class WikiStore:
         return "\n".join(lines[start_idx:])
 
     # ------------------------------------------------------------------
+    # Graph export
+    # ------------------------------------------------------------------
+
+    def graph(self) -> dict[str, Any]:
+        """Return a graph data structure for 3D visualisation.
+
+        Nodes = wiki pages (one per index row).
+        Links = wikilinks (``[[PageName]]`` or ``[[PageName]](path)``) parsed
+                from every page's body content.
+
+        Returns:
+            {
+              "nodes": [{id, title, category, tags, summary, path, degree}],
+              "links": [{source, target, label}],
+              "stats": {total_pages, total_links, by_category}
+            }
+        """
+        pages = self.list_pages()
+        if not pages:
+            return {"nodes": [], "links": [], "stats": {"total_pages": 0, "total_links": 0, "by_category": {}}}
+
+        # Build slug → page mapping for quick lookup
+        slug_map: dict[str, dict[str, str]] = {}
+        for pg in pages:
+            # derive slug from path: pages/entities/my-slug.md → my-slug
+            path_slug = pg["path"].rsplit("/", 1)[-1].replace(".md", "")
+            slug_map[path_slug] = pg
+            # also index by lower title slug for wikilink matching
+            title_slug = _slugify(pg["title"])
+            slug_map[title_slug] = pg
+
+        # Build nodes with id = path_slug
+        node_ids: dict[str, dict[str, Any]] = {}
+        for pg in pages:
+            nid = pg["path"].rsplit("/", 1)[-1].replace(".md", "")
+            node_ids[nid] = {
+                "id": nid,
+                "title": pg["title"],
+                "category": pg["category"],
+                "tags": [t.strip() for t in pg["tags"].split(",") if t.strip()],
+                "summary": pg["summary"],
+                "path": pg["path"],
+                "degree": 0,
+            }
+
+        # Parse wikilinks from every page body to build edges
+        wikilink_pattern = re.compile(r"\[\[([^\]]+)\]\]")
+        links: list[dict[str, str]] = []
+        seen_links: set[tuple[str, str]] = set()
+
+        for nid, node in node_ids.items():
+            body = self.read_page_by_path(node["path"]) or ""
+            for m in wikilink_pattern.finditer(body):
+                raw = m.group(1)
+                # Strip optional (path) suffix: "Title](path)" → "Title"
+                raw = raw.split("](")[0]
+                target_slug = _slugify(raw)
+                if target_slug in node_ids and target_slug != nid:
+                    pair = (nid, target_slug)
+                    if pair not in seen_links:
+                        seen_links.add(pair)
+                        links.append({
+                            "source": nid,
+                            "target": target_slug,
+                            "label": "wikilink",
+                        })
+                        node_ids[nid]["degree"] += 1
+                        node_ids[target_slug]["degree"] += 1
+
+        # By-category stats
+        by_category: dict[str, int] = {}
+        for nd in node_ids.values():
+            cat = nd["category"]
+            by_category[cat] = by_category.get(cat, 0) + 1
+
+        return {
+            "nodes": list(node_ids.values()),
+            "links": links,
+            "stats": {
+                "total_pages": len(node_ids),
+                "total_links": len(links),
+                "by_category": by_category,
+            },
+        }
+
+    # ------------------------------------------------------------------
     # Search
     # ------------------------------------------------------------------
 

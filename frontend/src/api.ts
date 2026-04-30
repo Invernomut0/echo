@@ -600,3 +600,79 @@ export async function testCopilot(): Promise<CopilotTestResponse> {
   return r.json()
 }
 
+// ── Wiki ───────────────────────────────────────────────────────────────────
+
+export interface WikiNode {
+  id: string
+  title: string
+  category: 'entities' | 'concepts' | 'sources' | 'syntheses' | string
+  tags: string[]
+  summary: string
+  path: string
+  degree: number
+}
+
+export interface WikiLink {
+  source: string
+  target: string
+  label: string
+}
+
+export interface WikiGraphData {
+  nodes: WikiNode[]
+  links: WikiLink[]
+  stats: {
+    total_pages: number
+    total_links: number
+    by_category: Record<string, number>
+  }
+}
+
+export async function fetchWikiGraph(): Promise<WikiGraphData> {
+  const r = await fetch(`${BASE}/wiki/graph`)
+  if (!r.ok) throw new Error(`wiki graph: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchWikiPage(path: string): Promise<string> {
+  const r = await fetch(`${BASE}/wiki/page?path=${encodeURIComponent(path)}`)
+  if (!r.ok) throw new Error(`wiki page: ${r.status}`)
+  const data = await r.json()
+  return data.content as string
+}
+
+export async function fetchWikiLog(last = 20): Promise<string> {
+  const r = await fetch(`${BASE}/wiki/log?last=${last}`)
+  if (!r.ok) throw new Error(`wiki log: ${r.status}`)
+  const data = await r.json()
+  return data.content as string
+}
+
+export async function ingestWikiSource(
+  title: string,
+  sourceText: string,
+  sourceType = 'text',
+): Promise<{ title: string; slug: string; pages_written: string[]; entities: number; concepts: number; summary: string }> {
+  const r = await fetch(`${BASE}/wiki/ingest`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, source_text: sourceText, source_type: sourceType }),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `wiki ingest: ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function queryWiki(
+  question: string,
+): Promise<{ question: string; answer: string; pages_consulted: string[]; synthesis_page: string | null }> {
+  const r = await fetch(`${BASE}/wiki/query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question }),
+  })
+  if (!r.ok) throw new Error(`wiki query: ${r.status}`)
+  return r.json()
+}

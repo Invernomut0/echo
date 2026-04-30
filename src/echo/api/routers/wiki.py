@@ -23,6 +23,7 @@ from echo.api.schemas import (
     WikiQueryRequest,
     WikiQueryResponse,
     WikiSearchResponse,
+    WikiGraphResponse,
 )
 from echo.memory.wiki import wiki
 
@@ -103,3 +104,10 @@ async def lint_wiki() -> WikiLintResponse:
     """LLM health-check: find contradictions, orphans, missing cross-refs."""
     result = await wiki.lint()
     return WikiLintResponse(**result)
+
+
+@router.get("/graph", response_model=WikiGraphResponse)
+async def get_wiki_graph() -> WikiGraphResponse:
+    """Return nodes + wikilink edges for 3D graph visualisation."""
+    result = wiki.graph()
+    return WikiGraphResponse(**result)

@@ -213,3 +213,25 @@ class WikiLintResponse(BaseModel):
     total_pages: int
     checked_pages: int
     issues: list[dict[str, Any]]
+
+
+class WikiGraphNode(BaseModel):
+    id: str
+    title: str
+    category: str
+    tags: list[str]
+    summary: str
+    path: str
+    degree: int
+
+
+class WikiGraphLink(BaseModel):
+    source: str
+    target: str
+    label: str
+
+
+class WikiGraphResponse(BaseModel):
+    nodes: list[WikiGraphNode]
+    links: list[WikiGraphLink]
+    stats: dict[str, Any]
