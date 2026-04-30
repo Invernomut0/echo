@@ -45,3 +45,36 @@ async def get_dreams(limit: int = Query(default=20, ge=1, le=100)):
 
     dreams = await DreamStore().get_all(limit=limit)
     return [d.model_dump() for d in dreams]
+
+
+# ---------------------------------------------------------------------------
+# echo.md — ECHO's self-maintained personality file
+# ---------------------------------------------------------------------------
+
+@router.get("/echo-md")
+async def get_echo_md():
+    """Return the current content of ECHO's personality file (echo.md)."""
+    from echo.self_model.echo_md import EchoMdManager  # noqa: PLC0415
+    content = EchoMdManager().read()
+    return {"content": content}
+
+
+@router.post("/echo-md/review")
+async def review_echo_md():
+    """Manually trigger an echo.md review/update cycle."""
+    from echo.self_model.echo_md import EchoMdManager  # noqa: PLC0415
+
+    manager = EchoMdManager()
+    _meta_state = None
+    try:
+        if pipeline._ready:
+            _meta_state = pipeline.meta_state
+    except Exception:  # noqa: BLE001
+        pass
+
+    last_report = pipeline.consolidation._last_report
+    patterns = last_report.patterns_found if last_report else []
+
+    updated = await manager.review_and_update(meta_state=_meta_state, patterns=patterns)
+    content = manager.read()
+    return {"updated": updated, "content": content}

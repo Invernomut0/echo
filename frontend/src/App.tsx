@@ -15,10 +15,11 @@ import VectorMemoriesPanel from './components/VectorMemoriesPanel'
 import CuriosityPanel from './components/CuriosityPanel'
 import WikiGraphPanel from './components/WikiGraphPanel'
 import GoalsPanel from './components/GoalsPanel'
+import EchoMdPanel from './components/EchoMdPanel'
 import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -77,7 +78,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -125,6 +126,9 @@ export default function App() {
         </div>
         <div style={{ display: tab === 'goals' ? 'contents' : 'none' }}>
           <GoalsPanel active={tab === 'goals'} />
+        </div>
+        <div style={{ display: tab === 'echo' ? 'contents' : 'none' }}>
+          <EchoMdPanel />
         </div>
         <div style={{ display: tab === 'setup' ? 'contents' : 'none' }}>
           <SetupPanel />

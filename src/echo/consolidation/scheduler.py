@@ -202,6 +202,20 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Memory health metrics collection failed: %s", exc)
 
+        # echo.md self-update — best-effort, non-blocking
+        try:
+            from echo.self_model.echo_md import EchoMdManager  # noqa: PLC0415
+            from echo.core.pipeline import pipeline as _pl  # noqa: PLC0415
+            _ms = _pl.meta_state if _pl._ready else None
+            updated = await EchoMdManager().review_and_update(
+                meta_state=_ms,
+                patterns=report.patterns_found or [],
+            )
+            if updated:
+                logger.info("echo.md updated during light consolidation cycle")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("echo.md review (light) failed: %s", exc)
+
         return report
 
     async def _run_deep(self) -> ConsolidationReport:
@@ -351,6 +365,18 @@ class ConsolidationScheduler:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("REM health metrics collection failed: %s", exc)
+
+        # echo.md self-update — best-effort, non-blocking
+        try:
+            from echo.self_model.echo_md import EchoMdManager  # noqa: PLC0415
+            updated = await EchoMdManager().review_and_update(
+                meta_state=_meta_state,
+                patterns=report.patterns_found or [],
+            )
+            if updated:
+                logger.info("echo.md updated during REM consolidation cycle")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("echo.md review (REM) failed: %s", exc)
 
         return report
 
