@@ -41,6 +41,7 @@ from echo.curiosity.web_search import (
 )
 from echo.memory.episodic import EpisodicMemoryStore
 from echo.memory.semantic import SemanticMemoryStore
+from echo.memory.goals import goal_store, MAX_ACTIVE_GOALS
 
 logger = logging.getLogger(__name__)
 
@@ -179,6 +180,244 @@ class CuriosityEngine:
         return not _is_duplicate_text(content, similar)
 
     # ------------------------------------------------------------------
+    # Goal management cycle
+    # ------------------------------------------------------------------
+
+    _GOAL_REFLECT_PROMPT = """\
+You are the autonomous reasoning core of ECHO, an AI assistant.
+
+## Recent conversations (newest first):
+{conversations}
+
+## Internal state:
+{meta_state}
+
+## Current active goals ({active_count}/{max_goals}):
+{active_goals}
+
+Your task:
+1. Review the recent conversations and internal state.
+2. Decide whether any active goals have been ACHIEVED (respond naturally shows success) or should be ABANDONED.
+3. Propose NEW goals if there is room (max {max_goals} total active). Goals must be concrete, achievable and meaningful for ECHO's development.
+4. For each active goal that still needs work, plan the NEXT ACTION to take.
+
+Respond ONLY with valid JSON:
+{{
+  "achieved_ids": ["<goal_id>", ...],
+  "abandoned_ids": ["<goal_id>", ...],
+  "new_goals": [
+    {{"title": "...", "description": "...", "priority": 0.7}}
+  ],
+  "next_actions": [
+    {{"goal_id": "<id>", "action": "...", "search_query": "..."}}
+  ]
+}}"""
+
+    _GOAL_PURSUE_PROMPT = """\
+You are working on the following goal for ECHO:
+
+Goal: {goal_title}
+Description: {goal_description}
+
+You searched for: {search_query}
+
+Search results:
+{search_results}
+
+Based on these results:
+1. Summarise what you found that is relevant to the goal (2-4 sentences).
+2. Decide if the goal is now ACHIEVED or needs more work.
+
+Respond ONLY with valid JSON:
+{{
+  "summary": "...",
+  "achieved": true | false,
+  "next_step": "..." (if not achieved, what to do next)
+}}"""
+
+    async def _run_goal_cycle(self, recent_memories: list[Any]) -> None:
+        """Review state, update goals, and pursue active goals with searches."""
+        try:
+            # Build context
+            conversations = "\n".join(
+                f"- {m.content[:200]}" for m in recent_memories[:10]
+            )
+            active_goals = await goal_store.list_active()
+
+            # Get meta state if available
+            try:
+                from echo.core.pipeline import pipeline  # noqa: PLC0415
+                meta = pipeline.meta_state
+                meta_state_text = (
+                    f"Mood: {getattr(meta, 'mood', 'unknown')} | "
+                    f"Energy: {getattr(meta, 'energy_level', 'unknown')} | "
+                    f"Coherence: {getattr(meta, 'coherence_index', 'unknown')}"
+                )
+            except Exception:  # noqa: BLE001
+                meta_state_text = "State unavailable"
+
+            # Format active goals for prompt
+            if active_goals:
+                goals_text = "\n".join(
+                    f"  [{g['id'][:8]}] {g['title']} — {g['description'][:100]}"
+                    for g in active_goals
+                )
+            else:
+                goals_text = "  (none)"
+
+            # Step 1: Reflect and plan
+            reflect_raw = await llm.chat(
+                messages=[{
+                    "role": "user",
+                    "content": self._GOAL_REFLECT_PROMPT.format(
+                        conversations=conversations or "(no recent conversations)",
+                        meta_state=meta_state_text,
+                        active_goals=goals_text,
+                        active_count=len(active_goals),
+                        max_goals=MAX_ACTIVE_GOALS,
+                    ),
+                }],
+                temperature=0.4,
+                max_tokens=600,
+            )
+
+            try:
+                plan = json.loads(reflect_raw.strip())
+            except json.JSONDecodeError:
+                logger.warning("Goal reflection returned non-JSON: %s", reflect_raw[:200])
+                return
+
+            # Step 2: Mark achieved goals
+            for gid in plan.get("achieved_ids", []):
+                # find full id (might be truncated to 8 chars)
+                matched = next((g for g in active_goals if g["id"].startswith(gid)), None)
+                if matched:
+                    await goal_store.update_status(matched["id"], "achieved")
+                    await goal_store.add_action(
+                        matched["id"],
+                        description="Goal marked as achieved during reflection cycle",
+                        result="Achieved",
+                        status="done",
+                    )
+                    logger.info("[Goals] Achieved: %s", matched["title"])
+
+            # Step 3: Abandon goals
+            for gid in plan.get("abandoned_ids", []):
+                matched = next((g for g in active_goals if g["id"].startswith(gid)), None)
+                if matched:
+                    await goal_store.update_status(matched["id"], "abandoned")
+                    logger.info("[Goals] Abandoned: %s", matched["title"])
+
+            # Step 4: Create new goals
+            current_count = await goal_store.count_active()
+            for ng in plan.get("new_goals", []):
+                if current_count >= MAX_ACTIVE_GOALS:
+                    break
+                try:
+                    created = await goal_store.create(
+                        title=ng.get("title", "")[:200],
+                        description=ng.get("description", "")[:500],
+                        priority=float(ng.get("priority", 0.5)),
+                    )
+                    current_count += 1
+                    logger.info("[Goals] New goal: %s", created["title"])
+                    await goal_store.add_action(
+                        created["id"],
+                        description="Goal defined during curiosity reflection cycle",
+                        result="Created",
+                        status="done",
+                    )
+                except ValueError:
+                    break
+
+            # Step 5: Pursue active goals with search
+            active_goals = await goal_store.list_active()  # refresh after updates
+            for action_plan in plan.get("next_actions", [])[:2]:  # max 2 pursuits per cycle
+                gid = action_plan.get("goal_id", "")
+                goal = next((g for g in active_goals if g["id"].startswith(gid)), None)
+                if not goal:
+                    continue
+                query = action_plan.get("search_query", action_plan.get("action", ""))
+                if not query:
+                    continue
+
+                # Record the planned action
+                await goal_store.add_action(
+                    goal["id"],
+                    description=f"Searching: {action_plan.get('action', query)}",
+                    result="In progress…",
+                    status="pending",
+                )
+
+                # Search
+                try:
+                    results = await asyncio.gather(
+                        arxiv_search(query, max_results=2),
+                        hn_search(query, max_results=2),
+                        brave_web_search(query, max_results=2),
+                    )
+                    all_results = [r for sublist in results for r in sublist]
+                    search_text = "\n".join(
+                        f"- [{r.source}] {r.title}: {r.snippet[:200]}"
+                        for r in all_results[:6]
+                    ) or "(no results found)"
+                except Exception as exc:  # noqa: BLE001
+                    search_text = f"Search failed: {exc}"
+                    all_results = []
+
+                # Ask LLM to interpret results
+                try:
+                    pursue_raw = await llm.chat(
+                        messages=[{
+                            "role": "user",
+                            "content": self._GOAL_PURSUE_PROMPT.format(
+                                goal_title=goal["title"],
+                                goal_description=goal["description"],
+                                search_query=query,
+                                search_results=search_text,
+                            ),
+                        }],
+                        temperature=0.3,
+                        max_tokens=300,
+                    )
+                    pursue = json.loads(pursue_raw.strip())
+                except Exception:  # noqa: BLE001
+                    pursue = {"summary": search_text[:300], "achieved": False}
+
+                summary = pursue.get("summary", "")[:400]
+                achieved = pursue.get("achieved", False)
+
+                # Update the action with results
+                await goal_store.add_action(
+                    goal["id"],
+                    description=f"Result for: {action_plan.get('action', query)}",
+                    result=summary,
+                    status="done",
+                )
+
+                # Store as semantic memory
+                if summary and await self._is_novel(summary):
+                    await self._semantic.store(
+                        content=f"[Goal research: {goal['title']}] {summary}",
+                        source_agent="goals",
+                        tags=["goals", f"goal:{goal['id'][:8]}"],
+                        salience=0.6,
+                    )
+
+                if achieved:
+                    await goal_store.update_status(goal["id"], "achieved")
+                    await goal_store.add_action(
+                        goal["id"],
+                        description="Goal achieved through research",
+                        result=summary,
+                        status="done",
+                    )
+                    logger.info("[Goals] Goal achieved via research: %s", goal["title"])
+
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Goal cycle failed: %s", exc, exc_info=True)
+
+    # ------------------------------------------------------------------
     # Main cycle
     # ------------------------------------------------------------------
 
@@ -240,6 +479,9 @@ class CuriosityEngine:
                     threshold,
                 )
                 return _done("skipped", f"not_idle ({idle_seconds:.0f}s < {threshold}s)")
+
+            # 2b. Goal management — always run when idle
+            await self._run_goal_cycle(recent_memories)
 
             # 3. Extract topics
             topics = await self._extract_topics(recent_memories)

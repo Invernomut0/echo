@@ -14,10 +14,11 @@ import AnalyticsPanel from './components/AnalyticsPanel'
 import VectorMemoriesPanel from './components/VectorMemoriesPanel'
 import CuriosityPanel from './components/CuriosityPanel'
 import WikiGraphPanel from './components/WikiGraphPanel'
+import GoalsPanel from './components/GoalsPanel'
 import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -76,7 +77,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -121,6 +122,9 @@ export default function App() {
           style={{ display: tab === 'wiki' ? 'flex' : 'none', flex: 1, height: '100%' }}
         >
           <WikiGraphPanel active={tab === 'wiki'} />
+        </div>
+        <div style={{ display: tab === 'goals' ? 'contents' : 'none' }}>
+          <GoalsPanel active={tab === 'goals'} />
         </div>
         <div style={{ display: tab === 'setup' ? 'contents' : 'none' }}>
           <SetupPanel />

@@ -709,3 +709,89 @@ export async function queryWiki(
   if (!r.ok) throw new Error(`wiki query: ${r.status}`)
   return r.json()
 }
+
+// ── Goals ─────────────────────────────────────────────────────────────────────
+
+export interface GoalAction {
+  id: string
+  goal_id: string
+  step: number
+  description: string
+  result: string
+  status: 'done' | 'failed' | 'pending'
+  created_at: string
+}
+
+export interface Goal {
+  id: string
+  title: string
+  description: string
+  status: 'active' | 'achieved' | 'abandoned'
+  priority: number
+  created_at: string
+  updated_at: string
+  achieved_at: string | null
+  tags: string[]
+  actions: GoalAction[]
+}
+
+export interface GoalsResponse {
+  active: Goal[]
+  history: Goal[]
+  max_active: number
+}
+
+export async function fetchGoals(): Promise<GoalsResponse> {
+  const r = await fetch(`${BASE}/goals`)
+  if (!r.ok) throw new Error(`goals: ${r.status}`)
+  return r.json()
+}
+
+export async function createGoal(data: {
+  title: string
+  description?: string
+  priority?: number
+  tags?: string[]
+}): Promise<Goal> {
+  const r = await fetch(`${BASE}/goals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `create goal: ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function updateGoalStatus(
+  goalId: string,
+  data: { status?: 'active' | 'achieved' | 'abandoned'; description?: string },
+): Promise<Goal> {
+  const r = await fetch(`${BASE}/goals/${goalId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) throw new Error(`update goal: ${r.status}`)
+  return r.json()
+}
+
+export async function deleteGoal(goalId: string): Promise<void> {
+  const r = await fetch(`${BASE}/goals/${goalId}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 204) throw new Error(`delete goal: ${r.status}`)
+}
+
+export async function addGoalAction(
+  goalId: string,
+  data: { description: string; result?: string; status?: 'done' | 'failed' | 'pending' },
+): Promise<GoalAction> {
+  const r = await fetch(`${BASE}/goals/${goalId}/actions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) throw new Error(`add goal action: ${r.status}`)
+  return r.json()
+}
