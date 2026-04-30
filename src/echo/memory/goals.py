@@ -32,6 +32,7 @@ MAX_ACTIVE_GOALS = 5
 
 class GoalRow(Base):
     __tablename__ = "goals"
+    __allow_unmapped__ = True
 
     id          = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     title       = Column(Text, nullable=False)
@@ -53,6 +54,7 @@ class GoalRow(Base):
 
 class GoalActionRow(Base):
     __tablename__ = "goal_actions"
+    __allow_unmapped__ = True
 
     id         = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     goal_id    = Column(String, ForeignKey("goals.id", ondelete="CASCADE"), nullable=False)
