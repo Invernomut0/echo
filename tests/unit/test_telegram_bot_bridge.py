@@ -226,3 +226,65 @@ async def test_private_sender_metadata_seeds_identity_memory(monkeypatch):
     assert "The user's name is Lorenzo." in stored_contents
     assert "The user's Telegram username is @lorenzov." in stored_contents
     interact.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_read_ack_is_triggered_on_authorized_message(monkeypatch):
+    """Bridge should emit read-ack for each authorized incoming message."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = set()
+
+    send_read_ack = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_read_ack", send_read_ack)
+    monkeypatch.setattr(bridge, "_send_chat_action", AsyncMock())
+    monkeypatch.setattr(bridge, "_typing_heartbeat", AsyncMock())
+    monkeypatch.setattr(bridge, "_send_long_message", AsyncMock())
+
+    interact = AsyncMock(return_value=SimpleNamespace(assistant_response="ok"))
+    monkeypatch.setattr(tg.pipeline, "interact", interact)
+
+    update = {
+        "message": {
+            "message_id": 42,
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 123},
+            "text": "ciao",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    send_read_ack.assert_awaited_once_with(
+        123,
+        message_id=42,
+        chat_type="private",
+    )
+    interact.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_read_ack_falls_back_to_eyes_reply_in_private_chat(monkeypatch):
+    """If reaction API fails, bridge should fallback to 👀 reply in private chat."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+
+    fake_client = SimpleNamespace(post=AsyncMock(side_effect=RuntimeError("reaction unavailable")))
+    bridge._client = fake_client
+
+    send_message = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_message", send_message)
+
+    await bridge._send_read_ack(
+        321,
+        message_id=99,
+        chat_type="private",
+    )
+
+    send_message.assert_awaited_once_with(
+        321,
+        "👀",
+        reply_to_message_id=99,
+    )

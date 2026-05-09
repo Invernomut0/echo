@@ -194,6 +194,57 @@ class TelegramBotBridge:
             )
             await asyncio.sleep(4.0)
 
+    async def _send_read_ack(
+        self,
+        chat_id: int,
+        *,
+        message_id: int | None,
+        chat_type: str | None,
+    ) -> None:
+        """Acknowledge the message as read with an eyes icon (👀).
+
+        Preferred channel is a Telegram reaction. If unavailable, fallback to a
+        lightweight reply icon in private chats.
+        """
+        if self._client is None or message_id is None:
+            return
+
+        reaction_payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "reaction": [{"type": "emoji", "emoji": "👀"}],
+            "is_big": False,
+        }
+
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/setMessageReaction",
+                json=reaction_payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if data.get("ok", False):
+                return
+            raise RuntimeError(f"setMessageReaction returned non-ok payload: {data}")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Telegram read ack reaction failed for chat_id=%s message_id=%s: %s",
+                chat_id,
+                message_id,
+                exc,
+            )
+
+        if chat_type != "private":
+            return
+
+        # Fallback for clients/chats where reactions are unavailable.
+        with suppress(Exception):
+            await self._send_message(
+                chat_id,
+                "👀",
+                reply_to_message_id=message_id,
+            )
+
     async def _ensure_sender_identity_memory(
         self,
         chat_id: int,
@@ -311,6 +362,12 @@ class TelegramBotBridge:
             chat_id,
             chat_type=str(chat.get("type", "")),
             sender=sender if isinstance(sender, dict) else None,
+        )
+
+        await self._send_read_ack(
+            chat_id,
+            message_id=message_id,
+            chat_type=str(chat.get("type", "")),
         )
 
         command_token = text.split(maxsplit=1)[0]
