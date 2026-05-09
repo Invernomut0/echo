@@ -10,6 +10,7 @@ Exposes endpoints for:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -39,61 +40,73 @@ VSCODE_SCOPE = ""  # empty scope is what VS Code Copilot uses
 # Automatically refreshed when the token is within 60 seconds of expiry.
 
 _copilot_token_cache: dict[str, str] = {}
+_copilot_token_lock = asyncio.Lock()
 
 
 async def _get_copilot_token_cached() -> dict:
     """Return a valid Copilot API token, auto-refreshing if nearly expired."""
     global _copilot_token_cache
 
-    # Return cached token if it still has > 60 s of life
-    if _copilot_token_cache.get("token") and _copilot_token_cache.get("expires_at"):
-        try:
-            expires = datetime.fromisoformat(_copilot_token_cache["expires_at"])
-            remaining = (expires - datetime.now(timezone.utc)).total_seconds()
-            if remaining > 60:
-                return _copilot_token_cache
-            logger.debug("Copilot token expires in %.0fs — refreshing", remaining)
-        except Exception:
-            pass  # bad cache entry → fall through to refetch
+    def _cached_if_fresh() -> dict | None:
+        if _copilot_token_cache.get("token") and _copilot_token_cache.get("expires_at"):
+            try:
+                expires = datetime.fromisoformat(_copilot_token_cache["expires_at"])
+                remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+                if remaining > 60:
+                    return _copilot_token_cache
+                logger.debug("Copilot token expires in %.0fs — refreshing", remaining)
+            except Exception:
+                return None
+        return None
 
-    # Fetch a fresh token from GitHub
-    gh_token = settings.github_token
-    if not gh_token:
-        raise HTTPException(
-            status_code=400,
-            detail="No GitHub token stored — complete the device flow first.",
-        )
+    fresh = _cached_if_fresh()
+    if fresh is not None:
+        return fresh
 
-    async with httpx.AsyncClient() as client:
-        r = await client.get(
-            "https://api.github.com/copilot_internal/v2/token",
-            headers={
-                "Authorization": f"token {gh_token}",
-                "Accept": "application/json",
-                "Editor-Version": "vscode/1.99.3",
-                "Editor-Plugin-Version": "copilot-chat/0.22.4",
-                "User-Agent": "GitHubCopilotChat/0.22.4",
-                "Copilot-Integration-Id": "vscode-chat",
-            },
-            timeout=15.0,
-        )
+    # Prevent refresh stampede under concurrent requests.
+    async with _copilot_token_lock:
+        fresh = _cached_if_fresh()
+        if fresh is not None:
+            return fresh
 
-    if r.status_code == 401:
-        raise HTTPException(status_code=401, detail="GitHub token is invalid or expired.")
-    if r.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"GitHub Copilot API returned HTTP {r.status_code}: {r.text}",
-        )
+        # Fetch a fresh token from GitHub
+        gh_token = settings.github_token
+        if not gh_token:
+            raise HTTPException(
+                status_code=400,
+                detail="No GitHub token stored — complete the device flow first.",
+            )
 
-    data = r.json()
-    _copilot_token_cache = {
-        "token": data.get("token", ""),
-        "expires_at": data.get("expires_at", ""),
-        "endpoint": data.get("endpoints", {}).get("api", "https://api.githubcopilot.com"),
-    }
-    logger.info("Copilot token refreshed, expires %s", _copilot_token_cache["expires_at"])
-    return _copilot_token_cache
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                "https://api.github.com/copilot_internal/v2/token",
+                headers={
+                    "Authorization": f"token {gh_token}",
+                    "Accept": "application/json",
+                    "Editor-Version": "vscode/1.99.3",
+                    "Editor-Plugin-Version": "copilot-chat/0.22.4",
+                    "User-Agent": "GitHubCopilotChat/0.22.4",
+                    "Copilot-Integration-Id": "vscode-chat",
+                },
+                timeout=15.0,
+            )
+
+        if r.status_code == 401:
+            raise HTTPException(status_code=401, detail="GitHub token is invalid or expired.")
+        if r.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"GitHub Copilot API returned HTTP {r.status_code}: {r.text}",
+            )
+
+        data = r.json()
+        _copilot_token_cache = {
+            "token": data.get("token", ""),
+            "expires_at": data.get("expires_at", ""),
+            "endpoint": data.get("endpoints", {}).get("api", "https://api.githubcopilot.com"),
+        }
+        logger.info("Copilot token refreshed, expires %s", _copilot_token_cache["expires_at"])
+        return _copilot_token_cache
 
 
 # ── Pydantic models ───────────────────────────────────────────────────────────

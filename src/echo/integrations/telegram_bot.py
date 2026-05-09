@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import time
 from collections import deque
 from contextlib import suppress
 from typing import Any
@@ -39,6 +41,8 @@ class TelegramBotBridge:
         self._task: asyncio.Task[None] | None = None
         self._client: httpx.AsyncClient | None = None
         self._history_by_chat: dict[int, deque[dict[str, str]]] = {}
+        self._unauthorized_hint_sent_at: dict[int, float] = {}
+        self._unauthorized_hint_cooldown_seconds = 30.0
 
     def _buffer_for(self, chat_id: int) -> deque[dict[str, str]]:
         buffer = self._history_by_chat.get(chat_id)
@@ -114,12 +118,22 @@ class TelegramBotBridge:
         if self._client is None:
             return []
 
+        # Accept standard chat messages plus channel posts and edited variants.
+        # This avoids silent drops when users interact from channels/groups where
+        # updates are not always delivered as plain "message".
+        allowed_updates = [
+            "message",
+            "edited_message",
+            "channel_post",
+            "edited_channel_post",
+        ]
+
         response = await self._client.get(
             f"{self._base_url}/getUpdates",
             params={
                 "timeout": self._update_timeout,
                 "offset": self._offset,
-                "allowed_updates": '["message"]',
+                "allowed_updates": json.dumps(allowed_updates),
             },
         )
         response.raise_for_status()
@@ -135,8 +149,34 @@ class TelegramBotBridge:
 
         return updates
 
+    @staticmethod
+    def _extract_message_container(update: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+        """Return first supported Telegram message container from an update."""
+        for key in ("message", "edited_message", "channel_post", "edited_channel_post"):
+            candidate = update.get(key)
+            if isinstance(candidate, dict):
+                return candidate, key
+        return None, None
+
+    async def _send_unauthorized_hint(self, chat_id: int, chat_type: str | None) -> None:
+        """Send a throttled hint that helps users whitelist the correct chat id."""
+        now = time.monotonic()
+        last = self._unauthorized_hint_sent_at.get(chat_id, 0.0)
+        if now - last < self._unauthorized_hint_cooldown_seconds:
+            return
+        self._unauthorized_hint_sent_at[chat_id] = now
+
+        scope = "chat privata" if chat_type == "private" else "chat/gruppo"
+        try:
+            await self._send_message(
+                chat_id,
+                f"⚠️ {scope} non autorizzata. Aggiungi questo ID in Allowed Chat IDs: {chat_id}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Could not send unauthorized hint to chat_id=%s: %s", chat_id, exc)
+
     async def _handle_update(self, update: dict[str, Any]) -> None:
-        message = update.get("message")
+        message, update_kind = self._extract_message_container(update)
         if not isinstance(message, dict):
             return
 
@@ -161,9 +201,16 @@ class TelegramBotBridge:
             except (TypeError, ValueError):
                 sender_id = None
 
-        text = (message.get("text") or "").strip()
+        text = (message.get("text") or message.get("caption") or "").strip()
         if not text:
             return
+
+        logger.info(
+            "Telegram update received kind=%s chat_id=%s sender_id=%s",
+            update_kind,
+            chat_id,
+            sender_id,
+        )
 
         if not self._is_chat_authorized(chat_id, sender_id):
             logger.warning(
@@ -171,20 +218,23 @@ class TelegramBotBridge:
                 chat_id,
                 sender_id,
             )
-            if chat.get("type") == "private":
-                await self._send_message(
-                    chat_id,
-                    f"⚠️ Chat non autorizzata. Aggiungi questo ID in Allowed Chat IDs: {chat_id}",
-                )
+            await self._send_unauthorized_hint(chat_id, str(chat.get("type", "")))
             return
 
         command_token = text.split(maxsplit=1)[0]
         command = command_token.partition("@")[0].lower()
         if command in {"/start", "/help"}:
+            privacy_hint = ""
+            if chat.get("type") in {"group", "supergroup"}:
+                privacy_hint = (
+                    "\n\nℹ️ Se non rispondo ai messaggi normali nel gruppo, "
+                    "disattiva la Privacy Mode con @BotFather (/setprivacy)."
+                )
             await self._send_message(
                 chat_id,
                 "👋 ECHO è online. Scrivimi un messaggio per iniziare. "
-                "Usa /reset per azzerare il contesto della chat.",
+                "Usa /reset per azzerare il contesto della chat."
+                f"{privacy_hint}",
             )
             return
 

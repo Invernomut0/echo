@@ -90,3 +90,54 @@ async def test_private_unauthorized_chat_gets_hint(monkeypatch):
 
     send_message.assert_awaited_once()
     interact.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_channel_post_is_processed_when_chat_is_whitelisted(monkeypatch):
+    """Messages delivered as channel_post should be handled too."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = {-100111222333}
+
+    send_long_message = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_long_message", send_long_message)
+
+    interact = AsyncMock(return_value=SimpleNamespace(assistant_response="ok canale"))
+    monkeypatch.setattr(tg.pipeline, "interact", interact)
+
+    update = {
+        "channel_post": {
+            "chat": {"id": -100111222333, "type": "channel"},
+            "text": "ping canale",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    interact.assert_awaited_once()
+    send_long_message.assert_awaited_once_with(-100111222333, "ok canale")
+
+
+@pytest.mark.asyncio
+async def test_group_unauthorized_chat_gets_hint(monkeypatch):
+    """Unauthorized non-private chats should receive a throttled hint too."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = {123456789}
+
+    send_message = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_message", send_message)
+
+    update = {
+        "message": {
+            "chat": {"id": -1009876543210, "type": "supergroup"},
+            "from": {"id": 999999},
+            "text": "ciao echo",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    send_message.assert_awaited_once()
