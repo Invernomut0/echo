@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 # Maximum active goals at any time (enforced on write)
 MAX_ACTIVE_GOALS = 5
 
+# Maximum iterations (actions) per goal before forced consolidation
+MAX_GOAL_ITERATIONS = 10
+
 
 # ---------------------------------------------------------------------------
 # ORM rows
@@ -290,6 +293,51 @@ class GoalStore:
                 "status": action.status,
                 "created_at": action.created_at.isoformat() if action.created_at else None,
             }
+
+
+    # ── Consolidation ─────────────────────────────────────────────────────────
+
+    async def action_count(self, goal_id: str) -> int:
+        """Return the total number of actions for a goal."""
+        factory = get_session_factory()
+        async with factory() as session:
+            result = await session.execute(
+                select(GoalActionRow).where(GoalActionRow.goal_id == goal_id)
+            )
+            return len(result.scalars().all())
+
+    async def consolidate_goal(self, goal_id: str) -> dict[str, Any] | None:
+        """Force-close a goal that reached max iterations.
+
+        Collects all action results, synthesises knowledge, marks as achieved,
+        and stores a consolidated semantic memory.
+        """
+        goal = await self.get(goal_id)
+        if goal is None or goal["status"] != "active":
+            return None
+
+        # Collect all results from done actions
+        results = [
+            a["result"]
+            for a in goal["actions"]
+            if a["status"] == "done" and a["result"] and a["result"] != "Created"
+        ]
+
+        # Mark the final action
+        await self.add_action(
+            goal_id,
+            description="Goal auto-consolidated: max iterations reached",
+            result=f"Synthesised {len(results)} research findings into knowledge",
+            status="done",
+        )
+
+        # Mark as achieved
+        await self.update_status(goal_id, "achieved")
+
+        return {
+            "goal": goal,
+            "results": results,
+        }
 
 
 # Singleton

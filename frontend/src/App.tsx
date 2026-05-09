@@ -104,7 +104,12 @@ export default function App() {
           style={{ display: tab === 'graph' ? 'flex' : 'none', flex: 1 }}
         >
           <GraphErrorBoundary>
-            <IdentityGraph nodes={graph.nodes} edges={graph.edges} coherenceScore={graph.coherence_score} />
+            <IdentityGraph
+              nodes={graph.nodes}
+              edges={graph.edges}
+              coherenceScore={graph.coherence_score}
+              active={tab === 'graph'}
+            />
           </GraphErrorBoundary>
         </div>
         <div style={{ display: tab === 'consolidation' ? 'contents' : 'none' }}>

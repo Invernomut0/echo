@@ -750,7 +750,8 @@ Respond ONLY with valid JSON:
                 try:
                     from sqlalchemy import select as _sa_select  # noqa: PLC0415
                     from echo.memory.semantic import SemanticRow as _SR  # noqa: PLC0415
-                    _fac = get_session_factory()
+                    from echo.core.db import get_session_factory as _get_session_factory  # noqa: PLC0415
+                    _fac = _get_session_factory()
                     async with _fac() as _sess:
                         _old = (
                             await _sess.execute(

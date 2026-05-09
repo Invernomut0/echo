@@ -458,7 +458,7 @@ export default function WikiGraphPanel({ active }: Props) {
 
   // ── Init 3D graph ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (!mountRef.current || !webgl || !active) return
+    if (!mountRef.current || !webgl) return
     const el = mountRef.current
     const { clientWidth: w, clientHeight: h } = el
 
@@ -527,14 +527,36 @@ export default function WikiGraphPanel({ active }: Props) {
       const g = graphRef.current as any
       if (g) {
         g.pauseAnimation?.()
-        try { g.renderer?.().dispose?.() } catch (_) { /* ignore */ }
+        const renderer = g.renderer?.()
+        try { renderer?.renderLists?.dispose?.() } catch (_) { /* ignore */ }
+        try { renderer?.forceContextLoss?.() } catch (_) { /* ignore */ }
+        try { renderer?.dispose?.() } catch (_) { /* ignore */ }
         g._destructor?.()
         el.innerHTML = ''
       }
       graphRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, webgl])
+  }, [webgl])
+
+  // Keep a single graph instance and pause/resume rendering when switching tabs.
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = graphRef.current as any
+    if (!g) return
+    if (active) {
+      g.resumeAnimation?.()
+      const el = mountRef.current
+      if (el) {
+        const { clientWidth, clientHeight } = el
+        if (clientWidth > 0 && clientHeight > 0) {
+          g.width?.(clientWidth).height?.(clientHeight)
+        }
+      }
+      return
+    }
+    g.pauseAnimation?.()
+  }, [active])
 
   // Update data preserving positions
   useEffect(() => {

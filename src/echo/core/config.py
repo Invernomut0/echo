@@ -76,6 +76,17 @@ class Settings(BaseSettings):
         default=["http://localhost:5173", "http://localhost:3000"]
     )
 
+    # Telegram bot integration (long polling)
+    telegram_enabled: bool = False
+    telegram_bot_token: str = ""
+    telegram_api_base_url: str = "https://api.telegram.org"
+    telegram_poll_interval_seconds: float = 1.0
+    telegram_update_timeout_seconds: int = 30
+    telegram_request_timeout_seconds: float = 40.0
+    telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
+    telegram_history_turns: int = 6
+    telegram_max_reply_chars: int = 3900
+
     # Curiosity / idle-time autonomous learning
     curiosity_enabled: bool = True
     # Seconds of inactivity before a curiosity cycle is allowed to run.
@@ -106,6 +117,37 @@ class Settings(BaseSettings):
             except json.JSONDecodeError:
                 return [v]
         return v  # type: ignore[return-value]
+
+    @field_validator("telegram_allowed_chat_ids", mode="before")
+    @classmethod
+    def parse_telegram_chat_ids(cls, v: object) -> list[int]:
+        """Accept JSON array or comma-separated chat IDs from env."""
+        if v is None or v == "":
+            return []
+
+        parsed: object = v
+        if isinstance(v, str):
+            raw = v.strip()
+            if not raw:
+                return []
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                parsed = [part.strip() for part in raw.split(",") if part.strip()]
+
+        if isinstance(parsed, (list, tuple, set)):
+            out: list[int] = []
+            for item in parsed:
+                try:
+                    out.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+            return out
+
+        try:
+            return [int(parsed)]
+        except (TypeError, ValueError):
+            return []
 
 
 # Singleton instance — import this everywhere

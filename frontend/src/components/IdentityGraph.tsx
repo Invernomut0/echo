@@ -8,6 +8,7 @@ interface Props {
   nodes: GraphNode[]
   edges: GraphEdge[]
   coherenceScore?: number
+  active: boolean
 }
 
 const RELATION_CFG: Record<string, { color: string; label: string; sym: string }> = {
@@ -35,7 +36,7 @@ function isWebGLAvailable(): boolean {
   }
 }
 
-export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Props) {
+export default function IdentityGraph({ nodes, edges, coherenceScore = 0, active }: Props) {
   const mountRef = useRef<HTMLDivElement>(null)
   const graphRef = useRef<ForceGraph3DInstance | null>(null)
   const selectedNodeRef = useRef<GraphNode | null>(null)
@@ -148,9 +149,11 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
       const g = graphRef.current as any
       if (g) {
         g.pauseAnimation?.()
-        // Dispose Three.js renderer so the WebGL context is released before
-        // React StrictMode (dev) mounts the component a second time.
-        try { g.renderer?.().dispose?.() } catch (_) { /* ignore */ }
+        // Dispose Three.js renderer so the WebGL context is fully released.
+        const renderer = g.renderer?.()
+        try { renderer?.renderLists?.dispose?.() } catch (_) { /* ignore */ }
+        try { renderer?.forceContextLoss?.() } catch (_) { /* ignore */ }
+        try { renderer?.dispose?.() } catch (_) { /* ignore */ }
         g._destructor?.()
         // Remove all child nodes Three.js may have appended to the mount div
         el.innerHTML = ''
@@ -192,6 +195,25 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0 }: Prop
       return `#06b6d4${alpha}`
     })
   }, [selectedNode])
+
+  // Pause rendering when tab is hidden, resume on re-activation.
+  useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const g = graphRef.current as any
+    if (!g) return
+    if (active) {
+      g.resumeAnimation?.()
+      const el = mountRef.current
+      if (el) {
+        const { clientWidth, clientHeight } = el
+        if (clientWidth > 0 && clientHeight > 0) {
+          g.width?.(clientWidth).height?.(clientHeight)
+        }
+      }
+      return
+    }
+    g.pauseAnimation?.()
+  }, [active])
 
   // ── Overlay UI ───────────────────────────────────────────────────────────
   if (!webglAvailable) {

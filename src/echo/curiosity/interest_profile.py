@@ -197,7 +197,7 @@ class UserInterestProfile:
         topic: str,
         affinity_delta: float,
     ) -> None:
-        """EMA update: new_score = (1 - α) * old + α * signal."""
+        """EMA update: new_score = old + α * delta (clamped to [0, 1])."""
         now = datetime.now(timezone.utc).isoformat()
         topic = topic.strip().lower()[:120]
 
@@ -207,7 +207,7 @@ class UserInterestProfile:
         )
         row = await cursor.fetchone()
         if row is None:
-            # First time seeing this topic
+            # First time seeing this topic — start at 0.5 + delta
             new_score = max(0.0, min(1.0, 0.5 + affinity_delta))
             await db.execute(
                 """INSERT INTO interest_profile (topic, affinity_score, interaction_count, last_seen)
@@ -216,7 +216,8 @@ class UserInterestProfile:
             )
         else:
             old_score = row["affinity_score"]
-            new_score = old_score * (1 - _EMA_ALPHA) + max(0.0, min(1.0, old_score + affinity_delta)) * _EMA_ALPHA
+            # Direct additive EMA: score drifts toward (old + delta) with momentum α
+            new_score = old_score + _EMA_ALPHA * affinity_delta
             new_score = max(0.0, min(1.0, new_score))
             await db.execute(
                 """UPDATE interest_profile
@@ -320,7 +321,8 @@ class UserInterestProfile:
                 exists = await cursor2.fetchone()
                 if at_cap and not exists:
                     continue  # skip new topics when at cap
-                await self._upsert_topic(db, topic, affinity_delta=0.0)
+                # Use a positive delta to actually grow affinity on repeated mentions
+                await self._upsert_topic(db, topic, affinity_delta=0.15)
 
         logger.debug("Interest profile updated: %s", topics)
         return topics

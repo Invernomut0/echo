@@ -41,7 +41,7 @@ from echo.curiosity.web_search import (
 )
 from echo.memory.episodic import EpisodicMemoryStore
 from echo.memory.semantic import SemanticMemoryStore
-from echo.memory.goals import goal_store, MAX_ACTIVE_GOALS
+from echo.memory.goals import goal_store, MAX_ACTIVE_GOALS, MAX_GOAL_ITERATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _recently_searched: set[str] = set()
 _cycle_counter: int = 0
-_CLEAR_AFTER_CYCLES: int = 24     # ≈ 2 hours at 5-min heartbeat
+_CLEAR_AFTER_CYCLES: int = 6      # ≈ 30 min at 5-min heartbeat — avoid stale cache blocks
 
 # ---------------------------------------------------------------------------
 # Activity log — persists the last _MAX_LOG cycle records in memory
@@ -272,13 +272,49 @@ Respond ONLY with valid JSON:
         return json.loads(text)
 
     async def _run_goal_cycle(self, recent_memories: list[Any]) -> None:
-        """Review state, update goals, and pursue active goals with searches."""
+        """Review state, update goals, and pursue active goals with searches.
+
+        Enforces MAX_GOAL_ITERATIONS: when a goal reaches the limit, it is
+        force-consolidated — all research results are synthesised into a
+        single semantic memory entry representing the acquired knowledge.
+        """
         try:
+            # ── Step 0: Force-consolidate goals that exceeded max iterations ──
+            active_goals = await goal_store.list_active()
+            for g in active_goals:
+                action_count = len(g["actions"])
+                if action_count >= MAX_GOAL_ITERATIONS:
+                    logger.info(
+                        "[Goals] Goal '%s' reached %d iterations — force-consolidating",
+                        g["title"], action_count,
+                    )
+                    consolidated = await goal_store.consolidate_goal(g["id"])
+                    if consolidated and consolidated["results"]:
+                        # Synthesise all results into a knowledge entry
+                        knowledge_text = (
+                            f"[Goal completed: {g['title']}]\n"
+                            f"Description: {g['description']}\n\n"
+                            "Key findings:\n"
+                            + "\n".join(f"• {r[:300]}" for r in consolidated["results"][:10])
+                        )
+                        if await self._is_novel(knowledge_text):
+                            salience = 0.70 + 0.25 * g["priority"]
+                            await self._semantic.store(
+                                content=knowledge_text[:2000],
+                                source_agent="goals",
+                                tags=["goals", "consolidated", f"goal:{g['id'][:8]}"],
+                                salience=min(salience, 0.95),
+                            )
+                            logger.info(
+                                "[Goals] Knowledge consolidated for: %s (salience=%.2f)",
+                                g["title"], salience,
+                            )
+
             # Build context
             conversations = "\n".join(
                 f"- {m.content[:200]}" for m in recent_memories[:10]
             )
-            active_goals = await goal_store.list_active()
+            active_goals = await goal_store.list_active()  # refresh after consolidations
 
             # Get meta state if available
             try:
@@ -379,6 +415,12 @@ Respond ONLY with valid JSON:
                 goal = next((g for g in active_goals if g["id"].startswith(gid)), None)
                 if not goal:
                     continue
+
+                # Check iteration limit before pursuing
+                if len(goal["actions"]) >= MAX_GOAL_ITERATIONS - 1:
+                    logger.info("[Goals] Goal '%s' near max iterations — skipping pursuit", goal["title"])
+                    continue
+
                 query = action_plan.get("search_query", action_plan.get("action", ""))
                 if not query:
                     continue
@@ -447,13 +489,25 @@ Respond ONLY with valid JSON:
                     )
 
                 if achieved:
-                    await goal_store.update_status(goal["id"], "achieved")
-                    await goal_store.add_action(
-                        goal["id"],
-                        description="Goal achieved through research",
-                        result=summary,
-                        status="done",
-                    )
+                    # Consolidate all research into knowledge before marking achieved
+                    consolidated = await goal_store.consolidate_goal(goal["id"])
+                    if consolidated and consolidated["results"]:
+                        knowledge_text = (
+                            f"[Goal achieved: {goal['title']}]\n"
+                            f"Description: {goal['description']}\n\n"
+                            "Key findings:\n"
+                            + "\n".join(f"• {r[:300]}" for r in consolidated["results"][:10])
+                        )
+                        if await self._is_novel(knowledge_text):
+                            salience = 0.70 + 0.25 * goal["priority"]
+                            await self._semantic.store(
+                                content=knowledge_text[:2000],
+                                source_agent="goals",
+                                tags=["goals", "consolidated", f"goal:{goal['id'][:8]}"],
+                                salience=min(salience, 0.95),
+                            )
+                    else:
+                        await goal_store.update_status(goal["id"], "achieved")
                     logger.info("[Goals] Goal achieved via research: %s", goal["title"])
 
         except Exception as exc:  # noqa: BLE001
@@ -550,8 +604,25 @@ Respond ONLY with valid JSON:
             fresh_topics = [t for t in topics if t not in _recently_searched]
             record["topics_searched"] = fresh_topics
             if not fresh_topics:
-                logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
-                return _done("skipped", "all_topics_recently_searched")
+                # Instead of skipping entirely, try to extract alternative topics
+                # by using only interest profile seeds (avoids repeating memory-derived topics)
+                try:
+                    from echo.curiosity.interest_profile import interest_profile as _ip2  # noqa: PLC0415
+                    alt_primaries = await _ip2.primary_interests(n=5)
+                    alt_topics = [
+                        p["topic"] for p in alt_primaries
+                        if p["topic"] not in _recently_searched
+                    ][:settings.curiosity_max_topics]
+                    if alt_topics:
+                        fresh_topics = alt_topics
+                        record["topics_searched"] = fresh_topics
+                        logger.info("Curiosity: using alternative interest-based topics: %s", alt_topics)
+                except Exception:  # noqa: BLE001
+                    pass
+
+                if not fresh_topics:
+                    logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
+                    return _done("skipped", "all_topics_recently_searched")
 
             logger.info("Curiosity cycle: searching topics %s", fresh_topics)
 
@@ -652,25 +723,43 @@ Respond ONLY with valid JSON:
                 primaries = await _ip.primary_interests(n=10)
                 affinity_map = {p["topic"]: p["affinity_score"] for p in primaries}
 
+                # Build a word-overlap affinity matcher for fuzzy topic matching
+                def _topic_affinity(finding_topic: str) -> float:
+                    """Match finding topic against profile topics with word overlap."""
+                    # Exact match first
+                    if finding_topic in affinity_map:
+                        return affinity_map[finding_topic]
+                    # Fuzzy: check word overlap with profile topics
+                    f_words = set(finding_topic.lower().split())
+                    best = 0.0
+                    for prof_topic, score in affinity_map.items():
+                        p_words = set(prof_topic.lower().split())
+                        overlap = len(f_words & p_words)
+                        if overlap >= 1 and score > best:
+                            best = score
+                    return best
+
                 # Score and sort findings for this topic by affinity match
                 ranked_findings = sorted(
                     record["findings"],
-                    key=lambda f: affinity_map.get(f["topic"], 0.0),
+                    key=lambda f: _topic_affinity(f["topic"]),
                     reverse=True,
                 )
                 enqueued = 0
                 for finding in ranked_findings:
                     if enqueued >= 3:
                         break
-                    aff = affinity_map.get(finding["topic"], 0.0)
-                    if aff < 0.3:
-                        continue  # only enqueue if topic has some affinity
+                    aff = _topic_affinity(finding["topic"])
+                    # If profile is non-empty, use affinity; if empty, enqueue anyway
+                    if primaries and aff < 0.1:
+                        continue
+                    effective_aff = aff if aff > 0 else 0.5  # default for new profiles
                     # Build a compact stimulus text
                     stimulus_text = f"[{finding['source']}] {finding['title']}"
                     await _sq.enqueue(
                         content=stimulus_text,
                         topic=finding["topic"],
-                        affinity_score=aff,
+                        affinity_score=effective_aff,
                     )
                     enqueued += 1
             except Exception as exc:  # noqa: BLE001

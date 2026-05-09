@@ -25,6 +25,8 @@ const ACTION_COLOR: Record<string, string> = {
   pending: '#f59e0b',
 }
 
+const MAX_GOAL_ITERATIONS = 10 // must match backend MAX_GOAL_ITERATIONS
+
 function completionBar(goal: Goal) {
   let pct: number
   if (goal.status === 'achieved') {
@@ -32,8 +34,9 @@ function completionBar(goal: Goal) {
   } else if (goal.actions.length === 0) {
     pct = 0
   } else {
+    // Progress = done actions / max iterations (not total actions)
     const done = goal.actions.filter(a => a.status === 'done').length
-    pct = Math.round((done / goal.actions.length) * 100)
+    pct = Math.min(100, Math.round((done / MAX_GOAL_ITERATIONS) * 100))
   }
   const color = pct === 100 ? '#10b981' : pct >= 50 ? '#06b6d4' : '#f59e0b'
   const priorityPct = Math.round(goal.priority * 100)

@@ -114,6 +114,25 @@ uv run uvicorn echo.api.server:app --host 0.0.0.0 --port 8000
 # Open http://localhost:8000
 ```
 
+### Telegram Bot (optional)
+
+ECHO can also interact with users through a Telegram bot (long polling).
+
+1. Create a bot with `@BotFather` and copy the token
+2. Configure these vars in `.env`:
+
+```env
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=<your_bot_token>
+# Optional hardening: allow only selected chats
+TELEGRAM_ALLOWED_CHAT_IDS=[123456789]
+```
+
+3. Start ECHO normally (`uv run uvicorn echo.api.server:app ...`)
+
+When enabled, the Telegram bridge starts automatically with the API lifespan
+and routes each incoming message through `pipeline.interact`.
+
 ## Development (hot-reload)
 
 ```bash

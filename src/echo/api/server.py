@@ -40,9 +40,24 @@ async def lifespan(app: FastAPI):
     logger.info("Starting PROJECT ECHO cognitive pipeline…")
     await pipeline.startup()
     from echo.memory.wiki import wiki
+
     wiki.startup()
+
+    telegram_bridge = None
+    if settings.telegram_enabled:
+        from echo.integrations.telegram_bot import TelegramBotBridge
+
+        telegram_bridge = TelegramBotBridge()
+        telegram_bridge.start()
+    app.state.telegram_bridge = telegram_bridge
+
     yield
     logger.info("Shutting down…")
+
+    bridge = getattr(app.state, "telegram_bridge", None)
+    if bridge is not None:
+        await bridge.stop()
+
     await pipeline.shutdown()
 
 
