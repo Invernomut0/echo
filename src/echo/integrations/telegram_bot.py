@@ -175,6 +175,21 @@ class TelegramBotBridge:
         except Exception as exc:  # noqa: BLE001
             logger.debug("Could not send unauthorized hint to chat_id=%s: %s", chat_id, exc)
 
+    async def _typing_heartbeat(
+        self,
+        chat_id: int,
+        *,
+        message_thread_id: int | None = None,
+    ) -> None:
+        """Keep Telegram 'typing…' indicator visible while model is computing."""
+        while True:
+            await self._send_chat_action(
+                chat_id,
+                action="typing",
+                message_thread_id=message_thread_id,
+            )
+            await asyncio.sleep(4.0)
+
     async def _handle_update(self, update: dict[str, Any]) -> None:
         message, update_kind = self._extract_message_container(update)
         if not isinstance(message, dict):
@@ -204,6 +219,20 @@ class TelegramBotBridge:
         text = (message.get("text") or message.get("caption") or "").strip()
         if not text:
             return
+
+        message_id: int | None = None
+        if message.get("message_id") is not None:
+            try:
+                message_id = int(message.get("message_id"))
+            except (TypeError, ValueError):
+                message_id = None
+
+        message_thread_id: int | None = None
+        if message.get("message_thread_id") is not None:
+            try:
+                message_thread_id = int(message.get("message_thread_id"))
+            except (TypeError, ValueError):
+                message_thread_id = None
 
         logger.info(
             "Telegram update received kind=%s chat_id=%s sender_id=%s",
@@ -235,14 +264,29 @@ class TelegramBotBridge:
                 "👋 ECHO è online. Scrivimi un messaggio per iniziare. "
                 "Usa /reset per azzerare il contesto della chat."
                 f"{privacy_hint}",
+                message_thread_id=message_thread_id,
+                reply_to_message_id=message_id,
             )
             return
 
         if command == "/reset":
             self._history_by_chat.pop(chat_id, None)
-            await self._send_message(chat_id, "🧹 Contesto conversazione azzerato.")
+            await self._send_message(
+                chat_id,
+                "🧹 Contesto conversazione azzerato.",
+                message_thread_id=message_thread_id,
+                reply_to_message_id=message_id,
+            )
             return
 
+        await self._send_chat_action(
+            chat_id,
+            action="typing",
+            message_thread_id=message_thread_id,
+        )
+        typing_task = asyncio.create_task(
+            self._typing_heartbeat(chat_id, message_thread_id=message_thread_id)
+        )
         try:
             history = list(self._buffer_for(chat_id))
             record = await pipeline.interact(text, history=history)
@@ -251,34 +295,108 @@ class TelegramBotBridge:
             chat_buffer.append({"role": "user", "content": text})
             chat_buffer.append({"role": "assistant", "content": record.assistant_response})
 
-            await self._send_long_message(chat_id, record.assistant_response)
+            send_kwargs: dict[str, int] = {}
+            if message_thread_id is not None:
+                send_kwargs["message_thread_id"] = message_thread_id
+            if message_id is not None:
+                send_kwargs["reply_to_message_id"] = message_id
+
+            await self._send_long_message(chat_id, record.assistant_response, **send_kwargs)
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Telegram message handling failed: %s", exc, exc_info=True)
-            await self._send_message(chat_id, "⚠️ Errore interno ECHO. Riprova tra poco.")
+            await self._send_message(
+                chat_id,
+                "⚠️ Errore interno ECHO. Riprova tra poco.",
+                message_thread_id=message_thread_id,
+                reply_to_message_id=message_id,
+            )
+        finally:
+            typing_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await typing_task
 
-    async def _send_long_message(self, chat_id: int, text: str) -> None:
+    async def _send_long_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> None:
         cleaned = text.strip() if text else ""
         if not cleaned:
             cleaned = "(nessuna risposta)"
 
+        is_first = True
         for chunk in self._split_text(cleaned, self._max_reply_chars):
-            await self._send_message(chat_id, chunk)
+            await self._send_message(
+                chat_id,
+                chunk,
+                message_thread_id=message_thread_id,
+                reply_to_message_id=reply_to_message_id if is_first else None,
+            )
+            is_first = False
 
-    async def _send_message(self, chat_id: int, text: str) -> None:
+    async def _send_message(
+        self,
+        chat_id: int,
+        text: str,
+        *,
+        message_thread_id: int | None = None,
+        reply_to_message_id: int | None = None,
+    ) -> int | None:
         if self._client is None:
-            return
+            return None
 
         payload = {
             "chat_id": chat_id,
             "text": text[:4096],
         }
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
+        if reply_to_message_id is not None:
+            payload["reply_to_message_id"] = reply_to_message_id
+            payload["allow_sending_without_reply"] = True
 
         response = await self._client.post(f"{self._base_url}/sendMessage", json=payload)
         response.raise_for_status()
         data = response.json()
         if not data.get("ok", False):
-            logger.warning("Telegram sendMessage failed for chat_id=%s: %s", chat_id, data)
+            raise RuntimeError(f"Telegram sendMessage failed for chat_id={chat_id}: {data}")
+
+        result = data.get("result")
+        message_id = result.get("message_id") if isinstance(result, dict) else None
+        logger.info(
+            "Telegram sendMessage ok chat_id=%s message_id=%s chars=%s",
+            chat_id,
+            message_id,
+            len(payload.get("text", "")),
+        )
+        try:
+            return int(message_id) if message_id is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    async def _send_chat_action(
+        self,
+        chat_id: int,
+        *,
+        action: str = "typing",
+        message_thread_id: int | None = None,
+    ) -> None:
+        if self._client is None:
+            return
+
+        payload: dict[str, Any] = {"chat_id": chat_id, "action": action}
+        if message_thread_id is not None:
+            payload["message_thread_id"] = message_thread_id
+
+        response = await self._client.post(f"{self._base_url}/sendChatAction", json=payload)
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("ok", False):
+            logger.warning("Telegram sendChatAction failed for chat_id=%s: %s", chat_id, data)
 
     @staticmethod
     def _split_text(text: str, max_chars: int) -> list[str]:

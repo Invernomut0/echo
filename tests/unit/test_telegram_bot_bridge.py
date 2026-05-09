@@ -52,6 +52,8 @@ async def test_group_message_allowed_when_sender_id_is_whitelisted(monkeypatch):
 
     update = {
         "message": {
+            "message_id": 77,
+            "message_thread_id": 55,
             "chat": {"id": -1001234567890, "type": "supergroup"},
             "from": {"id": 602166026},
             "text": "Rispondi per favore",
@@ -61,7 +63,12 @@ async def test_group_message_allowed_when_sender_id_is_whitelisted(monkeypatch):
     await bridge._handle_update(update)
 
     interact.assert_awaited_once()
-    send_long_message.assert_awaited_once_with(-1001234567890, "ciao gruppo")
+    send_long_message.assert_awaited_once_with(
+        -1001234567890,
+        "ciao gruppo",
+        message_thread_id=55,
+        reply_to_message_id=77,
+    )
 
 
 @pytest.mark.asyncio
@@ -141,3 +148,39 @@ async def test_group_unauthorized_chat_gets_hint(monkeypatch):
     await bridge._handle_update(update)
 
     send_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_typing_action_is_sent_while_waiting(monkeypatch):
+    """Bridge should emit sendChatAction typing while pipeline is computing."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = set()
+
+    send_chat_action = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_chat_action", send_chat_action)
+
+    async def _fast_typing_heartbeat(chat_id: int, *, message_thread_id=None):
+        await bridge._send_chat_action(chat_id, action="typing", message_thread_id=message_thread_id)
+
+    monkeypatch.setattr(bridge, "_typing_heartbeat", _fast_typing_heartbeat)
+
+    send_long_message = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_long_message", send_long_message)
+
+    interact = AsyncMock(return_value=SimpleNamespace(assistant_response="ok"))
+    monkeypatch.setattr(tg.pipeline, "interact", interact)
+
+    update = {
+        "message": {
+            "chat": {"id": 123, "type": "private"},
+            "from": {"id": 123},
+            "text": "ciao",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    send_chat_action.assert_awaited()
+    interact.assert_awaited_once()

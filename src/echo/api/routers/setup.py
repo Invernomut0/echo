@@ -43,20 +43,53 @@ _copilot_token_cache: dict[str, str] = {}
 _copilot_token_lock = asyncio.Lock()
 
 
+def _parse_expires_at(value: object) -> datetime | None:
+    """Parse Copilot expires_at accepting epoch seconds or ISO timestamps."""
+    if value is None:
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        except Exception:
+            return None
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+
+        if raw.isdigit():
+            try:
+                return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+            except Exception:
+                return None
+
+        iso = raw.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(iso)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed.astimezone(timezone.utc)
+        except Exception:
+            return None
+
+    return None
+
+
 async def _get_copilot_token_cached() -> dict:
     """Return a valid Copilot API token, auto-refreshing if nearly expired."""
     global _copilot_token_cache
 
     def _cached_if_fresh() -> dict | None:
         if _copilot_token_cache.get("token") and _copilot_token_cache.get("expires_at"):
-            try:
-                expires = datetime.fromisoformat(_copilot_token_cache["expires_at"])
-                remaining = (expires - datetime.now(timezone.utc)).total_seconds()
-                if remaining > 60:
-                    return _copilot_token_cache
-                logger.debug("Copilot token expires in %.0fs — refreshing", remaining)
-            except Exception:
+            expires = _parse_expires_at(_copilot_token_cache.get("expires_at"))
+            if expires is None:
                 return None
+            remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+            if remaining > 60:
+                return _copilot_token_cache
+            logger.debug("Copilot token expires in %.0fs — refreshing", remaining)
         return None
 
     fresh = _cached_if_fresh()
