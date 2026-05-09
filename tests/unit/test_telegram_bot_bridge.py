@@ -184,3 +184,45 @@ async def test_typing_action_is_sent_while_waiting(monkeypatch):
 
     send_chat_action.assert_awaited()
     interact.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_private_sender_metadata_seeds_identity_memory(monkeypatch):
+    """Private Telegram sender metadata should be stored as identity facts."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = set()
+
+    # Avoid real network calls in this test path
+    monkeypatch.setattr(bridge, "_send_chat_action", AsyncMock())
+    monkeypatch.setattr(bridge, "_typing_heartbeat", AsyncMock())
+    monkeypatch.setattr(bridge, "_send_long_message", AsyncMock())
+
+    semantic_store = AsyncMock()
+    monkeypatch.setattr(tg.pipeline.semantic, "store", semantic_store)
+
+    interact = AsyncMock(return_value=SimpleNamespace(assistant_response="ok"))
+    monkeypatch.setattr(tg.pipeline, "interact", interact)
+
+    update = {
+        "message": {
+            "chat": {"id": 602166026, "type": "private"},
+            "from": {
+                "id": 602166026,
+                "first_name": "Lorenzo",
+                "username": "lorenzov",
+            },
+            "text": "ciao",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    stored_contents = [
+        call.kwargs.get("content", "")
+        for call in semantic_store.await_args_list
+    ]
+    assert "The user's name is Lorenzo." in stored_contents
+    assert "The user's Telegram username is @lorenzov." in stored_contents
+    interact.assert_awaited_once()

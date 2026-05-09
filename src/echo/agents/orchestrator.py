@@ -72,6 +72,8 @@ Internal deliberations from cognitive agents:
 Synthesise a single response. Rules:
 - If the wiki contains relevant information, USE IT DIRECTLY and cite the content. Do NOT say you cannot see the wiki.
 - If memories reveal the user's name or past context, use it naturally.
+- If the user asks who they are / their name (e.g. "chi sono?", "come mi chiamo?", "who am I?", "what's my name?"),
+  answer directly using retrieved identity memories. If memories are missing, ask for confirmation instead of inventing.
 - If the wiki block starts with "Wiki knowledge base (N pages):" you CAN see those pages — reference them by title."""
 
 

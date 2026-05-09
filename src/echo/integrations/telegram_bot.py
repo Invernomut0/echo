@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import deque
 from contextlib import suppress
@@ -16,6 +17,8 @@ from echo.core.config import settings
 from echo.core.pipeline import pipeline
 
 logger = logging.getLogger(__name__)
+
+_NAME_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ'.\-]{2,40}")
 
 
 class TelegramBotBridge:
@@ -43,6 +46,7 @@ class TelegramBotBridge:
         self._history_by_chat: dict[int, deque[dict[str, str]]] = {}
         self._unauthorized_hint_sent_at: dict[int, float] = {}
         self._unauthorized_hint_cooldown_seconds = 30.0
+        self._identity_signature_by_chat: dict[int, str] = {}
 
     def _buffer_for(self, chat_id: int) -> deque[dict[str, str]]:
         buffer = self._history_by_chat.get(chat_id)
@@ -190,6 +194,59 @@ class TelegramBotBridge:
             )
             await asyncio.sleep(4.0)
 
+    async def _ensure_sender_identity_memory(
+        self,
+        chat_id: int,
+        *,
+        chat_type: str | None,
+        sender: dict[str, Any] | None,
+    ) -> None:
+        """Persist stable user identity facts from Telegram sender metadata.
+
+        We only do this for private chats to avoid polluting identity memory in
+        group contexts where multiple people can write in the same chat.
+        """
+        if chat_type != "private" or not isinstance(sender, dict):
+            return
+
+        first_name_raw = str(sender.get("first_name") or "").strip()
+        username_raw = str(sender.get("username") or "").strip().lstrip("@")
+
+        first_name = ""
+        if first_name_raw:
+            match = _NAME_TOKEN_RE.search(first_name_raw)
+            if match:
+                first_name = match.group(0).capitalize()
+
+        signature = f"{first_name.lower()}|{username_raw.lower()}"
+        if signature and self._identity_signature_by_chat.get(chat_id) == signature:
+            return
+
+        try:
+            if first_name:
+                await pipeline.semantic.store(
+                    content=f"The user's name is {first_name}.",
+                    tags=["user_identity", "name", "telegram", "private_chat"],
+                    salience=0.95,
+                )
+            if username_raw:
+                await pipeline.semantic.store(
+                    content=f"The user's Telegram username is @{username_raw}.",
+                    tags=["user_identity", "telegram", "username", "private_chat"],
+                    salience=0.85,
+                )
+
+            if signature:
+                self._identity_signature_by_chat[chat_id] = signature
+                logger.info(
+                    "Telegram identity seeded for chat_id=%s first_name=%s username=%s",
+                    chat_id,
+                    first_name or "-",
+                    username_raw or "-",
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Identity seeding failed for chat_id=%s: %s", chat_id, exc)
+
     async def _handle_update(self, update: dict[str, Any]) -> None:
         message, update_kind = self._extract_message_container(update)
         if not isinstance(message, dict):
@@ -249,6 +306,12 @@ class TelegramBotBridge:
             )
             await self._send_unauthorized_hint(chat_id, str(chat.get("type", "")))
             return
+
+        await self._ensure_sender_identity_memory(
+            chat_id,
+            chat_type=str(chat.get("type", "")),
+            sender=sender if isinstance(sender, dict) else None,
+        )
 
         command_token = text.split(maxsplit=1)[0]
         command = command_token.partition("@")[0].lower()
