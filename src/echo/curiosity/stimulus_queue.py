@@ -28,6 +28,7 @@ Schema
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -49,12 +50,16 @@ class StimulusQueue:
     # DB helpers
     # ------------------------------------------------------------------
 
-    async def _get_db(self) -> aiosqlite.Connection:
+    @asynccontextmanager
+    async def _get_db(self):
         db = await aiosqlite.connect(_DB_PATH)
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL")
         await self._ensure_tables(db)
-        return db
+        try:
+            yield db
+        finally:
+            await db.close()
 
     @staticmethod
     async def _ensure_tables(db: aiosqlite.Connection) -> None:
@@ -90,7 +95,7 @@ class StimulusQueue:
         now = datetime.now(timezone.utc).isoformat()
         sid = str(uuid.uuid4())
 
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             # Avoid double-enqueuing the same memory finding
             if source_memory_id:
                 cursor = await db.execute(
@@ -115,7 +120,7 @@ class StimulusQueue:
     async def mark_presented(self, stimulus_id: str) -> None:
         """Record that a stimulus was injected into a pipeline context."""
         now = datetime.now(timezone.utc).isoformat()
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             await db.execute(
                 "UPDATE stimulus_queue SET presented_at = ? WHERE id = ?",
                 (now, stimulus_id),
@@ -129,7 +134,7 @@ class StimulusQueue:
     ) -> None:
         """Store explicit feedback score and propagate topic affinity update."""
         score = max(0.0, min(1.0, score))
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 "SELECT topic FROM stimulus_queue WHERE id = ?", (stimulus_id,)
             )
@@ -157,7 +162,7 @@ class StimulusQueue:
         """Delete presented or old items; return count deleted."""
         from datetime import timedelta  # noqa: PLC0415
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 """DELETE FROM stimulus_queue
                    WHERE presented_at IS NOT NULL
@@ -173,7 +178,7 @@ class StimulusQueue:
 
     async def pending(self, limit: int = 10) -> list[dict]:
         """Return pending stimuli ordered by affinity DESC."""
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 """SELECT id, content, topic, affinity_score, created_at
                    FROM stimulus_queue
@@ -196,7 +201,7 @@ class StimulusQueue:
 
     async def all_items(self, limit: int = 50) -> list[dict]:
         """Return all items (including presented) newest first."""
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 """SELECT * FROM stimulus_queue ORDER BY created_at DESC LIMIT ?""",
                 (limit,),

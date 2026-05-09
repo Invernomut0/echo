@@ -28,6 +28,7 @@ Ollama embedding endpoint already used by the memory stores.
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 import json
 import logging
 from datetime import datetime, timezone
@@ -65,13 +66,17 @@ class UserInterestProfile:
     # DB init
     # ------------------------------------------------------------------
 
-    async def _get_db(self) -> aiosqlite.Connection:
-        """Open a connection to the SQLite database."""
+    @asynccontextmanager
+    async def _get_db(self):
+        """Yield a configured SQLite connection and always close it safely."""
         db = await aiosqlite.connect(_DB_PATH)
         db.row_factory = aiosqlite.Row
         await db.execute("PRAGMA journal_mode=WAL")
         await self._ensure_tables(db)
-        return db
+        try:
+            yield db
+        finally:
+            await db.close()
 
     @staticmethod
     async def _ensure_tables(db: aiosqlite.Connection) -> None:
@@ -93,7 +98,7 @@ class UserInterestProfile:
 
     async def primary_interests(self, n: int = 5) -> list[dict]:
         """Return top-N active (non-excluded) topics sorted by affinity DESC."""
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 """
                 SELECT topic, affinity_score, interaction_count, last_seen
@@ -109,7 +114,7 @@ class UserInterestProfile:
 
     async def all_topics(self) -> list[dict]:
         """Return all tracked topics including excluded ones."""
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 "SELECT * FROM interest_profile ORDER BY affinity_score DESC"
             )
@@ -117,7 +122,7 @@ class UserInterestProfile:
             return [dict(r) for r in rows]
 
     async def excluded_topics(self) -> list[str]:
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute(
                 "SELECT topic FROM interest_profile WHERE is_excluded = 1"
             )
@@ -229,13 +234,13 @@ class UserInterestProfile:
 
     async def record_feedback(self, topic: str, delta: float) -> None:
         """Adjust affinity for *topic* by *delta* (positive = more interested)."""
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             await self._upsert_topic(db, topic, delta)
 
     async def mark_excluded(self, topic: str) -> None:
         """Exclude *topic* from interest seeds and ZPD candidates."""
         topic = topic.strip().lower()
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             await db.execute(
                 """INSERT INTO interest_profile (topic, affinity_score, interaction_count, last_seen, is_excluded)
                    VALUES (?, 0.0, 0, ?, 1)
@@ -248,7 +253,7 @@ class UserInterestProfile:
         """Mark *topic* as explicitly preferred — boosts affinity."""
         topic = topic.strip().lower()
         now = datetime.now(timezone.utc).isoformat()
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             await db.execute(
                 """INSERT INTO interest_profile (topic, affinity_score, interaction_count, last_seen, is_preferred)
                    VALUES (?, ?, 1, ?, 1)
@@ -308,7 +313,7 @@ class UserInterestProfile:
             return []
 
         # Count current topics — if at cap, only update existing ones
-        async with await self._get_db() as db:
+        async with self._get_db() as db:
             cursor = await db.execute("SELECT COUNT(*) as cnt FROM interest_profile")
             row = await cursor.fetchone()
             at_cap = row["cnt"] >= _MAX_TOPICS if row else False
