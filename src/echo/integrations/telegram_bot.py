@@ -428,7 +428,6 @@ class TelegramBotBridge:
                 "Usa /reset per azzerare il contesto della chat."
                 f"{privacy_hint}",
                 message_thread_id=message_thread_id,
-                reply_to_message_id=message_id,
             )
             return
 
@@ -440,7 +439,6 @@ class TelegramBotBridge:
                 chat_id,
                 "🧹 Contesto conversazione azzerato.",
                 message_thread_id=message_thread_id,
-                reply_to_message_id=message_id,
             )
             return
 
@@ -453,6 +451,13 @@ class TelegramBotBridge:
         typing_task = asyncio.create_task(
             self._typing_heartbeat(chat_id, message_thread_id=message_thread_id)
         )
+        channel_placeholder_id: int | None = None
+        if chat_type == "channel":
+            channel_placeholder_id = await self._send_message(
+                chat_id,
+                "✍️ ECHO sta scrivendo…",
+                message_thread_id=message_thread_id,
+            )
         try:
             history = list(self._buffer_for(chat_id))
             record = await pipeline.interact(text, history=history)
@@ -468,8 +473,6 @@ class TelegramBotBridge:
             send_kwargs: dict[str, int] = {}
             if message_thread_id is not None:
                 send_kwargs["message_thread_id"] = message_thread_id
-            if message_id is not None:
-                send_kwargs["reply_to_message_id"] = message_id
 
             # Keep typing visible for a short minimum interval; otherwise on fast
             # responses Telegram clients may not render the indicator at all.
@@ -478,16 +481,45 @@ class TelegramBotBridge:
             if remaining > 0:
                 await asyncio.sleep(remaining)
 
-            await self._send_long_message(chat_id, assistant_response, **send_kwargs)
+            sent_via_placeholder_edit = False
+            if (
+                channel_placeholder_id is not None
+                and len((assistant_response or "").strip()) <= 4096
+            ):
+                sent_via_placeholder_edit = await self._edit_message_text(
+                    chat_id,
+                    channel_placeholder_id,
+                    assistant_response,
+                )
+
+            if not sent_via_placeholder_edit:
+                if channel_placeholder_id is not None:
+                    with suppress(Exception):
+                        await self._delete_message(chat_id, channel_placeholder_id)
+                await self._send_long_message(chat_id, assistant_response, **send_kwargs)
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Telegram message handling failed: %s", exc, exc_info=True)
-            await self._send_message(
-                chat_id,
-                "⚠️ Errore interno ECHO. Riprova tra poco.",
-                message_thread_id=message_thread_id,
-                reply_to_message_id=message_id,
-            )
+            if channel_placeholder_id is not None:
+                edited = await self._edit_message_text(
+                    chat_id,
+                    channel_placeholder_id,
+                    "⚠️ Errore interno ECHO. Riprova tra poco.",
+                )
+                if not edited:
+                    with suppress(Exception):
+                        await self._delete_message(chat_id, channel_placeholder_id)
+                    await self._send_message(
+                        chat_id,
+                        "⚠️ Errore interno ECHO. Riprova tra poco.",
+                        message_thread_id=message_thread_id,
+                    )
+            else:
+                await self._send_message(
+                    chat_id,
+                    "⚠️ Errore interno ECHO. Riprova tra poco.",
+                    message_thread_id=message_thread_id,
+                )
         finally:
             typing_task.cancel()
             with suppress(asyncio.CancelledError):
@@ -576,6 +608,66 @@ class TelegramBotBridge:
         data = response.json()
         if not data.get("ok", False):
             logger.warning("Telegram sendChatAction failed for chat_id=%s: %s", chat_id, data)
+
+    async def _edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+    ) -> bool:
+        if self._client is None:
+            return False
+
+        payload = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": (text or "").strip()[:4096] or "(nessuna risposta)",
+        }
+
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/editMessageText",
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+            if not data.get("ok", False):
+                logger.debug(
+                    "Telegram editMessageText non-ok for chat_id=%s message_id=%s: %s",
+                    chat_id,
+                    message_id,
+                    data,
+                )
+                return False
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Telegram editMessageText failed for chat_id=%s message_id=%s: %s",
+                chat_id,
+                message_id,
+                exc,
+            )
+            return False
+
+    async def _delete_message(self, chat_id: int, message_id: int) -> bool:
+        if self._client is None:
+            return False
+        try:
+            response = await self._client.post(
+                f"{self._base_url}/deleteMessage",
+                json={"chat_id": chat_id, "message_id": message_id},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return bool(data.get("ok", False))
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "Telegram deleteMessage failed for chat_id=%s message_id=%s: %s",
+                chat_id,
+                message_id,
+                exc,
+            )
+            return False
 
     @staticmethod
     def _split_text(text: str, max_chars: int) -> list[str]:

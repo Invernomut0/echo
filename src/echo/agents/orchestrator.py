@@ -76,6 +76,7 @@ Synthesise a single response. Rules:
   answer directly using retrieved identity memories. If memories are missing, ask for confirmation instead of inventing.
 - Do NOT quote, reprint, or paraphrase back the user's latest message unless they explicitly ask for a rewrite/analysis.
 - Never prepend your answer with a transcript-like header containing the user's message.
+- Never output a leading line with just the user's name followed by their text.
 - If the wiki block starts with "Wiki knowledge base (N pages):" you CAN see those pages — reference them by title."""
 
 

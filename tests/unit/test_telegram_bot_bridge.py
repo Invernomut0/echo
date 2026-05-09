@@ -67,7 +67,6 @@ async def test_group_message_allowed_when_sender_id_is_whitelisted(monkeypatch):
         -1001234567890,
         "ciao gruppo",
         message_thread_id=55,
-        reply_to_message_id=77,
     )
 
 
@@ -306,3 +305,45 @@ def test_strip_user_echo_from_response_removes_repeated_user_line():
 
     assert "ciao Echo, mi piace parlare con te" not in cleaned
     assert "Ciao! È un piacere parlare con te." in cleaned
+
+
+@pytest.mark.asyncio
+async def test_channel_uses_placeholder_edit_instead_of_reply_chain(monkeypatch):
+    """In channel chats, bridge should show placeholder and edit it with final response."""
+    from echo.integrations import telegram_bot as tg
+
+    bridge = tg.TelegramBotBridge()
+    bridge._allowed_chat_ids = {-100111222333}
+
+    monkeypatch.setattr(bridge, "_send_chat_action", AsyncMock())
+    monkeypatch.setattr(bridge, "_typing_heartbeat", AsyncMock())
+
+    send_message = AsyncMock(return_value=555)
+    monkeypatch.setattr(bridge, "_send_message", send_message)
+
+    edit_message = AsyncMock(return_value=True)
+    monkeypatch.setattr(bridge, "_edit_message_text", edit_message)
+
+    send_long_message = AsyncMock()
+    monkeypatch.setattr(bridge, "_send_long_message", send_long_message)
+
+    interact = AsyncMock(return_value=SimpleNamespace(assistant_response="ok canale"))
+    monkeypatch.setattr(tg.pipeline, "interact", interact)
+
+    update = {
+        "channel_post": {
+            "message_id": 99,
+            "chat": {"id": -100111222333, "type": "channel"},
+            "text": "ping canale",
+        }
+    }
+
+    await bridge._handle_update(update)
+
+    send_message.assert_any_await(
+        -100111222333,
+        "✍️ ECHO sta scrivendo…",
+        message_thread_id=None,
+    )
+    edit_message.assert_awaited_once_with(-100111222333, 555, "ok canale")
+    send_long_message.assert_not_called()
