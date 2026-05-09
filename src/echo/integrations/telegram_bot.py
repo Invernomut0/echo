@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 _NAME_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ'.\-]{2,40}")
 
 
+def _normalize_space(text: str) -> str:
+    return " ".join((text or "").split()).strip().lower()
+
+
 class TelegramBotBridge:
     """Bridge Telegram messages to ECHO's cognitive pipeline."""
 
@@ -38,6 +42,12 @@ class TelegramBotBridge:
         self._allowed_chat_ids = set(settings.telegram_allowed_chat_ids)
         self._history_turns = max(1, settings.telegram_history_turns)
         self._max_reply_chars = max(500, min(4096, settings.telegram_max_reply_chars))
+        # Ensure users can actually see the typing indicator even when responses
+        # are generated very fast.
+        self._typing_min_visible_seconds = max(
+            0.0,
+            min(3.0, float(getattr(settings, "telegram_typing_min_visible_seconds", 1.2))),
+        )
 
         self._offset = 0
         self._running = False
@@ -54,6 +64,34 @@ class TelegramBotBridge:
             buffer = deque(maxlen=self._history_turns * 2)
             self._history_by_chat[chat_id] = buffer
         return buffer
+
+    @staticmethod
+    def _strip_user_echo_from_response(response: str, user_text: str) -> str:
+        """Remove direct user-text echoes from assistant response.
+
+        Keeps normal semantic references, but drops exact quoted/reprinted lines
+        that match the current user message.
+        """
+        cleaned = (response or "").strip()
+        user_norm = _normalize_space(user_text)
+        if not cleaned or not user_norm:
+            return cleaned
+
+        out_lines: list[str] = []
+        removed_any = False
+        for raw_line in cleaned.splitlines():
+            line = raw_line.strip()
+            probe = line.lstrip(">-•: ").strip()
+            probe_norm = _normalize_space(probe)
+            if probe_norm == user_norm:
+                removed_any = True
+                continue
+            out_lines.append(raw_line)
+
+        result = "\n".join(out_lines).strip()
+        if removed_any and not result:
+            return "Ricevuto."
+        return result or cleaned
 
     def _is_chat_authorized(self, chat_id: int, sender_id: int | None) -> bool:
         """Allow explicit chat IDs and (for groups) sender IDs."""
@@ -358,27 +396,32 @@ class TelegramBotBridge:
             await self._send_unauthorized_hint(chat_id, str(chat.get("type", "")))
             return
 
-        await self._ensure_sender_identity_memory(
-            chat_id,
-            chat_type=str(chat.get("type", "")),
-            sender=sender if isinstance(sender, dict) else None,
+        chat_type = str(chat.get("type", ""))
+        read_ack_task = asyncio.create_task(
+            self._send_read_ack(
+                chat_id,
+                message_id=message_id,
+                chat_type=chat_type,
+            )
         )
 
-        await self._send_read_ack(
+        await self._ensure_sender_identity_memory(
             chat_id,
-            message_id=message_id,
-            chat_type=str(chat.get("type", "")),
+            chat_type=chat_type,
+            sender=sender if isinstance(sender, dict) else None,
         )
 
         command_token = text.split(maxsplit=1)[0]
         command = command_token.partition("@")[0].lower()
         if command in {"/start", "/help"}:
             privacy_hint = ""
-            if chat.get("type") in {"group", "supergroup"}:
+            if chat_type in {"group", "supergroup"}:
                 privacy_hint = (
                     "\n\nℹ️ Se non rispondo ai messaggi normali nel gruppo, "
                     "disattiva la Privacy Mode con @BotFather (/setprivacy)."
                 )
+            with suppress(Exception):
+                await read_ack_task
             await self._send_message(
                 chat_id,
                 "👋 ECHO è online. Scrivimi un messaggio per iniziare. "
@@ -391,6 +434,8 @@ class TelegramBotBridge:
 
         if command == "/reset":
             self._history_by_chat.pop(chat_id, None)
+            with suppress(Exception):
+                await read_ack_task
             await self._send_message(
                 chat_id,
                 "🧹 Contesto conversazione azzerato.",
@@ -404,16 +449,21 @@ class TelegramBotBridge:
             action="typing",
             message_thread_id=message_thread_id,
         )
+        typing_started_at = time.monotonic()
         typing_task = asyncio.create_task(
             self._typing_heartbeat(chat_id, message_thread_id=message_thread_id)
         )
         try:
             history = list(self._buffer_for(chat_id))
             record = await pipeline.interact(text, history=history)
+            assistant_response = self._strip_user_echo_from_response(
+                record.assistant_response,
+                text,
+            )
 
             chat_buffer = self._buffer_for(chat_id)
             chat_buffer.append({"role": "user", "content": text})
-            chat_buffer.append({"role": "assistant", "content": record.assistant_response})
+            chat_buffer.append({"role": "assistant", "content": assistant_response})
 
             send_kwargs: dict[str, int] = {}
             if message_thread_id is not None:
@@ -421,7 +471,14 @@ class TelegramBotBridge:
             if message_id is not None:
                 send_kwargs["reply_to_message_id"] = message_id
 
-            await self._send_long_message(chat_id, record.assistant_response, **send_kwargs)
+            # Keep typing visible for a short minimum interval; otherwise on fast
+            # responses Telegram clients may not render the indicator at all.
+            elapsed = time.monotonic() - typing_started_at
+            remaining = self._typing_min_visible_seconds - elapsed
+            if remaining > 0:
+                await asyncio.sleep(remaining)
+
+            await self._send_long_message(chat_id, assistant_response, **send_kwargs)
 
         except Exception as exc:  # noqa: BLE001
             logger.error("Telegram message handling failed: %s", exc, exc_info=True)
@@ -435,6 +492,8 @@ class TelegramBotBridge:
             typing_task.cancel()
             with suppress(asyncio.CancelledError):
                 await typing_task
+            with suppress(Exception):
+                await read_ack_task
 
     async def _send_long_message(
         self,

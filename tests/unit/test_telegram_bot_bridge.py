@@ -288,3 +288,21 @@ async def test_read_ack_falls_back_to_eyes_reply_in_private_chat(monkeypatch):
         "👀",
         reply_to_message_id=99,
     )
+
+
+def test_strip_user_echo_from_response_removes_repeated_user_line():
+    """Assistant output should not reprint the same user message line."""
+    from echo.integrations.telegram_bot import TelegramBotBridge
+
+    response = (
+        "Lorenzo\n"
+        "ciao Echo, mi piace parlare con te\n"
+        "Ciao! È un piacere parlare con te."
+    )
+    cleaned = TelegramBotBridge._strip_user_echo_from_response(
+        response,
+        "ciao Echo, mi piace parlare con te",
+    )
+
+    assert "ciao Echo, mi piace parlare con te" not in cleaned
+    assert "Ciao! È un piacere parlare con te." in cleaned

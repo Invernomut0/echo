@@ -74,6 +74,8 @@ Synthesise a single response. Rules:
 - If memories reveal the user's name or past context, use it naturally.
 - If the user asks who they are / their name (e.g. "chi sono?", "come mi chiamo?", "who am I?", "what's my name?"),
   answer directly using retrieved identity memories. If memories are missing, ask for confirmation instead of inventing.
+- Do NOT quote, reprint, or paraphrase back the user's latest message unless they explicitly ask for a rewrite/analysis.
+- Never prepend your answer with a transcript-like header containing the user's message.
 - If the wiki block starts with "Wiki knowledge base (N pages):" you CAN see those pages — reference them by title."""
 
 
