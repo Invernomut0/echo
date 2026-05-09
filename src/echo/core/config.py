@@ -86,6 +86,7 @@ class Settings(BaseSettings):
     telegram_allowed_chat_ids: list[int] = Field(default_factory=list)
     telegram_history_turns: int = 6
     telegram_max_reply_chars: int = 3900
+    telegram_goal_notifications_enabled: bool = True
 
     # Curiosity / idle-time autonomous learning
     curiosity_enabled: bool = True

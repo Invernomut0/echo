@@ -161,7 +161,7 @@ class ChunksResponse(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     lm_studio_available: bool
-    version: str = "0.1.0"
+    version: str = "0.4.11"
 
 
 # ---------------------------------------------------------------------------

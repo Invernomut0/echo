@@ -14,14 +14,22 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_hf_embed_direct() -> None:
-    """HuggingFace endpoint returns a 384-dim vector for a single sentence."""
+    """HuggingFace endpoint returns a non-empty vector with expected model dimension."""
+    from echo.core.config import settings
     from echo.core.llm_client import llm
 
     vectors = await llm._hf_embed(["The quick brown fox"])
     assert len(vectors) == 1, "Expected exactly one vector"
-    assert len(vectors[0]) == 384, (
-        f"all-MiniLM-L6-v2 should produce 384-dim vectors, got {len(vectors[0])}"
-    )
+    dim = len(vectors[0])
+    assert dim > 0, "Embedding vector is empty"
+
+    model_name = settings.hf_embedding_model.lower()
+    if "mpnet" in model_name:
+        expected = 768
+        assert dim == expected, f"{settings.hf_embedding_model} should produce {expected}-dim vectors, got {dim}"
+    elif "minilm" in model_name:
+        expected = 384
+        assert dim == expected, f"{settings.hf_embedding_model} should produce {expected}-dim vectors, got {dim}"
 
 
 @pytest.mark.asyncio

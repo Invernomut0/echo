@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
@@ -10,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from echo.memory.goals import goal_store, MAX_ACTIVE_GOALS
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/goals", tags=["goals"])
 
 
@@ -80,10 +78,8 @@ async def get_goal(goal_id: str) -> dict:
 async def update_goal(goal_id: str, payload: UpdateGoalRequest) -> dict:
     """Update goal status and/or description.
 
-    When status transitions to 'achieved', the goal and all its done actions
-    are automatically distilled into a semantic memory and optionally a wiki page.
+    Goal resolution consolidation/notification is handled centrally inside GoalStore.
     """
-    # Snapshot before the update so we can detect the achieved transition
     prev = await goal_store.get(goal_id)
     if prev is None:
         raise HTTPException(status_code=404, detail="Goal not found")
@@ -96,53 +92,7 @@ async def update_goal(goal_id: str, payload: UpdateGoalRequest) -> dict:
     if goal is None:
         raise HTTPException(status_code=404, detail="Goal not found")
 
-    # Auto-consolidate achieved goals into semantic memory
-    if payload.status == "achieved" and prev.get("status") != "achieved":
-        try:
-            await _consolidate_achieved_goal(goal)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Goal consolidation to semantic failed: %s", exc)
-
     return goal
-
-
-async def _consolidate_achieved_goal(goal: dict) -> None:
-    """Distil an achieved goal + its actions into a semantic memory.
-
-    Builds a structured summary and stores it in the semantic memory store
-    with high salience so it persists across decay cycles.
-    """
-    import json as _json
-    from echo.memory.semantic import SemanticMemoryStore
-
-    actions = goal.get("actions", [])
-    done_actions = [a for a in actions if a.get("status") == "done"]
-
-    # Build a rich narrative summary
-    lines = [
-        f"Goal achieved: {goal['title']}",
-    ]
-    if goal.get("description"):
-        lines.append(f"Description: {goal['description']}")
-    if done_actions:
-        lines.append("Completed steps:")
-        for a in done_actions:
-            step_line = f"  - {a['description']}"
-            if a.get("result"):
-                step_line += f" → {a['result']}"
-            lines.append(step_line)
-
-    content = "\n".join(lines)
-    tags = ["goal_achieved"] + goal.get("tags", [])
-    # Priority feeds salience: high-priority goals produce high-salience memories
-    salience = 0.7 + goal.get("priority", 0.5) * 0.25  # range 0.70–0.95
-
-    semantic = SemanticMemoryStore()
-    await semantic.store(content=content, tags=tags, salience=round(salience, 3))
-    logger.info(
-        "Achieved goal '%s' consolidated → semantic memory (salience=%.3f, actions=%d)",
-        goal["title"], salience, len(done_actions),
-    )
 
 
 @router.delete("/{goal_id}", status_code=204)

@@ -20,6 +20,7 @@ from echo.api.routers import curiosity as curiosity_router
 from echo.api.routers import wiki as wiki_router
 from echo.api.routers import goals as goals_router
 from echo.api.schemas import HealthResponse
+from echo import __version__
 from echo.core.config import settings
 from echo.core.llm_client import llm
 from echo.core.pipeline import pipeline
@@ -69,7 +70,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="PROJECT ECHO",
         description="Persistent Self-Modifying Cognitive Architecture",
-        version="0.1.0",
+        version=__version__,
         lifespan=lifespan,
     )
 

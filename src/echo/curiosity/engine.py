@@ -301,7 +301,6 @@ Respond ONLY with valid JSON:
                             salience = 0.70 + 0.25 * g["priority"]
                             await self._semantic.store(
                                 content=knowledge_text[:2000],
-                                source_agent="goals",
                                 tags=["goals", "consolidated", f"goal:{g['id'][:8]}"],
                                 salience=min(salience, 0.95),
                             )
@@ -370,13 +369,13 @@ Respond ONLY with valid JSON:
                 # find full id (might be truncated to 8 chars)
                 matched = next((g for g in active_goals if g["id"].startswith(gid)), None)
                 if matched:
-                    await goal_store.update_status(matched["id"], "achieved")
                     await goal_store.add_action(
                         matched["id"],
                         description="Goal marked as achieved during reflection cycle",
                         result="Achieved",
                         status="done",
                     )
+                    await goal_store.update_status(matched["id"], "achieved")
                     logger.info("[Goals] Achieved: %s", matched["title"])
 
             # Step 3: Abandon goals
@@ -483,7 +482,6 @@ Respond ONLY with valid JSON:
                 if summary and await self._is_novel(summary):
                     await self._semantic.store(
                         content=f"[Goal research: {goal['title']}] {summary}",
-                        source_agent="goals",
                         tags=["goals", f"goal:{goal['id'][:8]}"],
                         salience=0.6,
                     )
@@ -502,7 +500,6 @@ Respond ONLY with valid JSON:
                             salience = 0.70 + 0.25 * goal["priority"]
                             await self._semantic.store(
                                 content=knowledge_text[:2000],
-                                source_agent="goals",
                                 tags=["goals", "consolidated", f"goal:{goal['id'][:8]}"],
                                 salience=min(salience, 0.95),
                             )

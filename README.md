@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.4.0 · **Last updated:** 2026-04-30
+**Version:** 0.4.11 · **Last updated:** 2026-05-09
 
 ---
 
@@ -126,12 +126,20 @@ TELEGRAM_ENABLED=true
 TELEGRAM_BOT_TOKEN=<your_bot_token>
 # Optional hardening: allow only selected chats
 TELEGRAM_ALLOWED_CHAT_IDS=[123456789]
+# Optional: disable goal-completion notifications
+TELEGRAM_GOAL_NOTIFICATIONS_ENABLED=true
 ```
 
 3. Start ECHO normally (`uv run uvicorn echo.api.server:app ...`)
 
 When enabled, the Telegram bridge starts automatically with the API lifespan
 and routes each incoming message through `pipeline.interact`.
+
+Additionally, when a goal is marked `achieved` (from API or autonomous curiosity
+cycle), ECHO now:
+
+- consolidates the full resolution (goal, why chosen, findings, solution) into semantic memory,
+- sends a Telegram summary with: **goal**, **why it was chosen**, **solution summary**.
 
 ## Development (hot-reload)
 
@@ -255,6 +263,13 @@ p = 0.2 + 0.3 · arousal
 ---
 
 ## Changelog
+
+### 0.4.11 — 2026-05-09
+- Centralized achieved-goal consolidation in `GoalStore.update_status` (single source of truth across API + curiosity paths)
+- Added semantic "Goal Resolution Report" persistence (why chosen, extracted findings, adopted solution, final outcome)
+- Added Telegram outbound notifier for goal completion summaries (`goal`, `why chosen`, `solution summary`)
+- Added config flag `TELEGRAM_GOAL_NOTIFICATIONS_ENABLED`
+- Added unit coverage for goal-resolution payload building, transition-trigger behavior, and notification dispatch
 
 ### 0.4.0 — 2026-04-30
 - **Co-evolutionary cognitive partner**: `UserInterestProfile`, `StimulusQueue`, ZPD cycles, proactive stimulus injection, implicit feedback loop

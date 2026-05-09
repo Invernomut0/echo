@@ -29,6 +29,139 @@ MAX_ACTIVE_GOALS = 5
 MAX_GOAL_ITERATIONS = 10
 
 
+def _clean_text(value: str | None, *, max_len: int = 500) -> str:
+    text = (value or "").strip()
+    if len(text) > max_len:
+        return text[: max_len - 1].rstrip() + "…"
+    return text
+
+
+def _build_goal_resolution_payload(goal: dict[str, Any]) -> dict[str, Any]:
+    """Build a coherent, structured summary for an achieved goal."""
+    title = _clean_text(goal.get("title") or "Untitled goal", max_len=200)
+    description = _clean_text(goal.get("description") or "", max_len=600)
+    goal_id = str(goal.get("id") or "")
+
+    actions = goal.get("actions") or []
+    done_actions = [a for a in actions if a.get("status") == "done"]
+    meaningful_done = [
+        a for a in done_actions
+        if (a.get("description") or "").strip() and (a.get("result") or "").strip() not in {"", "Created"}
+    ]
+
+    why_chosen = description
+    if not why_chosen:
+        if meaningful_done:
+            why_chosen = _clean_text(
+                meaningful_done[0].get("description") or "Goal derivato dalla riflessione autonoma.",
+                max_len=280,
+            )
+        elif done_actions:
+            why_chosen = _clean_text(
+                done_actions[0].get("description") or "Goal derivato dalla riflessione autonoma.",
+                max_len=280,
+            )
+        else:
+            why_chosen = "Goal derivato dalla riflessione autonoma per migliorare competenza e coerenza."
+
+    findings: list[str] = []
+    for action in meaningful_done[:8]:
+        result = _clean_text(action.get("result") or "", max_len=240)
+        if result:
+            findings.append(result)
+
+    solution_steps: list[str] = []
+    for action in done_actions[:8]:
+        desc = _clean_text(action.get("description") or "", max_len=200)
+        if not desc:
+            continue
+        result = _clean_text(action.get("result") or "", max_len=180)
+        if result and result not in {"Created"}:
+            solution_steps.append(f"{desc} → {result}")
+        else:
+            solution_steps.append(desc)
+
+    if findings:
+        solution_summary = "; ".join(findings[:3])
+    elif solution_steps:
+        solution_summary = "; ".join(solution_steps[:3])
+    else:
+        solution_summary = "Il goal è stato marcato come raggiunto senza dettagli operativi aggiuntivi."
+    solution_summary = _clean_text(solution_summary, max_len=700)
+
+    achieved_at = goal.get("achieved_at") or goal.get("updated_at") or "unknown"
+    semantic_lines = [
+        "[Goal Resolution Report]",
+        f"Goal: {title}",
+        f"Goal ID: {goal_id}",
+        f"Perché scelto: {why_chosen}",
+        "",
+    ]
+
+    if findings:
+        semantic_lines.append("Informazioni ricavate:")
+        for item in findings[:8]:
+            semantic_lines.append(f"- {item}")
+        semantic_lines.append("")
+
+    if solution_steps:
+        semantic_lines.append("Soluzione adottata:")
+        for step in solution_steps[:8]:
+            semantic_lines.append(f"- {step}")
+        semantic_lines.append("")
+
+    semantic_lines.extend([
+        f"Riassunto soluzione: {solution_summary}",
+        f"Esito: goal achieved at {achieved_at}",
+    ])
+
+    semantic_content = "\n".join(semantic_lines)
+
+    return {
+        "goal_id": goal_id,
+        "goal_title": title,
+        "why_chosen": why_chosen,
+        "solution_summary": solution_summary,
+        "semantic_content": semantic_content,
+    }
+
+
+async def _persist_goal_resolution(goal: dict[str, Any]) -> None:
+    """Store achieved-goal resolution in semantic memory and notify Telegram."""
+    from echo.integrations import send_goal_resolution_notification  # noqa: PLC0415
+    from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415
+
+    payload = _build_goal_resolution_payload(goal)
+    goal_id = payload["goal_id"]
+
+    tags = ["goal_achieved", "goal_resolution", f"goal:{goal_id[:8]}"]
+    for tag in goal.get("tags") or []:
+        if isinstance(tag, str) and tag and tag not in tags:
+            tags.append(tag)
+
+    priority = float(goal.get("priority", 0.5) or 0.5)
+    salience = round(0.7 + max(0.0, min(1.0, priority)) * 0.25, 3)
+
+    semantic = SemanticMemoryStore()
+    await semantic.store(
+        content=payload["semantic_content"],
+        tags=tags,
+        salience=salience,
+    )
+
+    sent_count = await send_goal_resolution_notification(
+        goal_title=payload["goal_title"],
+        why_chosen=payload["why_chosen"],
+        solution_summary=payload["solution_summary"],
+    )
+    logger.info(
+        "Goal resolution consolidated for '%s' (salience=%.3f, telegram_sent=%d)",
+        payload["goal_title"],
+        salience,
+        sent_count,
+    )
+
+
 # ---------------------------------------------------------------------------
 # ORM rows
 # ---------------------------------------------------------------------------
@@ -198,11 +331,15 @@ class GoalStore:
         description: str | None = None,
     ) -> dict[str, Any] | None:
         """Update goal status. Returns updated goal or None if not found."""
+        transition_to_achieved = False
+        updated_goal: dict[str, Any] | None = None
+
         factory = get_session_factory()
         async with factory() as session:
             row = await session.get(GoalRow, goal_id)
             if row is None:
                 return None
+            prev_status = row.status
             row.status = status
             row.updated_at = datetime.now(timezone.utc)
             if status == "achieved":
@@ -211,7 +348,20 @@ class GoalStore:
                 row.description = description
             await session.commit()
             await session.refresh(row, ["actions"])
-            return _row_to_goal(row)
+            updated_goal = _row_to_goal(row)
+            transition_to_achieved = prev_status != "achieved" and status == "achieved"
+
+        if transition_to_achieved and updated_goal is not None:
+            try:
+                await _persist_goal_resolution(updated_goal)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Goal resolution persistence failed for goal_id=%s: %s",
+                    goal_id,
+                    exc,
+                )
+
+        return updated_goal
 
     async def delete(self, goal_id: str) -> bool:
         factory = get_session_factory()

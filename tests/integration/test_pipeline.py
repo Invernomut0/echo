@@ -39,11 +39,20 @@ async def test_pipeline_stream(db):
     p = CognitivePipeline()
     await p.startup()
 
-    chunks = []
+    events = []
+    chunks: list[str] = []
     async for delta in p.stream_interact("Tell me a one-sentence fact."):
-        chunks.append(delta)
+        events.append(delta)
+        if isinstance(delta, str):
+            chunks.append(delta)
+        elif isinstance(delta, dict):
+            for key in ("delta", "content", "text", "token"):
+                value = delta.get(key)
+                if isinstance(value, str) and value:
+                    chunks.append(value)
+                    break
 
-    assert len(chunks) > 0
+    assert len(events) > 0
     full = "".join(chunks)
     assert len(full) > 10
 
