@@ -10,6 +10,7 @@ Exposes endpoints for:
 
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
@@ -119,10 +120,25 @@ class ConfigPayload(BaseModel):
     # Ollama chat
     ollama_chat_model: str | None = None
     ollama_base_url: str | None = None
+    # Telegram bot integration
+    telegram_enabled: bool | None = None
+    telegram_bot_token: str | None = None
+    telegram_api_base_url: str | None = None
+    telegram_poll_interval_seconds: float | None = None
+    telegram_update_timeout_seconds: int | None = None
+    telegram_request_timeout_seconds: float | None = None
+    telegram_allowed_chat_ids: list[int] | None = None
+    telegram_history_turns: int | None = None
+    telegram_max_reply_chars: int | None = None
 
 
 class PollRequest(BaseModel):
     device_code: str
+
+
+class TelegramTestPayload(BaseModel):
+    bot_token: str | None = None
+    api_base_url: str | None = None
 
 
 # ── Helper ────────────────────────────────────────────────────────────────────
@@ -136,6 +152,15 @@ def _set_env_key(key: str, value: str) -> None:
         set_key(str(ENV_PATH), key, value, quote_mode="never")
     except Exception as exc:
         logger.warning("Could not write to .env: %s", exc)
+
+
+def _to_env_value(value: object) -> str:
+    """Convert payload values to deterministic string form for .env storage."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, set, dict)):
+        return json.dumps(value)
+    return str(value)
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -164,6 +189,17 @@ async def get_config() -> dict:
         # Ollama chat
         "ollama_chat_model": settings.ollama_chat_model,
         "ollama_base_url": settings.ollama_base_url,
+        # Telegram
+        "telegram_enabled": settings.telegram_enabled,
+        "telegram_bot_token": "***" if settings.telegram_bot_token else "",
+        "telegram_api_base_url": settings.telegram_api_base_url,
+        "telegram_poll_interval_seconds": settings.telegram_poll_interval_seconds,
+        "telegram_update_timeout_seconds": settings.telegram_update_timeout_seconds,
+        "telegram_request_timeout_seconds": settings.telegram_request_timeout_seconds,
+        "telegram_allowed_chat_ids": settings.telegram_allowed_chat_ids,
+        "telegram_history_turns": settings.telegram_history_turns,
+        "telegram_max_reply_chars": settings.telegram_max_reply_chars,
+        "has_telegram_token": bool(settings.telegram_bot_token),
         # Never return the actual token value to the frontend
         "has_github_token": bool(settings.github_token),
     }
@@ -189,11 +225,20 @@ async def save_config(payload: ConfigPayload) -> dict:
         "ANTHROPIC_MODEL": payload.anthropic_model,
         "OLLAMA_CHAT_MODEL": payload.ollama_chat_model,
         "OLLAMA_BASE_URL": payload.ollama_base_url,
+        "TELEGRAM_ENABLED": payload.telegram_enabled,
+        "TELEGRAM_BOT_TOKEN": payload.telegram_bot_token,
+        "TELEGRAM_API_BASE_URL": payload.telegram_api_base_url,
+        "TELEGRAM_POLL_INTERVAL_SECONDS": payload.telegram_poll_interval_seconds,
+        "TELEGRAM_UPDATE_TIMEOUT_SECONDS": payload.telegram_update_timeout_seconds,
+        "TELEGRAM_REQUEST_TIMEOUT_SECONDS": payload.telegram_request_timeout_seconds,
+        "TELEGRAM_ALLOWED_CHAT_IDS": payload.telegram_allowed_chat_ids,
+        "TELEGRAM_HISTORY_TURNS": payload.telegram_history_turns,
+        "TELEGRAM_MAX_REPLY_CHARS": payload.telegram_max_reply_chars,
     }
 
     for env_key, value in mapping.items():
         if value is not None:
-            _set_env_key(env_key, value)
+            _set_env_key(env_key, _to_env_value(value))
 
     # Hot-reload the singleton so subsequent API calls see new values
     _reload_settings()
@@ -367,3 +412,38 @@ async def test_lmstudio_connection(base_url: str | None = None) -> dict:
         return {"ok": False, "error": "Connection refused — is LM Studio running?"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)}
+
+
+@router.post("/telegram/test")
+async def test_telegram_connection(payload: TelegramTestPayload) -> dict:
+    """Verify Telegram bot API reachability and token validity via getMe."""
+    bot_token = (payload.bot_token or settings.telegram_bot_token or "").strip()
+    api_base_url = (payload.api_base_url or settings.telegram_api_base_url).rstrip("/")
+
+    if not bot_token:
+        return {"ok": False, "error": "Telegram bot token is empty."}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.get(
+                f"{api_base_url}/bot{bot_token}/getMe",
+                timeout=10.0,
+            )
+    except httpx.ConnectError:
+        return {"ok": False, "error": "Connection refused to Telegram API base URL."}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    if r.status_code != 200:
+        return {"ok": False, "error": f"HTTP {r.status_code}: {r.text[:200]}"}
+
+    data = r.json()
+    if not data.get("ok"):
+        return {"ok": False, "error": data.get("description", "Telegram API error")}
+
+    result = data.get("result", {})
+    return {
+        "ok": True,
+        "bot_username": result.get("username", ""),
+        "bot_name": result.get("first_name", ""),
+    }

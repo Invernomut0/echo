@@ -24,6 +24,7 @@ import {
   pollGitHubDeviceFlow,
   saveSetupConfig,
   startGitHubDeviceFlow,
+  testTelegram,
   testCopilot,
   testLMStudio,
   addMcpServer,
@@ -36,6 +37,7 @@ import {
   type DeviceCodeResponse,
   type McpServerStatus,
   type SetupConfig,
+  type TelegramTestResponse,
 } from '../api'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -850,6 +852,278 @@ function GitHubSection({
   )
 }
 
+function TelegramSection({
+  config,
+  onSave,
+}: {
+  config: SetupConfig
+  onSave: (updates: Partial<SetupConfig>) => Promise<void>
+}) {
+  const [enabled, setEnabled] = useState(config.telegram_enabled)
+  const [botToken, setBotToken] = useState('')
+  const [apiBaseUrl, setApiBaseUrl] = useState(config.telegram_api_base_url)
+  const [pollInterval, setPollInterval] = useState(String(config.telegram_poll_interval_seconds))
+  const [updateTimeout, setUpdateTimeout] = useState(String(config.telegram_update_timeout_seconds))
+  const [requestTimeout, setRequestTimeout] = useState(String(config.telegram_request_timeout_seconds))
+  const [allowedChatIds, setAllowedChatIds] = useState(config.telegram_allowed_chat_ids.join(', '))
+  const [historyTurns, setHistoryTurns] = useState(String(config.telegram_history_turns))
+  const [maxReplyChars, setMaxReplyChars] = useState(String(config.telegram_max_reply_chars))
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<TelegramTestResponse | null>(null)
+
+  useEffect(() => {
+    setEnabled(config.telegram_enabled)
+    setBotToken('')
+    setApiBaseUrl(config.telegram_api_base_url)
+    setPollInterval(String(config.telegram_poll_interval_seconds))
+    setUpdateTimeout(String(config.telegram_update_timeout_seconds))
+    setRequestTimeout(String(config.telegram_request_timeout_seconds))
+    setAllowedChatIds(config.telegram_allowed_chat_ids.join(', '))
+    setHistoryTurns(String(config.telegram_history_turns))
+    setMaxReplyChars(String(config.telegram_max_reply_chars))
+  }, [
+    config.telegram_enabled,
+    config.telegram_api_base_url,
+    config.telegram_poll_interval_seconds,
+    config.telegram_update_timeout_seconds,
+    config.telegram_request_timeout_seconds,
+    config.telegram_allowed_chat_ids,
+    config.telegram_history_turns,
+    config.telegram_max_reply_chars,
+  ])
+
+  const parseChatIds = (raw: string): number[] => {
+    return raw
+      .split(/[\s,]+/)
+      .map((x) => x.trim())
+      .filter(Boolean)
+      .map((x) => Number.parseInt(x, 10))
+      .filter((n) => Number.isFinite(n))
+  }
+
+  const normalizedCurrentChats = (config.telegram_allowed_chat_ids || []).join(',')
+  const normalizedInputChats = parseChatIds(allowedChatIds).join(',')
+
+  const numericPoll = Number.parseFloat(pollInterval)
+  const numericUpdate = Number.parseInt(updateTimeout, 10)
+  const numericRequest = Number.parseFloat(requestTimeout)
+  const numericHistory = Number.parseInt(historyTurns, 10)
+  const numericMaxReply = Number.parseInt(maxReplyChars, 10)
+
+  const tokenDirty = botToken.trim().length > 0
+  const dirty =
+    tokenDirty ||
+    enabled !== config.telegram_enabled ||
+    apiBaseUrl.trim() !== config.telegram_api_base_url ||
+    numericPoll !== config.telegram_poll_interval_seconds ||
+    numericUpdate !== config.telegram_update_timeout_seconds ||
+    numericRequest !== config.telegram_request_timeout_seconds ||
+    normalizedInputChats !== normalizedCurrentChats ||
+    numericHistory !== config.telegram_history_turns ||
+    numericMaxReply !== config.telegram_max_reply_chars
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const updates: Partial<SetupConfig> = {
+        telegram_enabled: enabled,
+        telegram_api_base_url: apiBaseUrl.trim() || 'https://api.telegram.org',
+        telegram_poll_interval_seconds: Number.isFinite(numericPoll)
+          ? numericPoll
+          : config.telegram_poll_interval_seconds,
+        telegram_update_timeout_seconds: Number.isFinite(numericUpdate)
+          ? numericUpdate
+          : config.telegram_update_timeout_seconds,
+        telegram_request_timeout_seconds: Number.isFinite(numericRequest)
+          ? numericRequest
+          : config.telegram_request_timeout_seconds,
+        telegram_allowed_chat_ids: parseChatIds(allowedChatIds),
+        telegram_history_turns: Number.isFinite(numericHistory)
+          ? numericHistory
+          : config.telegram_history_turns,
+        telegram_max_reply_chars: Number.isFinite(numericMaxReply)
+          ? numericMaxReply
+          : config.telegram_max_reply_chars,
+      }
+
+      if (botToken.trim()) {
+        updates.telegram_bot_token = botToken.trim()
+      }
+
+      await onSave(updates)
+      setTestResult(null)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const res = await testTelegram({
+        bot_token: botToken.trim() || undefined,
+        api_base_url: apiBaseUrl.trim() || undefined,
+      })
+      setTestResult(res)
+    } catch (e) {
+      setTestResult({ ok: false, error: String(e) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  return (
+    <SectionCard
+      icon={<Zap size={18} />}
+      title="Telegram Bot"
+      subtitle="Connect ECHO to Telegram via long polling"
+    >
+      <div className="setup-field-group">
+        <label className="setup-label">Enabled</label>
+        <div className="setup-input-row">
+          <label className="setup-mcp-hint" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            Enable Telegram bridge at backend startup
+          </label>
+        </div>
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">Bot Token</label>
+        <input
+          className="setup-input"
+          type="password"
+          value={botToken}
+          onChange={(e) => setBotToken(e.target.value)}
+          placeholder="123456789:AA..."
+          autoComplete="off"
+        />
+        {config.has_telegram_token && (
+          <p className="setup-mcp-hint" style={{ color: '#10b981' }}>
+            <CheckCircle size={11} style={{ display: 'inline', marginRight: 4 }} />
+            Telegram token is stored — enter a new one to update
+          </p>
+        )}
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">Telegram API Base URL</label>
+        <div className="setup-input-row">
+          <input
+            className="setup-input"
+            value={apiBaseUrl}
+            onChange={(e) => setApiBaseUrl(e.target.value)}
+            placeholder="https://api.telegram.org"
+          />
+          <button className="setup-btn setup-btn--secondary" onClick={handleTest} disabled={testing}>
+            {testing ? <Loader size={14} className="spin" /> : <RefreshCw size={14} />}
+            Test
+          </button>
+        </div>
+        {testResult && (
+          <div className={`setup-test-result ${testResult.ok ? 'ok' : 'err'}`}>
+            {testResult.ok ? (
+              <>
+                <CheckCircle size={14} />
+                <span>
+                  Connected — @{testResult.bot_username || 'bot'}
+                  {testResult.bot_name ? ` (${testResult.bot_name})` : ''}
+                </span>
+              </>
+            ) : (
+              <>
+                <XCircle size={14} />
+                <span>{testResult.error}</span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">Polling and timeouts</label>
+        <div className="setup-input-row">
+          <input
+            className="setup-input"
+            value={pollInterval}
+            onChange={(e) => setPollInterval(e.target.value)}
+            placeholder="Poll interval (seconds)"
+          />
+          <input
+            className="setup-input"
+            value={updateTimeout}
+            onChange={(e) => setUpdateTimeout(e.target.value)}
+            placeholder="Update timeout (s)"
+          />
+          <input
+            className="setup-input"
+            value={requestTimeout}
+            onChange={(e) => setRequestTimeout(e.target.value)}
+            placeholder="Request timeout (s)"
+          />
+        </div>
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">Allowed Chat IDs</label>
+        <input
+          className="setup-input"
+          value={allowedChatIds}
+          onChange={(e) => setAllowedChatIds(e.target.value)}
+          placeholder="e.g. 123456789, -1001234567890"
+        />
+        <p className="setup-mcp-hint">
+          Leave empty to allow all chats. Use comma-separated IDs.
+        </p>
+      </div>
+
+      <div className="setup-field-group">
+        <label className="setup-label">Conversation settings</label>
+        <div className="setup-input-row">
+          <input
+            className="setup-input"
+            value={historyTurns}
+            onChange={(e) => setHistoryTurns(e.target.value)}
+            placeholder="History turns"
+          />
+          <input
+            className="setup-input"
+            value={maxReplyChars}
+            onChange={(e) => setMaxReplyChars(e.target.value)}
+            placeholder="Max reply chars"
+          />
+        </div>
+      </div>
+
+      <p className="setup-mcp-hint" style={{ marginBottom: 10 }}>
+        Note: enabling/disabling the bridge takes effect at API startup. Restart backend after saving.
+      </p>
+
+      <div className="setup-actions">
+        <button
+          className="setup-btn setup-btn--primary"
+          onClick={handleSave}
+          disabled={!dirty || saving}
+        >
+          {saving ? <Loader size={14} className="spin" /> : <Settings size={14} />}
+          Save Changes
+        </button>
+        {!dirty && (
+          <span className="setup-saved-label">
+            <CheckCircle size={12} /> Saved
+          </span>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MCP Section
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1285,6 +1559,7 @@ export default function SetupPanel() {
         {activeProvider === 'ollama'      && <OllamaSection config={config} onSave={handleSave} />}
         {/* GitHub section always visible — needed for Copilot auth + device flow */}
         <GitHubSection config={config} onSave={handleSave} />
+        <TelegramSection config={config} onSave={handleSave} />
         <MCPSection />
       </div>
     </div>

@@ -382,6 +382,17 @@ export interface SetupConfig {
   // Ollama chat
   ollama_chat_model: string
   ollama_base_url: string
+  // Telegram bot
+  telegram_enabled: boolean
+  telegram_bot_token: string
+  telegram_api_base_url: string
+  telegram_poll_interval_seconds: number
+  telegram_update_timeout_seconds: number
+  telegram_request_timeout_seconds: number
+  telegram_allowed_chat_ids: number[]
+  telegram_history_turns: number
+  telegram_max_reply_chars: number
+  has_telegram_token: boolean
 }
 
 export interface DeviceCodeResponse {
@@ -412,6 +423,13 @@ export interface LMStudioTestResponse {
   error?: string
 }
 
+export interface TelegramTestResponse {
+  ok: boolean
+  bot_username?: string
+  bot_name?: string
+  error?: string
+}
+
 export async function fetchSetupConfig(): Promise<SetupConfig> {
   const r = await fetch(`${BASE}/setup/config`)
   if (!r.ok) throw new Error(`setup config: ${r.status}`)
@@ -419,7 +437,10 @@ export async function fetchSetupConfig(): Promise<SetupConfig> {
 }
 
 export async function saveSetupConfig(
-  payload: Partial<Omit<SetupConfig, 'has_github_token'> & { github_token?: string }>,
+  payload: Partial<
+    Omit<SetupConfig, 'has_github_token' | 'has_telegram_token'> &
+    { github_token?: string }
+  >,
 ): Promise<void> {
   const r = await fetch(`${BASE}/setup/config`, {
     method: 'PUT',
@@ -470,6 +491,19 @@ export async function testLMStudio(baseUrl?: string): Promise<LMStudioTestRespon
     body: baseUrl ? JSON.stringify({ base_url: baseUrl }) : '{}',
   })
   if (!r.ok) throw new Error(`lmstudio test: ${r.status}`)
+  return r.json()
+}
+
+export async function testTelegram(payload?: {
+  bot_token?: string
+  api_base_url?: string
+}): Promise<TelegramTestResponse> {
+  const r = await fetch(`${BASE}/setup/telegram/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload ?? {}),
+  })
+  if (!r.ok) throw new Error(`telegram test: ${r.status}`)
   return r.json()
 }
 
