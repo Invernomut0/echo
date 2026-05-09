@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from echo.core.config import settings
@@ -206,7 +206,7 @@ async def get_config() -> dict:
 
 
 @router.put("/config")
-async def save_config(payload: ConfigPayload) -> dict:
+async def save_config(payload: ConfigPayload, request: Request) -> dict:
     """Persist updated config values to .env and reload in-process settings."""
     mapping: dict[str, str | None] = {
         "LM_STUDIO_BASE_URL": payload.lm_studio_base_url,
@@ -242,8 +242,9 @@ async def save_config(payload: ConfigPayload) -> dict:
 
     # Hot-reload the singleton so subsequent API calls see new values
     _reload_settings()
+    telegram_runtime = await _apply_telegram_bridge_runtime(request)
 
-    return {"ok": True}
+    return {"ok": True, "telegram_runtime": telegram_runtime}
 
 
 def _reload_settings() -> None:
@@ -254,6 +255,42 @@ def _reload_settings() -> None:
             object.__setattr__(settings, field, getattr(new, field))
     except Exception as exc:
         logger.warning("Settings hot-reload failed: %s", exc)
+
+
+async def _apply_telegram_bridge_runtime(request: Request) -> str:
+    """Apply Telegram bridge config immediately to the running FastAPI app."""
+    app = request.app
+    existing_bridge = getattr(app.state, "telegram_bridge", None)
+
+    if existing_bridge is not None:
+        try:
+            await existing_bridge.stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed stopping existing Telegram bridge: %s", exc)
+        finally:
+            app.state.telegram_bridge = None
+
+    if not settings.telegram_enabled:
+        logger.info("Telegram bridge runtime apply: disabled")
+        return "disabled"
+
+    if not settings.telegram_bot_token.strip():
+        logger.warning(
+            "Telegram enabled in config but token is empty — bridge remains stopped"
+        )
+        return "enabled_without_token"
+
+    try:
+        from echo.integrations.telegram_bot import TelegramBotBridge  # noqa: PLC0415
+
+        bridge = TelegramBotBridge()
+        bridge.start()
+        app.state.telegram_bridge = bridge
+        logger.info("Telegram bridge runtime apply: running")
+        return "running"
+    except Exception as exc:  # noqa: BLE001
+        logger.error("Failed to apply Telegram bridge runtime config: %s", exc, exc_info=True)
+        return f"error: {exc}"
 
 
 # ── GitHub Device Authorization Flow ─────────────────────────────────────────

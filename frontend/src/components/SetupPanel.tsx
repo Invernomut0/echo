@@ -989,7 +989,7 @@ function TelegramSection({
               checked={enabled}
               onChange={(e) => setEnabled(e.target.checked)}
             />
-            Enable Telegram bridge at backend startup
+            Enable Telegram bridge
           </label>
         </div>
       </div>
@@ -1102,7 +1102,7 @@ function TelegramSection({
       </div>
 
       <p className="setup-mcp-hint" style={{ marginBottom: 10 }}>
-        Note: enabling/disabling the bridge takes effect at API startup. Restart backend after saving.
+        Note: changes are applied immediately to the running backend after Save.
       </p>
 
       <div className="setup-actions">

@@ -47,6 +47,14 @@ class TelegramBotBridge:
             self._history_by_chat[chat_id] = buffer
         return buffer
 
+    def _is_chat_authorized(self, chat_id: int, sender_id: int | None) -> bool:
+        """Allow explicit chat IDs and (for groups) sender IDs."""
+        if not self._allowed_chat_ids:
+            return True
+        if chat_id in self._allowed_chat_ids:
+            return True
+        return sender_id is not None and sender_id in self._allowed_chat_ids
+
     def start(self) -> None:
         """Start background polling if Telegram integration is enabled."""
         if not settings.telegram_enabled:
@@ -145,15 +153,33 @@ class TelegramBotBridge:
         except (TypeError, ValueError):
             return
 
+        sender_id: int | None = None
+        sender = message.get("from")
+        if isinstance(sender, dict) and sender.get("id") is not None:
+            try:
+                sender_id = int(sender.get("id"))
+            except (TypeError, ValueError):
+                sender_id = None
+
         text = (message.get("text") or "").strip()
         if not text:
             return
 
-        if self._allowed_chat_ids and chat_id not in self._allowed_chat_ids:
-            logger.warning("Ignoring Telegram message from unauthorized chat_id=%s", chat_id)
+        if not self._is_chat_authorized(chat_id, sender_id):
+            logger.warning(
+                "Ignoring Telegram message from unauthorized chat_id=%s sender_id=%s",
+                chat_id,
+                sender_id,
+            )
+            if chat.get("type") == "private":
+                await self._send_message(
+                    chat_id,
+                    f"⚠️ Chat non autorizzata. Aggiungi questo ID in Allowed Chat IDs: {chat_id}",
+                )
             return
 
-        command = text.split(maxsplit=1)[0].lower()
+        command_token = text.split(maxsplit=1)[0]
+        command = command_token.partition("@")[0].lower()
         if command in {"/start", "/help"}:
             await self._send_message(
                 chat_id,
