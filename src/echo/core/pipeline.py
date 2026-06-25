@@ -152,7 +152,21 @@ class CognitivePipeline:
         await mcp_manager.startup()
         await self.learning.startup()
         self._ready = True
-        logger.info("CognitivePipeline ready")
+
+        # Warn if the configured model is not yet loaded in LM Studio.
+        # ECHO does NOT trigger loading — the model must be pre-loaded by the user.
+        if settings.llm_provider == "lm_studio":
+            model_ready = await llm.check_model_loaded()
+            if model_ready:
+                logger.info("CognitivePipeline ready — model '%s' confirmed loaded", settings.lm_studio_model)
+            else:
+                logger.warning(
+                    "CognitivePipeline ready — model '%s' is NOT loaded in LM Studio. "
+                    "Load it manually before sending messages.",
+                    settings.lm_studio_model,
+                )
+        else:
+            logger.info("CognitivePipeline ready")
 
     async def _bootstrap_beliefs_if_empty(self) -> None:
         """Seed the identity graph with initial beliefs if it has none.

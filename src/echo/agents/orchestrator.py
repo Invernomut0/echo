@@ -108,26 +108,52 @@ def _build_synthesis_system() -> str:
     if not tools:
         return base
 
+    # Cap tool definitions to avoid blowing the context window on local models.
+    # Only include the 5 most useful tools; list the rest by name only.
+    MAX_FULL_TOOLS = 5
+    full_tools = tools[:MAX_FULL_TOOLS]
+    extra_tools = tools[MAX_FULL_TOOLS:]
+
     tool_lines = "\n".join(
-        f"  • **{t.qualified_name}**: {t.description}"
-        for t in tools
+        f"  • **{t.qualified_name}**: {t.description[:120]}"
+        for t in full_tools
     )
+    if extra_tools:
+        extra_names = ", ".join(t.qualified_name for t in extra_tools)
+        tool_lines += f"\n  (also available: {extra_names})"
+
     mcp_addendum = f"""
 
-EXTERNAL TOOLS (real, callable NOW via function-calling):
-You have access to the following MCP tools. Use them proactively whenever the request
-benefits from live data, web searches, URL fetching, or file operations.
-Do NOT claim you cannot access external resources — you can, via these tools.
-
+EXTERNAL TOOLS (callable via function-calling):
 {tool_lines}
-
-Tool usage rules:
-- brave_search__* : web search, local business search, current events.
-- fetch__fetch : fetch the content of any URL.
-- filesystem__* : read/write files in /tmp.
-- Always share what you found with the user. Report errors honestly."""
+Rules: brave_search__* for web; fetch__fetch for URLs; filesystem__* for /tmp files."""
 
     return base + mcp_addendum
+
+
+def _trim_history(
+    history: list[dict[str, str]],
+    max_turns: int = 6,
+    max_content_chars: int = 400,
+) -> list[dict[str, str]]:
+    """Trim conversation history to fit within context window.
+
+    - Keeps last ``max_turns`` messages
+    - Truncates each message content to ``max_content_chars``
+    - Replaces error responses with a short placeholder (they inflate tokens
+      and confuse the model context)
+    """
+    recent = history[-max_turns:] if len(history) > max_turns else history
+    trimmed: list[dict[str, str]] = []
+    for msg in recent:
+        content = msg.get("content", "")
+        # Replace error blobs with a terse placeholder
+        if content.startswith("[Error:"):
+            content = "[previous response failed]"
+        elif len(content) > max_content_chars:
+            content = content[:max_content_chars] + "…"
+        trimmed.append({"role": msg["role"], "content": content})
+    return trimmed
 
 
 def _fmt_memories(context: dict[str, Any] | None) -> str:
@@ -224,16 +250,14 @@ class Orchestrator:
             reverse=True,
         )
         deliberations = "\n\n".join(
-            f"[{role.upper()}] (weight={self._agents[AgentRole(role)].routing_weight:.2f})\n{text}"
+            f"[{role.upper()}] (weight={self._agents[AgentRole(role)].routing_weight:.2f})\n{text[:600]}"
             for role, text in sorted_outputs
         )
 
-        # Synthesise — include recent conversation history for multi-turn coherence.
-        # History comes from context["history"] (set by pipeline.stream_interact).
+        # Synthesise — trim history to avoid context overflow on local models
         hist: list[dict[str, str]] = (context or {}).get("history", [])
-        # Build system prompt dynamically (injects available MCP tool descriptions)
         messages: list[dict[str, str]] = [{"role": "system", "content": _build_synthesis_system()}]
-        for msg in hist[-10:]:  # cap at 10 messages to stay within token limits
+        for msg in _trim_history(hist):
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({
             "role": "user",
@@ -269,13 +293,12 @@ class Orchestrator:
             reverse=True,
         )
         deliberations = "\n\n".join(
-            f"[{role.upper()}]\n{text}" for role, text in sorted_outputs
+            f"[{role.upper()}]\n{text[:600]}" for role, text in sorted_outputs
         )
-        # Synthesise — include recent conversation history for multi-turn coherence.
+        # Synthesise — trim history to avoid context overflow on local models
         hist: list[dict[str, str]] = (context or {}).get("history", [])
-        # Build system prompt dynamically (injects available MCP tool descriptions)
         messages: list[dict[str, str]] = [{"role": "system", "content": _build_synthesis_system()}]
-        for msg in hist[-10:]:  # cap at 10 messages to stay within token limits
+        for msg in _trim_history(hist):
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({
             "role": "user",

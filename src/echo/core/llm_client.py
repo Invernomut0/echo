@@ -164,6 +164,64 @@ class LLMClient:
         self.embedding_model = settings.lm_studio_embedding_model
         self._last_tools_used: list[str] = []
         self._embed_cache = _EmbedCache(max_size=256, ttl_seconds=300.0)
+        self._model_confirmed_loaded: bool = False  # set True once we verify model is ready
+
+    # ── Model availability check (LM Studio only) ─────────────────────────────
+
+    async def check_model_loaded(self) -> bool:
+        """Return True if the configured chat model is currently loaded in LM Studio.
+
+        Calls GET /v1/models without triggering any generation or loading.
+        Only applies to lm_studio provider; always returns True for cloud APIs.
+        """
+        if settings.llm_provider != "lm_studio":
+            return True
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(
+                    f"{settings.lm_studio_base_url}/models",
+                    headers={"Authorization": f"Bearer {settings.lm_studio_api_key}"},
+                )
+                if r.status_code != 200:
+                    return False
+                data = r.json()
+                loaded_ids = {m["id"] for m in data.get("data", [])}
+                target = settings.lm_studio_model
+                # Partial match: e.g. config says "gemma-4" but loaded ID is longer
+                found = any(target in mid or mid.startswith(target) for mid in loaded_ids)
+                if found:
+                    self._model_confirmed_loaded = True
+                return found
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def assert_model_ready(self) -> None:
+        """Raise RuntimeError if the model is not loaded (LM Studio only).
+
+        Call this before any generation request to provide a clear error
+        instead of triggering JIT model loading or getting cryptic 400s.
+        """
+        if self._model_confirmed_loaded:
+            return  # already verified this session
+        if not await self.check_model_loaded():
+            loaded = await self._list_loaded_models()
+            hint = f" Loaded: {loaded}" if loaded else " No models loaded."
+            raise RuntimeError(
+                f"Model '{settings.lm_studio_model}' is not loaded in LM Studio."
+                f"{hint} Load it in LM Studio first, then retry."
+            )
+
+    async def _list_loaded_models(self) -> list[str]:
+        """Return list of currently loaded model IDs from LM Studio."""
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                r = await client.get(
+                    f"{settings.lm_studio_base_url}/models",
+                    headers={"Authorization": f"Bearer {settings.lm_studio_api_key}"},
+                )
+                return [m["id"] for m in r.json().get("data", [])]
+        except Exception:  # noqa: BLE001
+            return []
 
     # ── Anthropic helpers ──────────────────────────────────────────────────────
 
@@ -329,6 +387,10 @@ class LLMClient:
         extra: dict[str, Any] | None = None,
     ) -> str:
         p = settings.llm_provider
+        # Verify model is loaded in LM Studio before making any generation request.
+        # This prevents JIT model loading (which causes Channel Errors and latency spikes).
+        if p == "lm_studio":
+            await self.assert_model_ready()
         if p == "copilot":
             return await self._copilot_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model
