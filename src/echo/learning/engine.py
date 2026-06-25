@@ -29,6 +29,7 @@ from echo.core.types import CognitiveEvent, EventTopic
 from echo.learning.meta_learning import MetaLearningEngine, meta_learning
 from echo.learning.personalization import PersonalizationState
 from echo.learning.predictor import PredictiveAnalyticsEngine, PredictionPriors
+from echo.learning.self_evaluation import SelfEvaluationEngine, self_evaluation
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,9 @@ class LearningEngine:
         self.personalization: PersonalizationState = PersonalizationState()
         self.predictor: PredictiveAnalyticsEngine = PredictiveAnalyticsEngine()
         self.meta: MetaLearningEngine = meta_learning
+        self.evaluation: SelfEvaluationEngine = self_evaluation
         self._n: int = 0
+        self._last_prediction_error: float = 0.5  # updated by pipeline
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -58,6 +61,7 @@ class LearningEngine:
         """Load persisted personalization state from SQLite."""
         await self.personalization.load()
         await self.meta.startup()
+        await self.evaluation.startup()
         logger.info(
             "LearningEngine ready — personalization n=%d  verbosity=%.3f  depth=%.3f  meta_α=%.4f",
             self.personalization._n,
@@ -137,6 +141,19 @@ class LearningEngine:
             curiosity=curiosity,
             identity_drift=identity_drift,
             memory_load=min(1.0, memory_count / 10),
+        )
+
+        # SELF-EVALUATION: track performance and engagement signals
+        await self.evaluation.observe_interaction(
+            user_input=user_input,
+            response=response,
+            prediction_error=prediction_error,
+            interaction_type=interaction_type,
+            drive_scores={
+                "curiosity": curiosity,
+                "coherence": coherence,
+                "novelty": novelty_score,
+            },
         )
 
         self._n += 1
