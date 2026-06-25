@@ -412,6 +412,31 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Associative memory cycle failed: %s", exc)
 
+        # MODULE-7: Metacognitive deep review — update self-model from learning data
+        try:
+            from echo.self_model.metacognition import metacognitive_model  # noqa: PLC0415
+            from echo.learning.meta_learning import meta_learning as _ml  # noqa: PLC0415
+            from echo.learning.self_evaluation import self_evaluation as _se  # noqa: PLC0415
+            from echo.learning.growth_tracker import growth_tracker as _gt2  # noqa: PLC0415
+
+            # Feed accumulated learning data into metacognition
+            await metacognitive_model.update_from_learning(
+                growth_trajectory=(
+                    "improving" if _gt2.metrics.is_growing
+                    else "stagnant" if _gt2.metrics.is_stagnant
+                    else "stable"
+                ),
+                best_conditions=_ml.quality.best_conditions,
+                competence_map=_se.competence_map,
+                engagement_score=_se.engagement_score,
+            )
+            # Run full LLM-based deep review
+            updated = await metacognitive_model.deep_review()
+            if updated:
+                logger.info("Metacognitive model updated during REM cycle")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Metacognitive deep review failed: %s", exc)
+
         return report
 
     # ------------------------------------------------------------------

@@ -140,11 +140,13 @@ class CognitivePipeline:
         """Initialise all stateful components."""
         from echo.core.db import startup as db_startup
         from echo.mcp import mcp_manager
+        from echo.self_model.metacognition import metacognitive_model
 
         await db_startup()
         await self.identity_graph.load()
         await self._bootstrap_beliefs_if_empty()
         await self.meta_tracker.load_latest()
+        await metacognitive_model.startup()
         self.consolidation.start()
         self.decay.start()
         await mcp_manager.startup()
@@ -884,6 +886,14 @@ Respond ONLY with valid JSON:
                     self.meta_tracker.current.emotional_valence,
                     self.meta_tracker.current.arousal,
                 )
+
+                # MODULE-7: Update metacognitive model with reflection insights
+                try:
+                    from echo.self_model.metacognition import metacognitive_model  # noqa: PLC0415
+                    await metacognitive_model.update_from_reflection(reflection.insights)
+                    await metacognitive_model.save_if_dirty()
+                except Exception as _mc_exc:  # noqa: BLE001
+                    logger.debug("Metacognition update failed: %s", _mc_exc)
             else:
                 # Between reflections: still apply drive scores so drives stay live
                 self.meta_tracker.update_drives(score_deltas)

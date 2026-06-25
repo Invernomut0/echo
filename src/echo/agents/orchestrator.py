@@ -81,11 +81,23 @@ Synthesise a single response. Rules:
 
 
 def _build_synthesis_system() -> str:
-    """Return the synthesis system prompt, dynamically augmented with available MCP tools.
+    """Return the synthesis system prompt, dynamically augmented with available MCP tools
+    and the metacognitive self-model.
 
     Late-imports ``mcp_manager`` to avoid circular imports at module load time.
     If no tools are connected (e.g. during tests) falls back to the base prompt.
     """
+    base = _SYNTHESIS_SYSTEM
+
+    # MODULE-7: Inject metacognitive self-model
+    try:
+        from echo.self_model.metacognition import metacognitive_model  # noqa: PLC0415
+        metacog_block = metacognitive_model.get_system_prompt_block()
+        if metacog_block:
+            base += "\n\n" + metacog_block
+    except Exception:  # noqa: BLE001
+        pass
+
     try:
         from echo.mcp import mcp_manager  # noqa: PLC0415
         tools = mcp_manager.list_tools()
@@ -93,7 +105,7 @@ def _build_synthesis_system() -> str:
         tools = []
 
     if not tools:
-        return _SYNTHESIS_SYSTEM
+        return base
 
     tool_lines = "\n".join(
         f"  • **{t.qualified_name}**: {t.description}"
@@ -114,7 +126,7 @@ Tool usage rules:
 - filesystem__* : read/write files in /tmp.
 - Always share what you found with the user. Report errors honestly."""
 
-    return _SYNTHESIS_SYSTEM + mcp_addendum
+    return base + mcp_addendum
 
 
 def _fmt_memories(context: dict[str, Any] | None) -> str:
