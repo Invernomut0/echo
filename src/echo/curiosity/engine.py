@@ -65,7 +65,8 @@ _GOAL_CYCLE_COOLDOWN: float = 900.0  # 15 minutes between goal cycles
 
 # Global minimum interval between any two curiosity cycles.
 # Prevents rapid-fire cycling when _cycle_counter gets stuck at ZPD position.
-_last_cycle_started_at: float = 0.0
+import time as _time_init
+_last_cycle_started_at: float = _time_init.monotonic()  # prevent cycle at startup
 _MIN_CYCLE_INTERVAL: float = 300.0  # 5 minutes minimum (matches heartbeat)
 
 # Semaphore: limit concurrent LLM calls from curiosity/goal engine to 1
@@ -170,7 +171,7 @@ class CuriosityEngine:
                         }
                     ],
                     temperature=0.35,
-                    max_tokens=150,
+                    max_tokens=400,  # thinking models need headroom
                 )
             memory_topics = json.loads(raw.strip())
             if not isinstance(memory_topics, list):
@@ -365,7 +366,7 @@ Respond ONLY with valid JSON:
                         ),
                     }],
                     temperature=0.4,
-                    max_tokens=600,
+                    max_tokens=1200,  # thinking models overhead
                 )
 
             logger.debug("[Goals] reflect raw: %s", reflect_raw[:400])
@@ -478,7 +479,7 @@ Respond ONLY with valid JSON:
                                 ),
                             }],
                             temperature=0.3,
-                            max_tokens=300,
+                            max_tokens=600,
                         )
                     pursue = self._extract_json(pursue_raw)
                 except Exception:  # noqa: BLE001

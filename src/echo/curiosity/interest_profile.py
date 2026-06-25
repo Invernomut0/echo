@@ -167,9 +167,12 @@ class UserInterestProfile:
 
         try:
             raw = await llm.chat(
-                [{"role": "user", "content": _ZPD_PROMPT}],
+                [{
+                    "role": "user",
+                    "content": _ZPD_PROMPT,
+                }],
                 temperature=0.7,
-                max_tokens=150,
+                max_tokens=400,  # thinking models need headroom: ~150 reasoning + output
             )
             candidates: list[str] = json.loads(raw.strip())
             if not isinstance(candidates, list):

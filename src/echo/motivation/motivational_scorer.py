@@ -47,7 +47,7 @@ async def score_interaction(
         raw = await llm.chat(
             [{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=128,
+            max_tokens=400,  # thinking models overhead
         )
         # Extract JSON
         start = raw.find("{")

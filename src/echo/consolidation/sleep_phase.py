@@ -348,7 +348,7 @@ class ConsolidationPhase:
             raw_patterns = await llm.chat(
                 [{"role": "user", "content": _PATTERN_PROMPT.format(memories=sample)}],
                 temperature=0.3,
-                max_tokens=256,
+                max_tokens=512,
             )
             start = raw_patterns.find("[")
             end = raw_patterns.rfind("]") + 1

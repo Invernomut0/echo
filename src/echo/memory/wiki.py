@@ -422,7 +422,7 @@ class WikiStore:
                 },
             ],
             temperature=0.2,
-            max_tokens=1500,
+            max_tokens=3000,  # thinking models use ~500 reasoning tokens
         )
 
         entities: list[dict] = []
@@ -467,7 +467,7 @@ class WikiStore:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=800,
+                    max_tokens=1500,
                 )
                 self._write_page("entities", ent_slug, update_resp)
             else:
@@ -512,7 +512,7 @@ class WikiStore:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=800,
+                    max_tokens=1500,
                 )
                 self._write_page("concepts", con_slug, update_resp)
             else:
@@ -679,7 +679,7 @@ class WikiStore:
                 },
             ],
             temperature=0.1,
-            max_tokens=500,
+            max_tokens=1000,
         )
 
         updates: list[dict] = []
@@ -766,7 +766,7 @@ class WikiStore:
                 },
             ],
             temperature=0.2,
-            max_tokens=800,
+            max_tokens=1500,
         )
 
         issues: list[dict] = []

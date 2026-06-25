@@ -41,7 +41,7 @@ async def predict_response(user_input: str, meta_state: MetaState) -> str:
         prediction = await llm.chat(
             [{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=128,
+            max_tokens=300,
         )
         return prediction.strip()
     except Exception as exc:  # noqa: BLE001
