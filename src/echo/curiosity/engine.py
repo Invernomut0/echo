@@ -63,8 +63,12 @@ _is_running: bool = False
 _last_goal_cycle_at: float = 0.0  # monotonic timestamp of last goal cycle
 _GOAL_CYCLE_COOLDOWN: float = 900.0  # 15 minutes between goal cycles
 
+# Global minimum interval between any two curiosity cycles.
+# Prevents rapid-fire cycling when _cycle_counter gets stuck at ZPD position.
+_last_cycle_started_at: float = 0.0
+_MIN_CYCLE_INTERVAL: float = 300.0  # 5 minutes minimum (matches heartbeat)
+
 # Semaphore: limit concurrent LLM calls from curiosity/goal engine to 1
-# This prevents flooding LM Studio when multiple search+evaluate cycles overlap.
 _llm_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
 
 # ---------------------------------------------------------------------------
@@ -529,7 +533,7 @@ Respond ONLY with valid JSON:
 
     async def run_cycle(self) -> int:
         """Run one curiosity cycle; return the number of new memories stored."""
-        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at  # noqa: PLW0603
+        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at  # noqa: PLW0603
 
         # ── Activity record ──────────────────────────────────────────────────
         started_at = datetime.now(timezone.utc)
@@ -566,7 +570,22 @@ Respond ONLY with valid JSON:
             record["finished_at"] = datetime.now(timezone.utc).isoformat()
             return 0
 
+        # Guard: enforce minimum interval between cycles regardless of trigger source
+        import time as _time  # noqa: PLC0415
+        _elapsed_since_last = _time.monotonic() - _last_cycle_started_at
+        if _elapsed_since_last < _MIN_CYCLE_INTERVAL:
+            logger.debug(
+                "Curiosity skipped — too soon (%.0fs < %.0fs min interval)",
+                _elapsed_since_last,
+                _MIN_CYCLE_INTERVAL,
+            )
+            record["status"] = "skipped"
+            record["skip_reason"] = f"min_interval ({_elapsed_since_last:.0f}s < {_MIN_CYCLE_INTERVAL:.0f}s)"
+            record["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return 0
+
         _is_running = True
+        _last_cycle_started_at = _time.monotonic()
         try:
             if not settings.curiosity_enabled:
                 return _done("skipped", "disabled")
@@ -649,6 +668,11 @@ Respond ONLY with valid JSON:
             record["topics_searched"] = fresh_topics
             if not fresh_topics:
                 logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
+                # Still increment counter so we don't get stuck at ZPD position
+                _cycle_counter += 1
+                if _cycle_counter >= _CLEAR_AFTER_CYCLES:
+                    _recently_searched.clear()
+                    _cycle_counter = 0
                 return _done("skipped", "all_topics_recently_searched")
 
             logger.info("Curiosity cycle: searching topics %s", fresh_topics)

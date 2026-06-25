@@ -142,6 +142,15 @@ class UserInterestProfile:
         3. Filter out any topic that already has many semantic memories.
         4. Return top-n by unexploredness (fewest matching semantic memories).
         """
+        # Never run ZPD when user is active — save LLM budget for interactions
+        try:
+            from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
+            if _ua():
+                logger.debug("ZPD skipped — user active")
+                return []
+        except Exception:  # noqa: BLE001
+            pass
+
         primaries = await self.primary_interests(5)
         if not primaries:
             return []
