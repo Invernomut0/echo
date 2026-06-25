@@ -60,6 +60,12 @@ _CLEAR_AFTER_CYCLES: int = 6      # ≈ 30 min at 5-min heartbeat — avoid stal
 _activity_log: list[dict[str, Any]] = []
 _MAX_LOG: int = 200
 _is_running: bool = False
+_last_goal_cycle_at: float = 0.0  # monotonic timestamp of last goal cycle
+_GOAL_CYCLE_COOLDOWN: float = 900.0  # 15 minutes between goal cycles
+
+# Semaphore: limit concurrent LLM calls from curiosity/goal engine to 1
+# This prevents flooding LM Studio when multiple search+evaluate cycles overlap.
+_llm_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
 
 # ---------------------------------------------------------------------------
 # Prompt for topic extraction
@@ -151,16 +157,17 @@ class CuriosityEngine:
             f"- {m.content[:_MEMORY_SNIPPET_CHARS]}" for m in memories[:12]
         )
         try:
-            raw = await llm.chat(
-                messages=[
-                    {
-                        "role": "user",
-                        "content": _TOPIC_PROMPT.format(memories_text=memories_text),
-                    }
-                ],
-                temperature=0.35,
-                max_tokens=150,
-            )
+            async with _llm_semaphore:
+                raw = await llm.chat(
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": _TOPIC_PROMPT.format(memories_text=memories_text),
+                        }
+                    ],
+                    temperature=0.35,
+                    max_tokens=150,
+                )
             memory_topics = json.loads(raw.strip())
             if not isinstance(memory_topics, list):
                 memory_topics = []
@@ -337,20 +344,21 @@ Respond ONLY with valid JSON:
                 goals_text = "  (none)"
 
             # Step 1: Reflect and plan
-            reflect_raw = await llm.chat(
-                messages=[{
-                    "role": "user",
-                    "content": self._GOAL_REFLECT_PROMPT.format(
-                        conversations=conversations or "(no recent conversations)",
-                        meta_state=meta_state_text,
-                        active_goals=goals_text,
-                        active_count=len(active_goals),
-                        max_goals=MAX_ACTIVE_GOALS,
-                    ),
-                }],
-                temperature=0.4,
-                max_tokens=600,
-            )
+            async with _llm_semaphore:
+                reflect_raw = await llm.chat(
+                    messages=[{
+                        "role": "user",
+                        "content": self._GOAL_REFLECT_PROMPT.format(
+                            conversations=conversations or "(no recent conversations)",
+                            meta_state=meta_state_text,
+                            active_goals=goals_text,
+                            active_count=len(active_goals),
+                            max_goals=MAX_ACTIVE_GOALS,
+                        ),
+                    }],
+                    temperature=0.4,
+                    max_tokens=600,
+                )
 
             logger.debug("[Goals] reflect raw: %s", reflect_raw[:400])
             try:
@@ -409,7 +417,7 @@ Respond ONLY with valid JSON:
 
             # Step 5: Pursue active goals with search
             active_goals = await goal_store.list_active()  # refresh after updates
-            for action_plan in plan.get("next_actions", [])[:2]:  # max 2 pursuits per cycle
+            for action_plan in plan.get("next_actions", [])[:1]:  # max 1 pursuit per cycle (save LLM budget)
                 gid = action_plan.get("goal_id", "")
                 goal = next((g for g in active_goals if g["id"].startswith(gid)), None)
                 if not goal:
@@ -450,19 +458,20 @@ Respond ONLY with valid JSON:
 
                 # Ask LLM to interpret results
                 try:
-                    pursue_raw = await llm.chat(
-                        messages=[{
-                            "role": "user",
-                            "content": self._GOAL_PURSUE_PROMPT.format(
-                                goal_title=goal["title"],
-                                goal_description=goal["description"],
-                                search_query=query,
-                                search_results=search_text,
-                            ),
-                        }],
-                        temperature=0.3,
-                        max_tokens=300,
-                    )
+                    async with _llm_semaphore:
+                        pursue_raw = await llm.chat(
+                            messages=[{
+                                "role": "user",
+                                "content": self._GOAL_PURSUE_PROMPT.format(
+                                    goal_title=goal["title"],
+                                    goal_description=goal["description"],
+                                    search_query=query,
+                                    search_results=search_text,
+                                ),
+                            }],
+                            temperature=0.3,
+                            max_tokens=300,
+                        )
                     pursue = self._extract_json(pursue_raw)
                 except Exception:  # noqa: BLE001
                     pursue = {"summary": search_text[:300], "achieved": False}
@@ -516,7 +525,7 @@ Respond ONLY with valid JSON:
 
     async def run_cycle(self) -> int:
         """Run one curiosity cycle; return the number of new memories stored."""
-        global _cycle_counter, _recently_searched, _is_running  # noqa: PLW0603
+        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at  # noqa: PLW0603
 
         # ── Activity record ──────────────────────────────────────────────────
         started_at = datetime.now(timezone.utc)
@@ -583,8 +592,17 @@ Respond ONLY with valid JSON:
                 )
                 return _done("skipped", f"not_idle ({idle_seconds:.0f}s < {threshold}s)")
 
-            # 2b. Goal management — always run when idle
-            await self._run_goal_cycle(recent_memories)
+            # 2b. Goal management — run when idle, but throttled (max once per 15 min)
+            import time as _time_mod  # noqa: PLC0415
+            _now_mono = _time_mod.monotonic()
+            if _now_mono - _last_goal_cycle_at >= _GOAL_CYCLE_COOLDOWN:
+                _last_goal_cycle_at = _now_mono
+                await self._run_goal_cycle(recent_memories)
+            else:
+                logger.debug(
+                    "Goal cycle throttled — %.0fs until next run",
+                    _GOAL_CYCLE_COOLDOWN - (_now_mono - _last_goal_cycle_at),
+                )
 
             # 3. Extract topics (or use ZPD topics every N cycles)
             _is_zpd_cycle = (_cycle_counter % _ZPD_EVERY_N_CYCLES == (_ZPD_EVERY_N_CYCLES - 1))
