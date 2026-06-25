@@ -399,6 +399,19 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Growth report generation failed: %s", exc)
 
+        # MODULE-6: Deep Associative Memory — cross-pollination + temporal clustering
+        try:
+            from echo.memory.associative import associative_memory  # noqa: PLC0415
+            associations = await associative_memory.cross_pollinate()
+            themes = await associative_memory.temporal_clustering()
+            if associations or themes:
+                logger.info(
+                    "Associative memory: %d cross-pollinations, %d temporal themes",
+                    len(associations), len(themes),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Associative memory cycle failed: %s", exc)
+
         return report
 
     # ------------------------------------------------------------------

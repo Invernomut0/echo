@@ -273,6 +273,19 @@ Respond ONLY with valid JSON:
         yield {"_status": f"Loaded {len(episodic_mems)} episodic + {len(semantic_mems)} semantic memories…"}
 
         memories = semantic_mems + episodic_mems  # semantic facts first (identity, name)
+
+        # MODULE-6: Random walk retrieval — follow causal links for lateral associations
+        try:
+            from echo.memory.associative import associative_memory  # noqa: PLC0415
+            seed_ids = [m.id for m in episodic_mems if m.linked_ids]
+            if seed_ids:
+                walk_mems = await associative_memory.random_walk_retrieve(seed_ids, max_results=2)
+                if walk_mems:
+                    memories.extend(walk_mems)
+                    self._last_memory_sources["associative"] = len(walk_mems)
+        except Exception as _aex:  # noqa: BLE001
+            logger.debug("Associative walk skipped: %s", _aex)
+
         self.workspace.clear()
         self.workspace.load_memories(memories, "archivist")
         # Broadcast self-prediction into workspace so agents can see expected behaviour
