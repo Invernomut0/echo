@@ -26,6 +26,7 @@ import logging
 
 from echo.core.event_bus import bus
 from echo.core.types import CognitiveEvent, EventTopic
+from echo.learning.growth_tracker import GrowthTracker, growth_tracker
 from echo.learning.meta_learning import MetaLearningEngine, meta_learning
 from echo.learning.personalization import PersonalizationState
 from echo.learning.predictor import PredictiveAnalyticsEngine, PredictionPriors
@@ -50,6 +51,7 @@ class LearningEngine:
         self.predictor: PredictiveAnalyticsEngine = PredictiveAnalyticsEngine()
         self.meta: MetaLearningEngine = meta_learning
         self.evaluation: SelfEvaluationEngine = self_evaluation
+        self.growth: GrowthTracker = growth_tracker
         self._n: int = 0
         self._last_prediction_error: float = 0.5  # updated by pipeline
 
@@ -155,6 +157,22 @@ class LearningEngine:
                 "novelty": novelty_score,
             },
         )
+
+        # GROWTH TRACKING: measure long-term improvement trajectory
+        growth_metrics = self.growth.observe(
+            prediction_error=prediction_error,
+            engagement=user_engagement,
+            drive_scores={
+                "curiosity": curiosity,
+                "coherence": coherence,
+                "novelty": novelty_score,
+            },
+            response_length=len(response),
+        )
+
+        # Trigger shake-up if stagnation detected
+        if growth_metrics.shake_up_needed:
+            await self.growth.trigger_shake_up()
 
         self._n += 1
 

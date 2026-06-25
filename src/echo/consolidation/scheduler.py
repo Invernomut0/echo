@@ -390,6 +390,15 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("echo.md review (REM) failed: %s", exc)
 
+        # Growth report generation (deep-sleep milestone)
+        try:
+            from echo.learning.growth_tracker import growth_tracker as _gt  # noqa: PLC0415
+            growth_report = await _gt.generate_report()
+            if growth_report:
+                logger.info("Growth report generated during REM cycle")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Growth report generation failed: %s", exc)
+
         return report
 
     # ------------------------------------------------------------------
