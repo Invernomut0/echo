@@ -120,6 +120,18 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Curiosity cycle error: %s", exc)
 
+        # Proactive Initiative Engine: generate insights, questions, milestone updates
+        try:
+            from echo.initiative.engine import initiative_engine  # noqa: PLC0415
+            initiatives = await initiative_engine.run_cycle()
+            if initiatives:
+                logger.info(
+                    "Initiative cycle: %d proactive message(s) generated",
+                    len(initiatives),
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Initiative cycle error: %s", exc)
+
         # Spurious / conflicting semantic memory cleanup
         try:
             from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415
