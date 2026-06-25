@@ -26,6 +26,7 @@ import logging
 
 from echo.core.event_bus import bus
 from echo.core.types import CognitiveEvent, EventTopic
+from echo.learning.meta_learning import MetaLearningEngine, meta_learning
 from echo.learning.personalization import PersonalizationState
 from echo.learning.predictor import PredictiveAnalyticsEngine, PredictionPriors
 
@@ -46,6 +47,7 @@ class LearningEngine:
     def __init__(self) -> None:
         self.personalization: PersonalizationState = PersonalizationState()
         self.predictor: PredictiveAnalyticsEngine = PredictiveAnalyticsEngine()
+        self.meta: MetaLearningEngine = meta_learning
         self._n: int = 0
 
     # ------------------------------------------------------------------
@@ -55,11 +57,13 @@ class LearningEngine:
     async def startup(self) -> None:
         """Load persisted personalization state from SQLite."""
         await self.personalization.load()
+        await self.meta.startup()
         logger.info(
-            "LearningEngine ready — personalization n=%d  verbosity=%.3f  depth=%.3f",
+            "LearningEngine ready — personalization n=%d  verbosity=%.3f  depth=%.3f  meta_α=%.4f",
             self.personalization._n,
             self.personalization.verbosity,
             self.personalization.topic_depth,
+            self.meta.recommended_alpha,
         )
 
     # ------------------------------------------------------------------
@@ -96,12 +100,36 @@ class LearningEngine:
         # Engagement proxy: longer user turns → higher presumed engagement.
         user_engagement = min(1.0, len(user_input) / 200)
 
+        # META-LEARNING: classify interaction and compute prediction error
+        from echo.learning.meta_learning import MetaLearningEngine  # noqa: PLC0415
+        interaction_type = MetaLearningEngine.classify_interaction(user_input, response)
+        prediction_error = getattr(self, '_last_prediction_error', 0.5)
+
+        # META-LEARNING: observe and get adaptive alpha
+        meta_quality = await self.meta.observe(
+            prediction_error=prediction_error,
+            interaction_type=interaction_type,
+            user_engagement=user_engagement,
+            response_length=len(response),
+            novelty_score=novelty_score,
+            curiosity=curiosity,
+            coherence=coherence,
+            emotional_valence=emotional_valence,
+            drive_scores={
+                "curiosity": curiosity,
+                "coherence": coherence,
+                "novelty": novelty_score,
+            },
+        )
+
+        # Use adaptive alpha from meta-learning instead of static 0.08
         self.personalization.update(
             len(response),
             novelty_score=novelty_score,
             user_engagement=user_engagement,
             curiosity=curiosity,
             coherence=coherence,
+            alpha_override=self.meta.recommended_alpha,
         )
 
         self.predictor.observe(

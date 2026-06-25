@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     max_workspace_slots: int = 7
     consolidation_interval_seconds: int = 3600
     reflection_trigger_interval: int = 3
-    memory_decay_interval_seconds: int = 300
+    memory_decay_interval_seconds: int = 3600
 
     # GitHub OAuth
     github_client_id: str = ""

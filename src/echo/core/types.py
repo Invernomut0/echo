@@ -96,8 +96,10 @@ class MemoryEntry(BaseModel):
     # ChromaDB embedding record id
     embedding_id: str | None = None
 
-    # Decay: I(t) = I₀ · e^(−λt),  λ = 1 − salience
-    decay_lambda: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Decay: I(t) = I₀ · e^(−λt),  λ = (1 − salience) × 0.005
+    # With this scaling, even low-salience memories (0.3) take ~6 months to
+    # fade below pruning threshold when unused. Accessed memories are protected.
+    decay_lambda: float = Field(default=0.0025, ge=0.0, le=1.0)
     current_strength: float = Field(default=1.0, ge=0.0, le=1.0)
 
     # Metadata
@@ -120,7 +122,10 @@ class MemoryEntry(BaseModel):
             + 0.2 * self.emotional_weight
         )
         self.salience = round(s, 4)
-        self.decay_lambda = round(1.0 - self.salience, 4)
+        # Gentle decay: high-salience memories are nearly permanent;
+        # low-salience ones fade over many months (not hours).
+        # λ_base ∈ [0.0005, 0.005] — time unit is DAYS in apply_decay.
+        self.decay_lambda = round((1.0 - self.salience) * 0.005, 6)
         return self.salience
 
 

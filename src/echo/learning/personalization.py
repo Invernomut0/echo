@@ -82,6 +82,7 @@ class PersonalizationState:
         user_engagement: float,
         curiosity: float,
         coherence: float,
+        alpha_override: float | None = None,
     ) -> None:
         """Apply one EMA step from an observed interaction.
 
@@ -91,9 +92,11 @@ class PersonalizationState:
             user_engagement:  estimated engagement proxy (user turn length, normalised).
             curiosity:        curiosity drive score [0, 1].
             coherence:        coherence drive score [0, 1].
+            alpha_override:   if provided, use this instead of the default EMA alpha
+                              (set dynamically by MetaLearningEngine).
         """
         self._n += 1
-        a = _EMA_ALPHA
+        a = alpha_override if alpha_override is not None else _EMA_ALPHA
 
         # Verbosity: long responses that correlate with high engagement signal that
         # this user values detailed answers.

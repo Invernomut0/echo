@@ -636,6 +636,8 @@ Respond ONLY with valid JSON:
             # (no explicit update; it naturally tracks the weighted result via the scores)
 
             # MODULE-16: Deep Real-Time Learning — update personalization + predictor
+            # Pass prediction_error so MetaLearning can track it
+            self.learning._last_prediction_error = prediction_error
             await self.learning.observe(
                 response=response,
                 user_input=user_input,

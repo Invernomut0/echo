@@ -37,7 +37,7 @@ class MemoryRow(Base):
     self_relevance = Column(Float, default=0.5)
     emotional_weight = Column(Float, default=0.0)
     salience = Column(Float, default=0.5)
-    decay_lambda = Column(Float, default=0.5)
+    decay_lambda = Column(Float, default=0.0025)
     current_strength = Column(Float, default=1.0)
     embedding_id = Column(String, nullable=True)
     created_at = Column(String, default=lambda: datetime.now(timezone.utc).isoformat())
@@ -219,18 +219,24 @@ class EpisodicMemoryStore:
 
         entries = [_row_to_entry(r) for r in rows if r.current_strength >= min_strength]
 
-        # Bulk-update access stats — single statement replaces the old N+1 loop.
+        # Bulk-update access stats + reinforce strength on retrieval.
+        # Accessing a memory "refreshes" it: strength is boosted toward 1.0.
         if entries:
             from sqlalchemy import update as sa_update  # noqa: PLC0415
             now_iso = datetime.now(timezone.utc).isoformat()
             entry_ids = [e.id for e in entries]
             async with factory() as session:
+                # Boost strength: move 20% closer to 1.0 on each access
                 await session.execute(
                     sa_update(MemoryRow)
                     .where(MemoryRow.id.in_(entry_ids))
                     .values(
                         access_count=MemoryRow.access_count + 1,
                         last_accessed=now_iso,
+                        current_strength=MemoryRow.current_strength + (
+                            1.0 - MemoryRow.current_strength
+                        ) * 0.2,
+                        is_dormant=False,  # reactivate if dormant
                     )
                 )
                 await session.commit()
@@ -310,16 +316,42 @@ class EpisodicMemoryStore:
     async def apply_decay(self, elapsed_seconds: float) -> int:
         """Apply exponential decay I(t) = I₀·e^(−λ·Δt) to all memories.
 
+        Time unit is DAYS (not hours).  Memories accessed in the last 7 days
+        are fully protected from decay.  After that, decay is proportional to
+        days since last access, scaled by a gentle λ (~0.001–0.005).
+
+        With default parameters, a medium-salience memory (salience=0.5,
+        λ≈0.0025) unused for 6 months loses ~35% strength.  Only memories
+        unused for 1–2+ years actually reach pruning threshold.
+
         Returns count of memories below 0.01 strength (prunable).
         """
-        elapsed_hours = elapsed_seconds / 3600.0
+        elapsed_days = elapsed_seconds / 86400.0
+        now = datetime.now(timezone.utc)
+        _PROTECTION_DAYS = 7.0  # no decay if accessed within this window
+
         factory = get_session_factory()
         prunable = 0
         async with factory() as session:
             rows = (await session.execute(select(MemoryRow))).scalars().all()
             for row in rows:
+                # Skip decay for recently-accessed memories
+                try:
+                    last_acc = datetime.fromisoformat(row.last_accessed)
+                    days_since_access = (now - last_acc).total_seconds() / 86400.0
+                except (ValueError, TypeError):
+                    days_since_access = elapsed_days
+
+                if days_since_access < _PROTECTION_DAYS:
+                    continue  # memory is "in use" — no decay
+
+                # Access count provides additional protection:
+                # frequently accessed memories decay even slower.
+                access_factor = 1.0 / (1.0 + 0.1 * (row.access_count or 0))
+
+                effective_lambda = row.decay_lambda * access_factor
                 new_strength = row.current_strength * math.exp(
-                    -row.decay_lambda * elapsed_hours
+                    -effective_lambda * elapsed_days
                 )
                 row.current_strength = max(0.0, round(new_strength, 6))
                 if row.current_strength < 0.01:
