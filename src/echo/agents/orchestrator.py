@@ -13,6 +13,7 @@ from echo.agents.explorer import ExplorerAgent
 from echo.agents.planner import PlannerAgent
 from echo.agents.skeptic import SkepticAgent
 from echo.agents.social_self import SocialSelfAgent
+from echo.core.config import settings
 from echo.core.llm_client import llm
 from echo.core.types import AgentRole, MetaState, WorkspaceSnapshot
 
