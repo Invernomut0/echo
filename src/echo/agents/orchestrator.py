@@ -19,6 +19,8 @@ from echo.core.types import AgentRole, MetaState, WorkspaceSnapshot
 
 logger = logging.getLogger(__name__)
 
+_AGENT_TIMEOUT_S: float = 15.0  # per-agent LLM call timeout
+
 _SYNTHESIS_SYSTEM = """\
 You are ECHO — a persistent, self-modifying cognitive AI with real long-term memory and \
 adaptive plasticity.
@@ -216,8 +218,14 @@ class Orchestrator:
         async def _run_one(role: AgentRole, agent: BaseAgent) -> tuple[str, str]:
             async with sem:
                 try:
-                    result = await agent.process(user_input, workspace, meta_state, context)
+                    result = await asyncio.wait_for(
+                        agent.process(user_input, workspace, meta_state, context),
+                        timeout=_AGENT_TIMEOUT_S,
+                    )
                     return (role.value, result)
+                except asyncio.TimeoutError:
+                    logger.warning("Agent %s timed out after %.0fs", role.value, _AGENT_TIMEOUT_S)
+                    return (role.value, "")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Agent %s failed: %s", role.value, exc)
                     return (role.value, "")
@@ -245,7 +253,11 @@ class Orchestrator:
         # synthesis stage naturally gives more attention to high-weight agents
         # (LLMs exhibit primacy bias — earlier context gets more weight).
         sorted_outputs = sorted(
-            ((role, text) for role, text in agent_outputs.items() if text),
+            (
+                (role, text)
+                for role, text in agent_outputs.items()
+                if text and self._agents[AgentRole(role)].routing_weight > 0.01
+            ),
             key=lambda kv: self._agents[AgentRole(kv[0])].routing_weight,
             reverse=True,
         )
@@ -286,9 +298,13 @@ class Orchestrator:
             user_input, workspace, meta_state, context
         )
 
-        # Sort by routing weight (descending) — same primacy-bias fix as run()
+        # Sort by routing weight (descending) — filter disabled agents and empty outputs
         sorted_outputs = sorted(
-            ((role, text) for role, text in agent_outputs.items() if text),
+            (
+                (role, text)
+                for role, text in agent_outputs.items()
+                if text and self._agents[AgentRole(role)].routing_weight > 0.01
+            ),
             key=lambda kv: self._agents[AgentRole(kv[0])].routing_weight,
             reverse=True,
         )

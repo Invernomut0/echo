@@ -23,6 +23,7 @@ Design constraints (module 16):
 from __future__ import annotations
 
 import logging
+import time as _time
 
 from echo.core.event_bus import bus
 from echo.core.types import CognitiveEvent, EventTopic
@@ -34,8 +35,8 @@ from echo.learning.self_evaluation import SelfEvaluationEngine, self_evaluation
 
 logger = logging.getLogger(__name__)
 
-# Persist personalization every N interactions to limit DB write frequency.
-_SAVE_INTERVAL = 5
+# Persist personalization at most once per 60 s — avoids DB write storm on active sessions.
+_SAVE_INTERVAL_S: float = 60.0
 
 
 class LearningEngine:
@@ -54,6 +55,7 @@ class LearningEngine:
         self.growth: GrowthTracker = growth_tracker
         self._n: int = 0
         self._last_prediction_error: float = 0.5  # updated by pipeline
+        self._last_save_time: float = 0.0
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -176,8 +178,10 @@ class LearningEngine:
 
         self._n += 1
 
-        # Throttled persistence — avoids a DB write on every single interaction.
-        if self._n % _SAVE_INTERVAL == 0:
+        # Throttled persistence — at most once per _SAVE_INTERVAL_S seconds.
+        _now = _time.monotonic()
+        if _now - self._last_save_time >= _SAVE_INTERVAL_S:
+            self._last_save_time = _now
             await self.personalization.save()
 
         priors = self.predictor.predict()

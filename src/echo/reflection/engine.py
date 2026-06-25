@@ -109,24 +109,43 @@ class ReflectionEngine:
         result = ReflectionResult(interaction_id=interaction_id)
 
         try:
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            data = json.loads(raw[start:end])
+            # Robust JSON extraction: strip markdown fences, find outermost object
+            text = raw.strip()
+            if text.startswith("```"):
+                lines = text.splitlines()
+                end_fence = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "```"), None)
+                text = "\n".join(lines[1:end_fence] if end_fence else lines[1:]).strip()
+            start = text.find("{")
+            end = text.rfind("}")
+            if start == -1 or end == -1:
+                raise ValueError("no JSON object found")
+            data = json.loads(text[start : end + 1])
 
             result.insights = data.get("insights", [])
+            # Clamp drive adjustments to [-0.1, 0.1] — LLM may return out-of-range values
             result.drive_adjustments = {
-                k: float(v) for k, v in data.get("drive_adjustments", {}).items()
+                k: max(-0.1, min(0.1, float(v)))
+                for k, v in data.get("drive_adjustments", {}).items()
             }
 
-            # Process new beliefs
+            # Process new beliefs — skip near-duplicates (>80% word overlap with existing)
+            existing_word_sets = [set(b.content.lower().split()) for b in beliefs]
             for nb in data.get("new_beliefs", []):
                 if isinstance(nb, dict) and nb.get("content"):
-                    belief = IdentityBelief(
-                        content=nb["content"],
-                        confidence=float(nb.get("confidence", 0.5)),
+                    content = nb["content"]
+                    new_words = set(content.lower().split())
+                    is_dup = any(
+                        len(new_words & ew) / max(len(new_words), 1) > 0.8
+                        for ew in existing_word_sets
                     )
-                    await self._graph.add_belief(belief)
-                    result.new_beliefs.append(belief)
+                    if not is_dup:
+                        belief = IdentityBelief(
+                            content=content,
+                            confidence=float(nb.get("confidence", 0.5)),
+                        )
+                        await self._graph.add_belief(belief)
+                        result.new_beliefs.append(belief)
+                        existing_word_sets.append(new_words)
 
             # Process confidence updates
             for fragment, delta in data.get("belief_updates", {}).items():

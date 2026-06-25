@@ -50,9 +50,8 @@ logger = logging.getLogger(__name__)
 # Store recently-searched topics to avoid hammering the same query every cycle.
 # Cleared automatically after CLEAR_AFTER_CYCLES light heartbeats.
 # ---------------------------------------------------------------------------
-_recently_searched: set[str] = set()
-_cycle_counter: int = 0
-_CLEAR_AFTER_CYCLES: int = 6      # ≈ 30 min at 5-min heartbeat — avoid stale cache blocks
+_recently_searched: dict[str, float] = {}  # topic → monotonic timestamp when last searched
+_RECENTLY_SEARCHED_TTL: float = 600.0      # 10 minutes — TTL-based expiry instead of cycle counter
 
 # ---------------------------------------------------------------------------
 # Activity log — persists the last _MAX_LOG cycle records in memory
@@ -64,7 +63,6 @@ _last_goal_cycle_at: float = 0.0  # monotonic timestamp of last goal cycle
 _GOAL_CYCLE_COOLDOWN: float = 900.0  # 15 minutes between goal cycles
 
 # Global minimum interval between any two curiosity cycles.
-# Prevents rapid-fire cycling when _cycle_counter gets stuck at ZPD position.
 import time as _time_init
 _last_cycle_started_at: float = _time_init.monotonic()  # prevent cycle at startup
 _MIN_CYCLE_INTERVAL: float = 300.0  # 5 minutes minimum (matches heartbeat)
@@ -664,16 +662,16 @@ Respond ONLY with valid JSON:
                 logger.debug("Curiosity skipped — no topics extracted")
                 return _done("skipped", "no_topics_extracted")
 
-            # Filter already-searched topics for this window
+            # Filter already-searched topics — TTL-based expiry (time.monotonic set earlier)
+            _now_mono2 = _time.monotonic()
+            _recently_searched = {
+                t: ts for t, ts in _recently_searched.items()
+                if _now_mono2 - ts < _RECENTLY_SEARCHED_TTL
+            }
             fresh_topics = [t for t in topics if t not in _recently_searched]
             record["topics_searched"] = fresh_topics
             if not fresh_topics:
                 logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
-                # Still increment counter so we don't get stuck at ZPD position
-                _cycle_counter += 1
-                if _cycle_counter >= _CLEAR_AFTER_CYCLES:
-                    _recently_searched.clear()
-                    _cycle_counter = 0
                 return _done("skipped", "all_topics_recently_searched")
 
             logger.info("Curiosity cycle: searching topics %s", fresh_topics)
@@ -686,7 +684,7 @@ Respond ONLY with valid JSON:
                 if _ua3():
                     logger.debug("Curiosity search aborted — user became active")
                     break
-                _recently_searched.add(topic)
+                _recently_searched[topic] = _time.monotonic()
 
                 (
                     arxiv_results,
@@ -822,12 +820,8 @@ Respond ONLY with valid JSON:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Stimulus enqueue failed: %s", exc)
 
-            # 7. Periodically flush the recently-searched cache
+            # 7. Increment cycle counter (used for ZPD cycle detection)
             _cycle_counter += 1
-            if _cycle_counter >= _CLEAR_AFTER_CYCLES:
-                _recently_searched.clear()
-                _cycle_counter = 0
-                logger.debug("Curiosity search cache cleared")
 
             logger.info(
                 "Curiosity cycle done: %d new memories (topics: %s)",

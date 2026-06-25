@@ -51,6 +51,7 @@ def adjust_drives_from_interaction(
     user_input: str,
     response: str,
     reflection_insights: list[str] | None = None,
+    novelty_score: float = 1.0,
 ) -> dict[str, float]:
     """
     Heuristic drive adjustments based on interaction content.
@@ -72,8 +73,8 @@ def adjust_drives_from_interaction(
         )
         deltas["coherence"] -= contradictions * 0.05
 
-    # Stability: slight decay per interaction (novelty disrupts)
-    deltas["stability"] -= 0.01
+    # Stability: decays proportionally to novelty — high-novelty interactions disrupt more
+    deltas["stability"] -= 0.01 * max(0.1, min(1.0, novelty_score))
 
     # Competence: slight increase per completed response
     deltas["competence"] += 0.01

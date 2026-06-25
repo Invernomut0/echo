@@ -32,6 +32,7 @@ from echo.core.config import settings
 
 import json
 import logging
+import math
 from datetime import datetime, timezone
 
 from echo.core.llm_client import llm
@@ -88,9 +89,13 @@ def _cosine(a: list[float], b: list[float]) -> float:
 
 
 def _memory_score(mem: MemoryEntry) -> float:
-    """Winner selection score: salience × sqrt(access_count + 1)."""
+    """Winner selection score: salience² × log(access_count + e).
+
+    Squaring salience prevents high-access/low-salience memories from
+    outlasting high-quality ones; log dampens runaway access counts.
+    """
     ac = getattr(mem, "access_count", 0) or 0
-    return mem.salience * ((ac + 1) ** 0.5)
+    return (mem.salience ** 2) * math.log(ac + math.e)
 
 
 async def _embed_memories(memories: list[MemoryEntry]) -> dict[str, list[float]]:

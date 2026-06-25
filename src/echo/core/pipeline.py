@@ -217,6 +217,9 @@ Respond ONLY with valid JSON:
         await self.consolidation.stop()
         await self.decay.stop()
 
+        # Persist learning state — timer-based saves may not have fired yet
+        await self.learning.personalization.save()
+
         # Flush any in-flight fire-and-forget tasks before exiting
         if self._pending_tasks:
             logger.info("Awaiting %d pending post-interact task(s)…", len(self._pending_tasks))
