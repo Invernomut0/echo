@@ -12,6 +12,7 @@ Personas:
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import asyncio
 import dataclasses
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # ── Hyper-parameters ──────────────────────────────────────────────────────────
 _LLM_TEMP: float = 0.88
-_LLM_MAX_TOKENS: int = 200
+_LLM_MAX_TOKENS: int = settings.llm_max_tokens_swarm_dream
 
 # Scoring thresholds
 _INSIGHT_MARKERS = ("i notice", "reveals", "connects", "perhaps", "underlying",

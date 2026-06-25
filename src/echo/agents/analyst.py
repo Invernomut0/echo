@@ -1,6 +1,7 @@
 """Analyst agent — logical analysis and reasoning."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 from typing import Any
 
@@ -37,4 +38,4 @@ class AnalystAgent(BaseAgent):
                 "content": f"User input: {user_input}{context_text}\n\nProvide your analysis:",
             },
         ]
-        return await llm.chat(messages, temperature=0.3, max_tokens=256)
+        return await llm.chat(messages, temperature=0.3, max_tokens=settings.llm_max_tokens_agent)

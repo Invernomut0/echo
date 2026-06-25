@@ -1,6 +1,7 @@
 """Motivational scorer — uses LLM to evaluate drive relevance of an interaction."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import logging
 
@@ -47,7 +48,7 @@ async def score_interaction(
         raw = await llm.chat(
             [{"role": "user", "content": prompt}],
             temperature=0.2,
-            max_tokens=400,  # thinking models overhead
+            max_tokens=settings.llm_max_tokens_drive_scoring,
         )
         # Extract JSON
         start = raw.find("{")

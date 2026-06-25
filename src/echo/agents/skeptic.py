@@ -1,6 +1,7 @@
 """Skeptic agent — challenges assumptions and identifies weaknesses."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 from typing import Any
 
@@ -37,4 +38,4 @@ class SkepticAgent(BaseAgent):
                 ),
             },
         ]
-        return await llm.chat(messages, temperature=0.4, max_tokens=200)
+        return await llm.chat(messages, temperature=0.4, max_tokens=settings.llm_max_tokens_agent)

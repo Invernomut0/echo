@@ -22,6 +22,7 @@ Integration:
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import json
 import logging
@@ -364,7 +365,7 @@ If nothing significant has changed, return {{"no_change": true}}"""
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=300,
+                max_tokens=settings.llm_max_tokens_metacognition,
             )
 
             start = raw.find("{")

@@ -1,6 +1,7 @@
 """Self-prediction — ECHO predicts its own next response before generating."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import logging
 
@@ -41,7 +42,7 @@ async def predict_response(user_input: str, meta_state: MetaState) -> str:
         prediction = await llm.chat(
             [{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=300,
+            max_tokens=settings.llm_max_tokens_self_prediction,
         )
         return prediction.strip()
     except Exception as exc:  # noqa: BLE001

@@ -16,6 +16,7 @@ Integration:
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import json
 import logging
@@ -190,7 +191,7 @@ If no meaningful connection exists, set connected=false."""
                 raw = await llm.chat(
                     [{"role": "user", "content": prompt}],
                     temperature=0.5,
-                    max_tokens=150,
+                    max_tokens=settings.llm_max_tokens_associative_cross,
                 )
                 start = raw.find("{")
                 end = raw.rfind("}") + 1
@@ -301,7 +302,7 @@ If no clear cross-day patterns exist, return {{"themes": []}}"""
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.4,
-                max_tokens=300,
+                max_tokens=settings.llm_max_tokens_associative_cluster,
             )
             start = raw.find("{")
             end = raw.rfind("}") + 1

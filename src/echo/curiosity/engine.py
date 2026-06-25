@@ -171,7 +171,7 @@ class CuriosityEngine:
                         }
                     ],
                     temperature=0.35,
-                    max_tokens=400,  # thinking models need headroom
+                    max_tokens=settings.llm_max_tokens_topic_extraction,
                 )
             memory_topics = json.loads(raw.strip())
             if not isinstance(memory_topics, list):
@@ -366,7 +366,7 @@ Respond ONLY with valid JSON:
                         ),
                     }],
                     temperature=0.4,
-                    max_tokens=1200,  # thinking models overhead
+                    max_tokens=settings.llm_max_tokens_goal_reflect,
                 )
 
             logger.debug("[Goals] reflect raw: %s", reflect_raw[:400])
@@ -479,7 +479,7 @@ Respond ONLY with valid JSON:
                                 ),
                             }],
                             temperature=0.3,
-                            max_tokens=600,
+                            max_tokens=settings.llm_max_tokens_goal_pursue,
                         )
                     pursue = self._extract_json(pursue_raw)
                 except Exception:  # noqa: BLE001

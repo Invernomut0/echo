@@ -422,7 +422,7 @@ class WikiStore:
                 },
             ],
             temperature=0.2,
-            max_tokens=3000,  # thinking models use ~500 reasoning tokens
+            max_tokens=settings.llm_max_tokens_wiki_ingest,
         )
 
         entities: list[dict] = []
@@ -467,7 +467,7 @@ class WikiStore:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=1500,
+                    max_tokens=settings.llm_max_tokens_wiki_page,
                 )
                 self._write_page("entities", ent_slug, update_resp)
             else:
@@ -512,7 +512,7 @@ class WikiStore:
                         },
                     ],
                     temperature=0.2,
-                    max_tokens=1500,
+                    max_tokens=settings.llm_max_tokens_wiki_page,
                 )
                 self._write_page("concepts", con_slug, update_resp)
             else:
@@ -612,7 +612,7 @@ class WikiStore:
                 },
             ],
             temperature=0.3,
-            max_tokens=1200,
+            max_tokens=settings.llm_max_tokens_wiki_update,
         )
 
         # ── Step 3: file back as synthesis page ──────────────────────────────
@@ -679,7 +679,7 @@ class WikiStore:
                 },
             ],
             temperature=0.1,
-            max_tokens=1000,
+            max_tokens=settings.llm_max_tokens_wiki_interaction,
         )
 
         updates: list[dict] = []
@@ -766,7 +766,7 @@ class WikiStore:
                 },
             ],
             temperature=0.2,
-            max_tokens=1500,
+            max_tokens=settings.llm_max_tokens_wiki_search,
         )
 
         issues: list[dict] = []

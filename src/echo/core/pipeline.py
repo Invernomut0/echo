@@ -182,7 +182,7 @@ Respond ONLY with valid JSON:
             raw = await llm.chat(
                 [{"role": "user", "content": _BOOTSTRAP_PROMPT}],
                 temperature=0.4,
-                max_tokens=512,
+                max_tokens=settings.llm_max_tokens_bootstrap,
             )
             start = raw.find("{")
             end = raw.rfind("}") + 1

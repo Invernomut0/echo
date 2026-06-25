@@ -172,7 +172,7 @@ class UserInterestProfile:
                     "content": _ZPD_PROMPT,
                 }],
                 temperature=0.7,
-                max_tokens=400,  # thinking models need headroom: ~150 reasoning + output
+                max_tokens=settings.llm_max_tokens_zpd_topics,
             )
             candidates: list[str] = json.loads(raw.strip())
             if not isinstance(candidates, list):
@@ -311,7 +311,7 @@ class UserInterestProfile:
             raw = await llm.chat(
                 [{"role": "user", "content": _TOPIC_EXTRACT_PROMPT.format(conversation_text=conversation_text)}],
                 temperature=0.3,
-                max_tokens=100,
+                max_tokens=settings.llm_max_tokens_interest_infer,
             )
             topics: list[str] = json.loads(raw.strip())
             if not isinstance(topics, list):

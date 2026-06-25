@@ -23,6 +23,7 @@ Design notes
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import logging
 import os
@@ -259,7 +260,7 @@ class EchoMdManager:
             response = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.6,
-                max_tokens=2048,
+                max_tokens=settings.llm_max_tokens_echo_md,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("echo.md review LLM call failed: %s", exc)

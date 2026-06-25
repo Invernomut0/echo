@@ -1,6 +1,7 @@
 """Planner agent — decomposes goals and produces action plans."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 from typing import Any
 
@@ -37,4 +38,4 @@ class PlannerAgent(BaseAgent):
                 ),
             },
         ]
-        return await llm.chat(messages, temperature=0.4, max_tokens=300)
+        return await llm.chat(messages, temperature=0.4, max_tokens=settings.llm_max_tokens_agent)

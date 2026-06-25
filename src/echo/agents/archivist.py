@@ -1,6 +1,7 @@
 """Archivist agent — retrieves and contextualises relevant memories."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import logging
 from typing import Any
@@ -48,4 +49,4 @@ class ArchivistAgent(BaseAgent):
                 ),
             },
         ]
-        return await llm.chat(messages, temperature=0.3, max_tokens=256)
+        return await llm.chat(messages, temperature=0.3, max_tokens=settings.llm_max_tokens_agent)

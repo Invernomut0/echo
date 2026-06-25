@@ -1,6 +1,7 @@
 """Semantic memory — facts and general knowledge nodes (ChromaDB + SQLite)."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import asyncio
 import contextlib
@@ -611,7 +612,7 @@ class SemanticMemoryStore:
                 await llm.chat(
                     [{"role": "user", "content": prompt}],
                     temperature=0.0,
-                    max_tokens=120,
+                    max_tokens=settings.llm_max_tokens_semantic_dedup,
                 )
             ).strip()
             return answer.upper().startswith("YES"), answer
@@ -650,7 +651,7 @@ class SemanticMemoryStore:
                         }
                     ],
                     temperature=0.0,
-                    max_tokens=30,
+                    max_tokens=settings.llm_max_tokens_semantic_conflict,
                 )
             ).strip().strip('"').strip("'")
 
@@ -698,7 +699,7 @@ class SemanticMemoryStore:
                 await llm.chat(
                     [{"role": "user", "content": eval_prompt}],
                     temperature=0.0,
-                    max_tokens=20,
+                    max_tokens=settings.llm_max_tokens_semantic_merge,
                 )
             ).strip().upper()
             if answer.startswith("A"):

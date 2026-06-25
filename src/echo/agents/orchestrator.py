@@ -244,7 +244,7 @@ class Orchestrator:
             ),
         })
         # Use chat_with_tools so the LLM can invoke MCP tools (web search, fetch, fs)
-        response = await llm.chat_with_tools(messages, temperature=0.7, max_tokens=1024)
+        response = await llm.chat_with_tools(messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis)
         return response, agent_outputs
 
     async def stream(
@@ -287,5 +287,5 @@ class Orchestrator:
         })
         # Use stream_chat_with_tools: streams normally when no tools are needed;
         # runs the agentic tool-call loop and yields the final text when tools are used.
-        async for delta in llm.stream_chat_with_tools(messages, temperature=0.7, max_tokens=1024):
+        async for delta in llm.stream_chat_with_tools(messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis):
             yield delta

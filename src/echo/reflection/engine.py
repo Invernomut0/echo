@@ -1,6 +1,7 @@
 """Reflection engine — post-interaction introspective analysis."""
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import json
 import logging
@@ -102,7 +103,7 @@ class ReflectionEngine:
         raw = await llm.chat(
             [{"role": "user", "content": prompt}],
             temperature=0.3,
-            max_tokens=512,
+            max_tokens=settings.llm_max_tokens_reflection,
         )
 
         result = ReflectionResult(interaction_id=interaction_id)

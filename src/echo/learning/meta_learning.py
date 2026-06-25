@@ -16,6 +16,7 @@ Design principles:
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import json
 import logging
@@ -364,7 +365,7 @@ Respond with ONLY valid JSON:
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.3,
-                max_tokens=150,
+                max_tokens=settings.llm_max_tokens_meta_insight,
             )
             start = raw.find("{")
             end = raw.rfind("}") + 1

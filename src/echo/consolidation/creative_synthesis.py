@@ -12,6 +12,7 @@ and skips the similarity filter.
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import asyncio
 import logging
@@ -30,7 +31,7 @@ BRIDGE_COS_MAX: float = 0.45  # pairs with cosine sim < this are "distant"
 MIN_SALIENCE: float = 0.50   # both memories must exceed this threshold
 SYNTHESIS_SALIENCE: float = 0.65  # salience assigned to stored insights
 _LLM_TEMP: float = 0.75
-_LLM_MAX_TOKENS: int = 130
+_LLM_MAX_TOKENS: int = settings.llm_max_tokens_creative_synthesis
 # ─────────────────────────────────────────────────────────────────────────────
 
 _BRIDGE_PROMPT = """\

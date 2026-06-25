@@ -28,6 +28,7 @@ in evolution").
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import json
 import logging
@@ -331,7 +332,7 @@ class ConsolidationPhase:
                 raw = await llm.chat(
                     [{"role": "user", "content": _AUTOBIO_PROMPT.format(content=mem.content[:300])}],
                     temperature=0.4,
-                    max_tokens=80,
+                    max_tokens=settings.llm_max_tokens_consolidation_dedup,
                 )
                 if raw.strip():
                     await self._autobio.store(raw.strip(), salience=0.9)
@@ -348,7 +349,7 @@ class ConsolidationPhase:
             raw_patterns = await llm.chat(
                 [{"role": "user", "content": _PATTERN_PROMPT.format(memories=sample)}],
                 temperature=0.3,
-                max_tokens=512,
+                max_tokens=settings.llm_max_tokens_consolidation_patterns,
             )
             start = raw_patterns.find("[")
             end = raw_patterns.rfind("]") + 1

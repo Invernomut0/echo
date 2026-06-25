@@ -146,7 +146,7 @@ If nothing interesting emerges, respond with:
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.7,
-                max_tokens=300,
+                max_tokens=settings.llm_max_tokens_initiative_insight,
             )
 
             start = raw.find("{")
@@ -212,7 +212,7 @@ Respond with JSON:
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.8,
-                max_tokens=200,
+                max_tokens=settings.llm_max_tokens_initiative_question,
             )
 
             start = raw.find("{")
@@ -333,7 +333,7 @@ Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}"""
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
                 temperature=0.6,
-                max_tokens=200,
+                max_tokens=settings.llm_max_tokens_initiative_reflection,
             )
 
             start = raw.find("{")

@@ -11,6 +11,7 @@ the base LLM dream:
 """
 
 from __future__ import annotations
+from echo.core.config import settings
 
 import asyncio
 import logging
@@ -92,7 +93,7 @@ class DreamPhase:
                 raw = await llm.chat(
                     [{"role": "user", "content": _DREAM_PROMPT.format(memories=sample)}],
                     temperature=0.85,
-                    max_tokens=220,
+                    max_tokens=settings.llm_max_tokens_dream,
                 )
                 text = (raw or "").strip()
                 if not text:
