@@ -42,6 +42,8 @@ class ConsolidationScheduler:
         self._light_task: asyncio.Task[None] | None = None
         self._deep_task: asyncio.Task[None] | None = None
         self._running = False
+        self._light_running = False  # guard: prevent overlapping light cycles
+        self._deep_running = False   # guard: prevent overlapping deep cycles
 
         # Status tracking
         self._last_report: ConsolidationReport | None = None
@@ -63,7 +65,11 @@ class ConsolidationScheduler:
             await asyncio.sleep(self._light_interval)
             if not self._running:
                 break
+            if self._light_running:
+                logger.info("Light cycle skipped — previous cycle still running")
+                continue
             try:
+                self._light_running = True
                 logger.info("Light consolidation tick")
                 report = await self._run_light()
                 self._last_report = report
@@ -73,6 +79,8 @@ class ConsolidationScheduler:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error("Light consolidation error: %s", exc)
+            finally:
+                self._light_running = False
 
     async def _deep_loop(self) -> None:
         logger.info("Deep (REM) heartbeat started (interval=%ds)", self._deep_interval)
@@ -83,7 +91,11 @@ class ConsolidationScheduler:
             await asyncio.sleep(self._deep_interval)
             if not self._running:
                 break
+            if self._deep_running:
+                logger.info("Deep cycle skipped — previous cycle still running")
+                continue
             try:
+                self._deep_running = True
                 logger.info("REM consolidation tick")
                 report = await self._run_deep()
                 self._last_report = report
@@ -93,6 +105,8 @@ class ConsolidationScheduler:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.error("REM consolidation error: %s", exc)
+            finally:
+                self._deep_running = False
 
     # ------------------------------------------------------------------
     # Phase runners
@@ -113,10 +127,13 @@ class ConsolidationScheduler:
 
         # Idle-time curiosity: search for new knowledge when no user is active
         try:
-            from echo.curiosity.engine import CuriosityEngine  # noqa: PLC0415
-            new_memories = await CuriosityEngine().run_cycle()
-            if new_memories:
-                logger.info("Curiosity acquired %d new semantic memories", new_memories)
+            from echo.curiosity.engine import CuriosityEngine, _is_running as _curiosity_running  # noqa: PLC0415
+            if _curiosity_running:
+                logger.debug("Curiosity cycle skipped — previous cycle still running")
+            else:
+                new_memories = await CuriosityEngine().run_cycle()
+                if new_memories:
+                    logger.info("Curiosity acquired %d new semantic memories", new_memories)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Curiosity cycle error: %s", exc)
 

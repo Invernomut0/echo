@@ -540,10 +540,20 @@ Respond ONLY with valid JSON:
             _activity_log.pop(0)
 
         def _done(status: str, reason: str | None = None, stored: int = 0) -> int:
+            global _is_running  # noqa: PLW0603
+            _is_running = False
             record["status"] = status
             record["skip_reason"] = reason
             record["finished_at"] = datetime.now(timezone.utc).isoformat()
             return stored
+
+        # Guard: skip if a previous cycle is still running
+        if _is_running:
+            logger.debug("Curiosity skipped — previous cycle still running")
+            record["status"] = "skipped"
+            record["skip_reason"] = "previous_cycle_running"
+            record["finished_at"] = datetime.now(timezone.utc).isoformat()
+            return 0
 
         _is_running = True
         try:
@@ -581,10 +591,15 @@ Respond ONLY with valid JSON:
             if _is_zpd_cycle:
                 try:
                     from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
-                    zpd = await _ip.zpd_topics(n=3)
-                    if zpd:
-                        topics = zpd
-                        logger.info("Curiosity ZPD cycle: topics %s", topics)
+                    # Only generate ZPD topics if we have primary interests
+                    primaries = await _ip.primary_interests(n=3)
+                    if primaries:
+                        zpd = await _ip.zpd_topics(n=3)
+                        if zpd:
+                            topics = zpd
+                            logger.info("Curiosity ZPD cycle: topics %s", topics)
+                        else:
+                            topics = await self._extract_topics(recent_memories)
                     else:
                         topics = await self._extract_topics(recent_memories)
                 except Exception as exc:  # noqa: BLE001
@@ -601,25 +616,8 @@ Respond ONLY with valid JSON:
             fresh_topics = [t for t in topics if t not in _recently_searched]
             record["topics_searched"] = fresh_topics
             if not fresh_topics:
-                # Instead of skipping entirely, try to extract alternative topics
-                # by using only interest profile seeds (avoids repeating memory-derived topics)
-                try:
-                    from echo.curiosity.interest_profile import interest_profile as _ip2  # noqa: PLC0415
-                    alt_primaries = await _ip2.primary_interests(n=5)
-                    alt_topics = [
-                        p["topic"] for p in alt_primaries
-                        if p["topic"] not in _recently_searched
-                    ][:settings.curiosity_max_topics]
-                    if alt_topics:
-                        fresh_topics = alt_topics
-                        record["topics_searched"] = fresh_topics
-                        logger.info("Curiosity: using alternative interest-based topics: %s", alt_topics)
-                except Exception:  # noqa: BLE001
-                    pass
-
-                if not fresh_topics:
-                    logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
-                    return _done("skipped", "all_topics_recently_searched")
+                logger.debug("Curiosity skipped — all topics recently searched: %s", topics)
+                return _done("skipped", "all_topics_recently_searched")
 
             logger.info("Curiosity cycle: searching topics %s", fresh_topics)
 
