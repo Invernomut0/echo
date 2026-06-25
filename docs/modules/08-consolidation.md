@@ -186,3 +186,29 @@ Note: The `consolidation_interval_seconds` setting controls the light heartbeat.
 | `IdentityGraph` | Pruned during deep consolidation |
 | `MetaStateTracker` | Receives weight deltas from WeightEvolution |
 | `DecayScheduler` | Manages memory salience decay |
+
+---
+
+## v0.5.0 Additions to Consolidation
+
+### Light Cycle (5 min) — New Steps
+After the curiosity engine runs, the light cycle now also triggers:
+- **Initiative Engine** — proactive messages (insights, questions, goal milestones)
+
+### Deep/REM Cycle (12 h) — New Steps
+After the dream phase and weight evolution, the deep cycle now also runs:
+- **Growth Report** — trajectory summary stored as semantic memory
+- **Deep Associative Memory**:
+  - Cross-pollination: LLM finds connections between distant memory pairs
+  - Temporal clustering: identifies recurring themes across days
+- **Metacognitive Deep Review** — full LLM-based review and update of the self-model
+
+### Updated Integration Points
+
+| Component | Interaction |
+|-----------|-------------|
+| `InitiativeEngine` | Proactive messages during light cycle |
+| `GrowthTracker` | Report generation during deep cycle |
+| `AssociativeMemory` | Cross-pollination + temporal clustering during deep cycle |
+| `MetacognitiveModel` | `update_from_learning()` + `deep_review()` during deep cycle |
+| `memory_decay_interval_seconds` | Now default 3600 (1 hour, was 300) |

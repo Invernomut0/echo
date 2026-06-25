@@ -42,15 +42,23 @@ class MemoryEntry(BaseModel):
 
 $$\text{salience} = 0.3 \times \text{importance} + 0.2 \times \text{novelty} + 0.3 \times \text{self\_relevance} + 0.2 \times \text{emotional\_weight}$$
 
-### Memory Decay
+### Memory Decay (v0.5.0 — Gentle, Use-Based)
 
-ECHO implements exponential decay on all memories:
+ECHO implements gentle exponential decay:
 
-$$I(t) = I_0 \cdot e^{-\lambda t}$$
+$$I(t) = I_0 \cdot e^{-\lambda \cdot \Delta t_{days}}$$
 
-where $\lambda = 1 - \text{salience}$.
+where $\lambda = (1 - \text{salience}) \times 0.005$.
 
-High-salience memories (importance + emotional weight + self-relevance) decay slowly; low-salience memories degrade quickly. The decay scheduler runs every `memory_decay_interval_seconds` (default: 300 s).
+**Key properties:**
+- Time unit is **days** (not hours) — memories persist for months/years
+- Memories accessed within the last **7 days** are fully protected (zero decay)
+- `access_count` provides additional resistance: `effective_λ = λ / (1 + 0.1 × access_count)`
+- Each retrieval **reinforces** strength by 20% toward 1.0
+- A medium-salience memory (0.5) unused for 6 months retains ~68% strength
+- Only memories unused for 2+ years approach pruning threshold (0.01)
+
+The decay scheduler runs every `memory_decay_interval_seconds` (default: 3600 s = 1 hour).
 
 ---
 
@@ -212,3 +220,22 @@ The `/api/memory/vectors` endpoint reports coverage:
 ```
 
 Coverage below 100% indicates memories stored before the embedding model was available, or that were affected by dimension mismatch. These memories are still accessible via direct ID or full-text listing, but will not appear in similarity search results.
+
+---
+
+## Associative Memory (v0.5.0)
+
+**Source:** `src/echo/memory/associative.py`
+
+Beyond vector similarity, ECHO uses lateral associations to discover memories that are conceptually related through causal chains:
+
+### Random Walk Retrieval
+During each interaction, after standard vector retrieval, the system follows `linked_ids` edges (causal links) from retrieved memories up to 3 hops, discovering 1-2 additional memories not found by vector search.
+
+### Cross-Pollination (Deep-Sleep)
+During REM consolidation, distant memory pairs are evaluated by the LLM for unexpected conceptual connections. Discovered associations create new causal links and are stored as semantic memories.
+
+### Temporal Clustering (Deep-Sleep)
+Memories from the last 7 days are grouped by date and analysed by the LLM to surface recurring themes across time periods.
+
+See [Module 18 — Deep Associative Memory](18-associative-memory.md) for full details.

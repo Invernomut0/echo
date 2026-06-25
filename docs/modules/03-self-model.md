@@ -261,3 +261,26 @@ EchoMdManager().review_and_update(meta_state, patterns)
 |--------|------|-------------|
 | GET | `/api/consolidation/echo-md` | Read current `echo.md` content |
 | POST | `/api/consolidation/echo-md/review` | Manually trigger a self-review |
+
+---
+
+## Metacognitive Self-Model (v0.5.0)
+
+**Source:** `src/echo/self_model/metacognition.py`
+
+In addition to `echo.md` (narrative identity), ECHO maintains a **functional self-model** — a structured JSON representation of how it perceives its own cognitive functioning.
+
+### Key Differences
+
+| Aspect | `metacognition.py` | `echo.md` |
+|--------|-------------------|-----------|
+| Purpose | Internal functional self-awareness | External narrative identity |
+| Audience | ECHO itself (injected into system prompt) | ECHO + user |
+| Format | Structured JSON | Free-form markdown |
+| Update trigger | After reflection + deep-sleep | Heartbeat cycle |
+| Content | "How I work, where I fail, how I learn" | "Who I am, what I value" |
+
+The metacognitive model is injected into **every orchestrator synthesis call**, meaning ECHO literally reads its own self-model as part of generating every response.
+
+See [Module 19 — Metacognitive Awareness](19-metacognition.md) for full details.
+

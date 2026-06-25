@@ -2,7 +2,7 @@
 
 **ECHO** is a persistent, self-modifying cognitive architecture built on top of a Large Language Model. It is not a chatbot, not a traditional RAG pipeline, and not a stateless assistant. It is an architecture designed to simulate proto-conscious behaviour through continuous adaptation, autobiographical memory, identity formation, and motivational dynamics.
 
-> Version 0.4.0 · Python 3.12 · FastAPI · React 18 + TypeScript
+> Version 0.5.0 · Python 3.12 · FastAPI · React 18 + TypeScript
 
 ---
 
@@ -26,6 +26,13 @@
 | 10 | Deep Real-Time Learning | [modules/10-learning.md](modules/10-learning.md) |
 | 11 | Curiosity Engine | [modules/11-curiosity.md](modules/11-curiosity.md) |
 | 12 | Co-Evolutionary Cognitive Partner | [modules/12-co-evolution.md](modules/12-co-evolution.md) |
+| 13 | Meta-Learning | [modules/13-meta-learning.md](modules/13-meta-learning.md) |
+| 14 | Self-Evaluation Loop | [modules/14-self-evaluation.md](modules/14-self-evaluation.md) |
+| 15 | Proactive Initiative Engine | [modules/15-initiative.md](modules/15-initiative.md) |
+| 16 | Adaptive Drive Dynamics | [modules/16-adaptive-drives.md](modules/16-adaptive-drives.md) |
+| 17 | Growth Tracker | [modules/17-growth-tracker.md](modules/17-growth-tracker.md) |
+| 18 | Deep Associative Memory | [modules/18-associative-memory.md](modules/18-associative-memory.md) |
+| 19 | Metacognitive Awareness | [modules/19-metacognition.md](modules/19-metacognition.md) |
 
 ### API Reference
 - [REST API](api/rest-api.md) — all HTTP endpoints with request/response schemas
@@ -57,7 +64,7 @@ uv run uvicorn echo.api.server:app --host 0.0.0.0 --port 8000
 open http://localhost:8000
 ```
 
-> **Note:** ECHO uses **GitHub Copilot** as the LLM backend (chat + streaming) and **Ollama** for embeddings only. LM Studio is no longer required.
+> **Note:** ECHO uses **GitHub Copilot** as the LLM backend (chat + streaming) and **Ollama** for embeddings only.
 
 ---
 
@@ -71,6 +78,10 @@ open http://localhost:8000
 | Single monolithic response | **Multi-agent deliberation** — 6 specialists + orchestrator |
 | No self-model | **Identity graph** — beliefs about self accumulate and contradict each other |
 | No sleep | **Consolidation cycle** — 5-min light cycle + 12-hour REM dream phase |
+| No self-awareness | **Metacognitive model** — reads its own self-model in every response |
+| Passive | **Proactive** — generates insights, asks questions, reports goal progress |
+| Fixed learning rate | **Meta-learning** — adapts *how fast* it learns based on quality |
+| No growth tracking | **Growth tracker** — detects stagnation and triggers self-improvement |
 
 ---
 
@@ -85,18 +96,47 @@ open http://localhost:8000
 | Identity Belief Graph | ✅ Complete |
 | MetaState + Drive System | ✅ Complete |
 | Agent Ecology (6 agents + orchestrator) | ✅ Complete |
-| Agent Routing Weights (dynamic update) | ✅ Complete (fixed in v0.4.0) |
+| Agent Routing Weights (dynamic update) | ✅ Complete |
 | Global Workspace | ✅ Complete |
 | Reflection Engine | ✅ Complete |
 | Consolidation Scheduler (light + REM) | ✅ Complete |
 | Dream Phase | ✅ Complete |
 | Plasticity Adapter | ✅ Complete |
-| Memory Decay | ✅ Complete |
+| Memory Decay (gentle, use-based) | ✅ Complete |
 | Self-Prediction | ✅ Complete |
-| Deep Real-Time Learning (module 16) | ✅ Complete |
+| Deep Real-Time Learning | ✅ Complete |
 | Curiosity Engine | ✅ Complete |
 | Co-Evolutionary Cognitive Partner | ✅ Complete |
 | Self-Maintained Personality File (echo.md) | ✅ Complete |
 | MCP tool integration | ✅ Complete |
+| **Meta-Learning Engine** | ✅ Complete (v0.5.0) |
+| **Self-Evaluation Loop** | ✅ Complete (v0.5.0) |
+| **Proactive Initiative Engine** | ✅ Complete (v0.5.0) |
+| **Adaptive Drive Dynamics** | ✅ Complete (v0.5.0) |
+| **Growth Tracker** | ✅ Complete (v0.5.0) |
+| **Deep Associative Memory** | ✅ Complete (v0.5.0) |
+| **Metacognitive Awareness Layer** | ✅ Complete (v0.5.0) |
 | REST API + WebSocket events | ✅ Complete |
 | React frontend | ✅ Complete |
+
+---
+
+## v0.5.0 — Autonomous Learning & Self-Awareness Update
+
+The v0.5.0 release adds 7 new modules focused on making ECHO genuinely autonomous and self-aware:
+
+### Memory Decay Overhaul
+- Decay formula uses **days** (not hours), λ reduced 100×
+- Memories accessed in the last 7 days are **fully protected**
+- Access count provides additional resistance
+- Retrieval **reinforces** memory strength (+20% toward 1.0)
+- Memories now survive for months/years unless truly unused
+
+### New Cognitive Capabilities
+1. **Meta-Learning** — tracks which experiences produce real improvement; adapts EMA learning rate dynamically
+2. **Self-Evaluation** — periodic LLM-based skill assessment on 6 dimensions; competence map per domain
+3. **Proactive Initiative** — generates insights, questions, goal progress reports; sends via Telegram
+4. **Adaptive Drives** — momentum, conflict resolution, drive→behavior mapping, auto-goal creation
+5. **Growth Tracker** — composite growth score; detects stagnation; triggers shake-ups
+6. **Associative Memory** — random walk retrieval, cross-pollination, temporal clustering
+7. **Metacognition** — structured self-model injected into every response; self-modifying
