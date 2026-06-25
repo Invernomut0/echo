@@ -39,7 +39,11 @@ class DecayScheduler:
             self._running = True
             self._task = asyncio.create_task(self._run())
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         self._running = False
-        if self._task:
+        if self._task and not self._task.done():
             self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass

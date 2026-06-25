@@ -497,14 +497,19 @@ class SemanticMemoryStore:
                 return False
             chroma_id = row.embedding_id
             content_snippet = row.content[:60]
-            await session.delete(row)
-            await session.commit()
 
+        # Delete from ChromaDB first — if this fails, SQLite row stays intact (no orphan vector)
         if chroma_id:
             try:
                 self._collection.delete(ids=[chroma_id])
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ChromaDB delete failed for %s: %s", chroma_id[:8], exc)
+
+        async with factory() as session:
+            row = await session.get(SemanticRow, memory_id)
+            if row is not None:
+                await session.delete(row)
+                await session.commit()
 
         logger.info("Deleted semantic memory %s: %s…", memory_id[:8], content_snippet)
         return True
@@ -547,7 +552,7 @@ class SemanticMemoryStore:
 
         id_to_vec: dict[str, list[float]] = {
             cid: emb
-            for cid, emb in zip(batch["ids"], batch["embeddings"], strict=False)
+            for cid, emb in zip(batch["ids"], batch["embeddings"], strict=True)
             if emb is not None
         }
         id_to_row: dict[str, SemanticRow] = {

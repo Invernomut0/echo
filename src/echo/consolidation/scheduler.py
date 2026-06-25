@@ -480,12 +480,14 @@ class ConsolidationScheduler:
         logger.info("HeartbeatScheduler started (light=%ds deep=%ds)",
                     self._light_interval, self._deep_interval)
 
-    def stop(self) -> None:
-        """Cancel both loops."""
+    async def stop(self) -> None:
+        """Cancel both loops and wait for them to finish."""
         self._running = False
-        for task in (self._light_task, self._deep_task):
-            if task and not task.done():
-                task.cancel()
+        tasks = [t for t in (self._light_task, self._deep_task) if t and not t.done()]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         logger.info("HeartbeatScheduler stopped")
 
     # ------------------------------------------------------------------

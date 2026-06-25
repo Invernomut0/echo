@@ -441,10 +441,13 @@ class LLMClient:
             max_tokens=max_tokens,
             stream=True,
         )
-        async for chunk in stream:
-            delta = chunk.choices[0].delta.content
-            if delta:
-                yield delta
+        try:
+            async for chunk in stream:
+                delta = chunk.choices[0].delta.content
+                if delta:
+                    yield delta
+        finally:
+            await stream.close()
 
     # ── Embeddings (LM Studio primary, HuggingFace fallback) ──────────────────
 

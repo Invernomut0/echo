@@ -214,8 +214,8 @@ Respond ONLY with valid JSON:
             logger.warning("Belief bootstrap failed (non-fatal): %s", exc)
 
     async def shutdown(self) -> None:
-        self.consolidation.stop()
-        self.decay.stop()
+        await self.consolidation.stop()
+        await self.decay.stop()
 
         # Flush any in-flight fire-and-forget tasks before exiting
         if self._pending_tasks:
