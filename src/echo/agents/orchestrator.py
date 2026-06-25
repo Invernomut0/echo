@@ -170,6 +170,36 @@ class Orchestrator:
         for role, agent in self._agents.items():
             agent.routing_weight = meta_state.agent_weights.get(role.value, 1.0)
 
+    async def _run_agents_bounded(
+        self,
+        user_input: str,
+        workspace: WorkspaceSnapshot,
+        meta_state: MetaState,
+        context: dict[str, Any] | None,
+    ) -> dict[str, str]:
+        """Run all agents with bounded concurrency to avoid flooding the LLM.
+
+        Uses ``settings.max_concurrent_agent_calls`` as the concurrency limit.
+        Default is 2 — safe for local LM Studio. Set higher for fast API backends.
+        """
+        from echo.core.config import settings as _s  # noqa: PLC0415
+
+        sem = asyncio.Semaphore(_s.max_concurrent_agent_calls)
+
+        async def _run_one(role: AgentRole, agent: BaseAgent) -> tuple[str, str]:
+            async with sem:
+                try:
+                    result = await agent.process(user_input, workspace, meta_state, context)
+                    return (role.value, result)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Agent %s failed: %s", role.value, exc)
+                    return (role.value, "")
+
+        results = await asyncio.gather(
+            *(_run_one(role, agent) for role, agent in self._agents.items())
+        )
+        return dict(results)
+
     async def run(
         self,
         user_input: str,
@@ -177,25 +207,12 @@ class Orchestrator:
         meta_state: MetaState,
         context: dict[str, Any] | None = None,
     ) -> tuple[str, dict[str, str]]:
-        """Run all agents concurrently, synthesise, return (response, agent_outputs)."""
+        """Run all agents with bounded concurrency, synthesise, return (response, agent_outputs)."""
         self._apply_routing_weights(meta_state)
 
-        # Run agents concurrently
-        tasks = {
-            role: asyncio.create_task(
-                agent.process(user_input, workspace, meta_state, context)
-            )
-            for role, agent in self._agents.items()
-        }
-
-        agent_outputs: dict[str, str] = {}
-        for role, task in tasks.items():
-            try:
-                result = await task
-                agent_outputs[role.value] = result
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Agent %s failed: %s", role.value, exc)
-                agent_outputs[role.value] = ""
+        agent_outputs = await self._run_agents_bounded(
+            user_input, workspace, meta_state, context
+        )
 
         # BUG-9: Sort deliberations by routing weight (descending) so the LLM
         # synthesis stage naturally gives more attention to high-weight agents
@@ -237,22 +254,12 @@ class Orchestrator:
         meta_state: MetaState,
         context: dict[str, Any] | None = None,
     ):
-        """Stream the synthesis phase (agents run upfront)."""
+        """Stream the synthesis phase (agents run upfront with bounded concurrency)."""
         self._apply_routing_weights(meta_state)
 
-        tasks = {
-            role: asyncio.create_task(
-                agent.process(user_input, workspace, meta_state, context)
-            )
-            for role, agent in self._agents.items()
-        }
-        agent_outputs: dict[str, str] = {}
-        for role, task in tasks.items():
-            try:
-                agent_outputs[role.value] = await task
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Agent %s failed: %s", role.value, exc)
-                agent_outputs[role.value] = ""
+        agent_outputs = await self._run_agents_bounded(
+            user_input, workspace, meta_state, context
+        )
 
         # Sort by routing weight (descending) — same primacy-bias fix as run()
         sorted_outputs = sorted(

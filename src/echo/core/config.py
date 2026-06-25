@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     # in .env to cap it and keep retrieval snappy.
     predict_timeout_s: float = 10.0
 
+    # Maximum concurrent LLM calls for agent deliberation.
+    # Set to 1 for local/slow LLM backends (LM Studio, Ollama) to avoid
+    # flooding the server with parallel requests that cause Channel Errors.
+    # Set higher (3-6) for fast API backends (OpenAI, Copilot, Groq).
+    max_concurrent_agent_calls: int = 2
+
     # Logging
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
