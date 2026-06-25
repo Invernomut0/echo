@@ -649,6 +649,22 @@ Respond ONLY with valid JSON:
                 memory_count=len(memories),
             )
 
+            # MODULE-4: Adaptive Drive Dynamics — momentum, conflicts, behaviors
+            from echo.motivation.adaptive_drives import adaptive_drives  # noqa: PLC0415
+            drive_dynamics = await adaptive_drives.update(
+                drive_scores=drive_scores,
+                current_drives=meta_state.drives,
+                interaction_count=self._interaction_count,
+            )
+            # Apply momentum deltas to drives
+            if drive_dynamics["momentum_deltas"]:
+                self.meta_tracker.update_drives(drive_dynamics["momentum_deltas"])
+            # Inject drive behaviors into workspace for next turn
+            for behavior_content, behavior_salience in drive_dynamics["behaviors"]:
+                self.workspace.broadcast(
+                    behavior_content, "adaptive_drives", salience=behavior_salience
+                )
+
             # NEW-6: Derive emotional valence from drive activations.
             # coherence/competence → positive affect; low stability → negative affect.
             valence_signal = (
