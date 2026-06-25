@@ -127,8 +127,11 @@ class ConsolidationScheduler:
 
         # Idle-time curiosity: search for new knowledge when no user is active
         try:
+            from echo.core.user_activity import is_active as _user_active  # noqa: PLC0415
             from echo.curiosity.engine import CuriosityEngine, _is_running as _curiosity_running  # noqa: PLC0415
-            if _curiosity_running:
+            if _user_active():
+                logger.debug("Curiosity skipped — user recently active")
+            elif _curiosity_running:
                 logger.debug("Curiosity cycle skipped — previous cycle still running")
             else:
                 new_memories = await CuriosityEngine().run_cycle()
@@ -139,13 +142,17 @@ class ConsolidationScheduler:
 
         # Proactive Initiative Engine: generate insights, questions, milestone updates
         try:
+            from echo.core.user_activity import is_active as _user_active2  # noqa: PLC0415
             from echo.initiative.engine import initiative_engine  # noqa: PLC0415
-            initiatives = await initiative_engine.run_cycle()
-            if initiatives:
-                logger.info(
-                    "Initiative cycle: %d proactive message(s) generated",
-                    len(initiatives),
-                )
+            if _user_active2():
+                logger.debug("Initiative skipped — user recently active")
+            else:
+                initiatives = await initiative_engine.run_cycle()
+                if initiatives:
+                    logger.info(
+                        "Initiative cycle: %d proactive message(s) generated",
+                        len(initiatives),
+                    )
         except Exception as exc:  # noqa: BLE001
             logger.warning("Initiative cycle error: %s", exc)
 

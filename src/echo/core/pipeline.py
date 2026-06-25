@@ -238,6 +238,8 @@ Respond ONLY with valid JSON:
         history: list[dict[str, str]] | None = None,
     ) -> AsyncGenerator[str | dict, None]:
         """Streaming interact — yields status dicts and response string deltas."""
+        from echo.core.user_activity import mark_active  # noqa: PLC0415
+        mark_active()  # signal background tasks to yield
         interaction_id = str(uuid.uuid4())
 
         # Publish input event
@@ -462,6 +464,8 @@ Respond ONLY with valid JSON:
         user_input: str,
         history: list[dict[str, str]] | None = None,
     ) -> tuple[InteractionRecord, dict[str, str]]:
+        from echo.core.user_activity import mark_active  # noqa: PLC0415
+        mark_active()
         interaction_id = str(uuid.uuid4())
 
         # Publish input event

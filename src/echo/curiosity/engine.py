@@ -285,6 +285,10 @@ Respond ONLY with valid JSON:
         force-consolidated — all research results are synthesised into a
         single semantic memory entry representing the acquired knowledge.
         """
+        from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
+        if _ua():
+            logger.debug("[Goals] Skipped — user recently active")
+            return
         try:
             # ── Step 0: Force-consolidate goals that exceeded max iterations ──
             active_goals = await goal_store.list_active()
@@ -591,6 +595,12 @@ Respond ONLY with valid JSON:
                     threshold,
                 )
                 return _done("skipped", f"not_idle ({idle_seconds:.0f}s < {threshold}s)")
+
+            # 2a. Also skip if user is actively in a session (in-memory check)
+            from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
+            if _ua():
+                logger.debug("Curiosity skipped — user session active")
+                return _done("skipped", "user_session_active")
 
             # 2b. Goal management — run when idle, but throttled (max once per 15 min)
             import time as _time_mod  # noqa: PLC0415
