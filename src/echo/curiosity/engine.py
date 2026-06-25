@@ -553,8 +553,6 @@ Respond ONLY with valid JSON:
             _activity_log.pop(0)
 
         def _done(status: str, reason: str | None = None, stored: int = 0) -> int:
-            global _is_running  # noqa: PLW0603
-            _is_running = False
             record["status"] = status
             record["skip_reason"] = reason
             record["finished_at"] = datetime.now(timezone.utc).isoformat()
@@ -619,17 +617,23 @@ Respond ONLY with valid JSON:
             if _is_zpd_cycle:
                 try:
                     from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
-                    # Only generate ZPD topics if we have primary interests
-                    primaries = await _ip.primary_interests(n=3)
-                    if primaries:
-                        zpd = await _ip.zpd_topics(n=3)
-                        if zpd:
-                            topics = zpd
-                            logger.info("Curiosity ZPD cycle: topics %s", topics)
+                    from echo.core.user_activity import is_active as _ua2  # noqa: PLC0415
+                    # Only generate ZPD topics if we have primary interests AND user is idle
+                    if _ua2():
+                        logger.debug("ZPD skipped — user active")
+                        topics = await self._extract_topics(recent_memories)
+                    else:
+                        primaries = await _ip.primary_interests(n=3)
+                        if primaries:
+                            async with _llm_semaphore:
+                                zpd = await _ip.zpd_topics(n=3)
+                            if zpd:
+                                topics = zpd
+                                logger.info("Curiosity ZPD cycle: topics %s", topics)
+                            else:
+                                topics = await self._extract_topics(recent_memories)
                         else:
                             topics = await self._extract_topics(recent_memories)
-                    else:
-                        topics = await self._extract_topics(recent_memories)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("ZPD cycle fallback: %s", exc)
                     topics = await self._extract_topics(recent_memories)
@@ -652,6 +656,11 @@ Respond ONLY with valid JSON:
             # 4. Search every topic concurrently (standard + MCP sources)
             stored = 0
             for topic in fresh_topics:
+                # Abort mid-cycle if user becomes active
+                from echo.core.user_activity import is_active as _ua3  # noqa: PLC0415
+                if _ua3():
+                    logger.debug("Curiosity search aborted — user became active")
+                    break
                 _recently_searched.add(topic)
 
                 (
