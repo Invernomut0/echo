@@ -928,6 +928,9 @@ class LLMClient:
                 except json.JSONDecodeError:
                     fn_args = {}
                 logger.info("[MCP] calling tool %s %s", fn_name, fn_args)
+                # Yield a human-readable status for tool usage
+                _tool_label = fn_name.split("__")[-1].replace("_", " ")
+                yield {"_status": f"Using tool: {_tool_label}…"}
                 tool_result = await mcp_manager.call_tool(fn_name, fn_args)
                 current_messages.append({
                     "role": "tool",

@@ -269,7 +269,7 @@ Respond ONLY with valid JSON:
 
         # Status: memory retrieval
         _t_pipeline = time.monotonic()
-        yield {"_status": "Checking memories…"}
+        yield {"_status": "Recovering memories…"}
 
         # Retrieve memories + generate self-prediction concurrently (reduces latency)
         # Pre-compute the embedding vector once — episodic and semantic stores both
@@ -290,8 +290,12 @@ Respond ONLY with valid JSON:
             "wiki": 0,  # updated below after wiki search
         }
 
-        # Status: workspace loading
-        yield {"_status": f"Loaded {len(episodic_mems)} episodic + {len(semantic_mems)} semantic memories…"}
+        _mem_parts = []
+        if episodic_mems:
+            _mem_parts.append(f"{len(episodic_mems)} episodic")
+        if semantic_mems:
+            _mem_parts.append(f"{len(semantic_mems)} semantic")
+        yield {"_status": f"Recalled {', '.join(_mem_parts) or 'no'} memories…"}
 
         memories = semantic_mems + episodic_mems  # semantic facts first (identity, name)
 
@@ -351,6 +355,7 @@ Respond ONLY with valid JSON:
             from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
             _wiki_pages = _wiki.list_pages()
             if _wiki_pages:
+                yield {"_status": f"Searching knowledge base ({len(_wiki_pages)} pages)…"}
                 _index_lines = [f"Wiki knowledge base ({len(_wiki_pages)} pages):"]
                 for _p in _wiki_pages:
                     _index_lines.append(
@@ -446,12 +451,13 @@ Respond ONLY with valid JSON:
         }
 
         full_response = []
-        # Status: thinking
-        yield {"_status": "Thinking…"}
         _t_generation = time.monotonic()
         async for delta in self.orchestrator.stream(
             user_input, self.workspace.snapshot, meta_state, context
         ):
+            if isinstance(delta, dict):
+                yield delta   # status message — pass through, don't buffer
+                continue
             full_response.append(delta)
             yield delta
         _generation_ms = round((time.monotonic() - _t_generation) * 1000)

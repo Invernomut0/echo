@@ -294,6 +294,11 @@ class Orchestrator:
         """Stream the synthesis phase (agents run upfront with bounded concurrency)."""
         self._apply_routing_weights(meta_state)
 
+        active_count = sum(
+            1 for a in self._agents.values() if a.routing_weight > 0.01
+        )
+        yield {"_status": f"Consulting {active_count} specialist perspectives…"}
+
         agent_outputs = await self._run_agents_bounded(
             user_input, workspace, meta_state, context
         )
@@ -308,6 +313,10 @@ class Orchestrator:
             key=lambda kv: self._agents[AgentRole(kv[0])].routing_weight,
             reverse=True,
         )
+        active_voices = [role for role, _ in sorted_outputs]
+        voices_label = ", ".join(r.capitalize() for r in active_voices) if active_voices else "none"
+        yield {"_status": f"Synthesizing ({voices_label})…"}
+
         deliberations = "\n\n".join(
             f"[{role.upper()}]\n{text[:600]}" for role, text in sorted_outputs
         )
@@ -325,7 +334,5 @@ class Orchestrator:
                 deliberations=deliberations,
             ),
         })
-        # Use stream_chat_with_tools: streams normally when no tools are needed;
-        # runs the agentic tool-call loop and yields the final text when tools are used.
         async for delta in llm.stream_chat_with_tools(messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis):
             yield delta
