@@ -799,27 +799,28 @@ class LLMClient:
         Behaviour:
         - When *no* MCP tools are connected: falls back to ``stream_chat`` (true
           token-by-token streaming, no overhead).
-        - When tools *are* connected: runs tool-call round-trips non-streaming
-          (necessary to inspect tool_calls in the response), then streams the
-          **final** answer token-by-token once all tools have been executed.
-
-        This is an ``AsyncGenerator[str, None]`` so callers can use it with
-        ``async for delta in llm.stream_chat_with_tools(...)`` in the same way
-        they use ``stream_chat``.
+        - OpenAI-compatible: uses a single streaming pass that detects tool calls
+          in-flight. When no tools are used the response is streamed directly with
+          no second LLM call (eliminates the previous double-synthesis).
+        - Copilot: runs non-streaming tool rounds then streams the final answer.
+        - Anthropic: streams directly (no tool format support).
         """
         from echo.mcp import mcp_manager  # noqa: PLC0415
 
         tools = mcp_manager.list_tools_openai()
         if not tools:
-            # No MCP tools available — pure streaming path (no overhead)
             async for delta in self.stream_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model
             ):
                 yield delta
             return
 
-        # ── Tool-call loop (non-streaming round-trips) ─────────────────────
-        # Run until the model stops requesting tools, then stream the final answer.
+        if settings.llm_provider == "anthropic":
+            async for delta in self.stream_chat(
+                messages, temperature=temperature, max_tokens=max_tokens, model=model
+            ):
+                yield delta
+            return
 
         if settings.llm_provider == "copilot":
             final_messages = await self._copilot_tool_rounds(
@@ -827,25 +828,114 @@ class LLMClient:
                 temperature=temperature, max_tokens=max_tokens,
                 max_rounds=max_tool_rounds, model=model,
             )
-        elif settings.llm_provider == "anthropic":
-            # Anthropic doesn't support OpenAI tool format — stream directly
             async for delta in self.stream_chat(
-                messages, temperature=temperature, max_tokens=max_tokens, model=model
+                final_messages, temperature=temperature, max_tokens=max_tokens, model=model
             ):
                 yield delta
             return
-        else:
-            final_messages = await self._openai_tool_rounds(
-                messages, tools, mcp_manager,
-                temperature=temperature, max_tokens=max_tokens,
-                max_rounds=max_tool_rounds, model=model,
-            )
 
-        # ── Stream the final answer ────────────────────────────────────────
-        async for delta in self.stream_chat(
-            final_messages, temperature=temperature, max_tokens=max_tokens, model=model
+        # OpenAI-compatible: single streaming pass with in-flight tool detection.
+        # If the model uses no tools, content is streamed directly — no second call.
+        async for delta in self._stream_openai_with_tool_rounds(
+            messages, tools, mcp_manager,
+            temperature=temperature, max_tokens=max_tokens,
+            max_rounds=max_tool_rounds, model=model,
         ):
             yield delta
+
+    async def _stream_openai_with_tool_rounds(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        mcp_manager: Any,
+        *,
+        temperature: float,
+        max_tokens: int,
+        max_rounds: int,
+        model: str | None,
+    ) -> AsyncGenerator[str, None]:
+        """Single streaming pass with tool-call detection.
+
+        Streams content chunks as they arrive. If the model requests tools, buffers
+        the current round, executes the tools, then streams the next round.
+        No second LLM call is made when no tools are used.
+        """
+        self._last_tools_used = []
+        current_messages = list(messages)
+        client = _build_provider_client()
+
+        for _round in range(max_rounds):
+            content_parts: list[str] = []
+            # tool_call_acc: index → {"id", "name", "args"}
+            tool_call_acc: dict[int, dict[str, str]] = {}
+
+            stream = await client.chat.completions.create(
+                model=model or _provider_model(),
+                messages=current_messages,
+                tools=tools,
+                tool_choice="auto",
+                temperature=temperature,
+                max_tokens=max_tokens,
+                stream=True,
+            )
+            try:
+                async for chunk in stream:
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta.content:
+                        content_parts.append(delta.content)
+                        yield delta.content  # stream to caller immediately
+                    if delta.tool_calls:
+                        for tc in delta.tool_calls:
+                            idx = tc.index
+                            if idx not in tool_call_acc:
+                                tool_call_acc[idx] = {"id": tc.id or "", "name": "", "args": ""}
+                            if tc.function:
+                                if tc.function.name:
+                                    tool_call_acc[idx]["name"] += tc.function.name
+                                if tc.function.arguments:
+                                    tool_call_acc[idx]["args"] += tc.function.arguments
+            finally:
+                await stream.close()
+
+            if not tool_call_acc:
+                # No tools requested — content already yielded above
+                return
+
+            # Model requested tool calls — append assistant turn and execute tools
+            content_so_far = "".join(content_parts) or None
+            assistant_turn: dict[str, Any] = {
+                "role": "assistant",
+                "content": content_so_far,
+                "tool_calls": [
+                    {
+                        "id": d["id"],
+                        "type": "function",
+                        "function": {"name": d["name"], "arguments": d["args"]},
+                    }
+                    for d in tool_call_acc.values()
+                ],
+            }
+            current_messages.append(assistant_turn)
+
+            for d in tool_call_acc.values():
+                fn_name = d["name"]
+                if fn_name not in self._last_tools_used:
+                    self._last_tools_used.append(fn_name)
+                try:
+                    fn_args: dict[str, Any] = json.loads(d["args"] or "{}")
+                except json.JSONDecodeError:
+                    fn_args = {}
+                logger.info("[MCP] calling tool %s %s", fn_name, fn_args)
+                tool_result = await mcp_manager.call_tool(fn_name, fn_args)
+                current_messages.append({
+                    "role": "tool",
+                    "tool_call_id": d["id"],
+                    "content": tool_result,
+                })
+
+        logger.warning("[MCP] max tool rounds (%d) reached", max_rounds)
 
     async def _openai_tool_rounds(
         self,

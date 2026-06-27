@@ -120,50 +120,52 @@ class Settings(BaseSettings):
     # ---------------------------------------------------------------------------
 
     # User-facing: agents deliberation + final synthesis
-    llm_max_tokens_agent: int = 256          # each specialist agent (Analyst, Explorer …)
+    # NOTE: thinking models (gemma-4, QwQ, DeepSeek-R1) spend ~80-90% of max_tokens
+    # on internal reasoning. Set high enough that content tokens remain after thinking.
+    llm_max_tokens_agent: int = 1024         # each specialist agent (Analyst, Explorer …)
     llm_max_tokens_synthesis: int = 1024     # orchestrator final answer
 
     # User-facing: self-prediction (pre-response internal forecast)
-    llm_max_tokens_self_prediction: int = 300
+    llm_max_tokens_self_prediction: int = 600
 
     # User-facing: motivational drive scoring (post-interaction)
-    llm_max_tokens_drive_scoring: int = 400
+    llm_max_tokens_drive_scoring: int = 1200
 
     # User-facing: bootstrap identity beliefs at first startup
-    llm_max_tokens_bootstrap: int = 512
+    llm_max_tokens_bootstrap: int = 1024
 
     # Reflection (every N interactions)
-    llm_max_tokens_reflection: int = 512
+    llm_max_tokens_reflection: int = 1024
 
     # Consolidation / sleep cycles
-    llm_max_tokens_consolidation_patterns: int = 512    # pattern extraction
-    llm_max_tokens_consolidation_dedup: int = 80        # duplicate detection
-    llm_max_tokens_dream: int = 220                     # dream narrative
-    llm_max_tokens_creative_synthesis: int = 130        # creative bridge
-    llm_max_tokens_swarm_dream: int = 200               # swarm dream persona
+    llm_max_tokens_consolidation_patterns: int = 1024   # pattern extraction
+    llm_max_tokens_consolidation_dedup: int = 400        # duplicate detection
+    llm_max_tokens_dream: int = 600                      # dream narrative
+    llm_max_tokens_creative_synthesis: int = 500         # creative bridge
+    llm_max_tokens_swarm_dream: int = 600                # swarm dream persona
 
     # Curiosity / autonomous learning
-    llm_max_tokens_topic_extraction: int = 400          # extract topics from memories
-    llm_max_tokens_zpd_topics: int = 400                # ZPD adjacent topic suggestion
-    llm_max_tokens_goal_reflect: int = 1200             # goal reflection & planning
-    llm_max_tokens_goal_pursue: int = 600               # goal search interpretation
-    llm_max_tokens_interest_infer: int = 100            # interest topic inference
+    llm_max_tokens_topic_extraction: int = 1200         # extract topics from memories
+    llm_max_tokens_zpd_topics: int = 1200               # ZPD adjacent topic suggestion
+    llm_max_tokens_goal_reflect: int = 1800             # goal reflection & planning
+    llm_max_tokens_goal_pursue: int = 1200              # goal search interpretation
+    llm_max_tokens_interest_infer: int = 600            # interest topic inference
 
     # Initiative engine (proactive messages)
-    llm_max_tokens_initiative_insight: int = 300        # daily insight generation
-    llm_max_tokens_initiative_question: int = 200       # question generation
-    llm_max_tokens_initiative_reflection: int = 200     # proactive self-reflection
+    llm_max_tokens_initiative_insight: int = 800        # daily insight generation
+    llm_max_tokens_initiative_question: int = 600       # question generation
+    llm_max_tokens_initiative_reflection: int = 600     # proactive self-reflection
 
     # Learning / self-evaluation
-    llm_max_tokens_meta_insight: int = 150              # meta-learning insight
-    llm_max_tokens_skill_assessment: int = 300          # skill self-assessment
+    llm_max_tokens_meta_insight: int = 600              # meta-learning insight
+    llm_max_tokens_skill_assessment: int = 800          # skill self-assessment
 
     # Memory
-    llm_max_tokens_associative_cross: int = 150         # cross-pollination check
-    llm_max_tokens_associative_cluster: int = 300       # temporal clustering
-    llm_max_tokens_semantic_dedup: int = 120            # semantic dedup check
-    llm_max_tokens_semantic_conflict: int = 30          # conflict detection
-    llm_max_tokens_semantic_merge: int = 20             # merge suggestion
+    llm_max_tokens_associative_cross: int = 600         # cross-pollination check
+    llm_max_tokens_associative_cluster: int = 800       # temporal clustering
+    llm_max_tokens_semantic_dedup: int = 500            # semantic dedup check
+    llm_max_tokens_semantic_conflict: int = 400         # conflict detection
+    llm_max_tokens_semantic_merge: int = 400            # merge suggestion
 
     # Wiki document processing
     llm_max_tokens_wiki_ingest: int = 3000              # full doc extraction
