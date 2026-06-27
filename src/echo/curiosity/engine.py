@@ -155,6 +155,30 @@ class CuriosityEngine:
     # Topic extraction
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _parse_topic_array(raw: str) -> list[str]:
+        """Extract a JSON array from LLM output (strips markdown fences)."""
+        text = raw.strip()
+        if not text:
+            return []
+        # Strip markdown code fences
+        if text.startswith("```"):
+            lines = text.splitlines()
+            end = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "```"), None)
+            text = "\n".join(lines[1:end] if end else lines[1:]).strip()
+        # Find JSON array bounds
+        start = text.find("[")
+        end = text.rfind("]")
+        if start == -1 or end == -1:
+            return []
+        try:
+            data = json.loads(text[start : end + 1])
+        except json.JSONDecodeError:
+            return []
+        if not isinstance(data, list):
+            return []
+        return [str(t).strip() for t in data if t and str(t).strip()]
+
     async def _extract_topics(self, memories: list[MemoryEntry]) -> list[str]:
         memories_text = "\n".join(
             f"- {m.content[:_MEMORY_SNIPPET_CHARS]}" for m in memories[:12]
@@ -171,11 +195,14 @@ class CuriosityEngine:
                     temperature=0.35,
                     max_tokens=settings.llm_max_tokens_topic_extraction,
                 )
-            memory_topics = json.loads(raw.strip())
-            if not isinstance(memory_topics, list):
-                memory_topics = []
+            memory_topics = self._parse_topic_array(raw)
+            if not memory_topics:
+                logger.warning(
+                    "Topic extraction returned no topics (raw len=%d, preview=%.100r)",
+                    len(raw), raw,
+                )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Topic extraction failed (%s) — using fallback", exc)
+            logger.warning("Topic extraction LLM call failed (%s)", exc)
             memory_topics = []
 
         # Blend with user interest profile (50/50 when profile has data)
@@ -193,10 +220,15 @@ class CuriosityEngine:
         if topics:
             return topics
 
-        # Fallback: use the first few words of the most recent memory
-        if memories:
-            words = memories[0].content.split()[:5]
-            return [" ".join(words)]
+        # Fallback: extract meaningful words from memories, skipping conversational prefixes
+        for mem in memories[:5]:
+            words = [
+                w for w in mem.content.split()
+                if w.lower() not in {"user:", "echo:", "ciao", "hello", "hi", "-", ""}
+                and len(w) > 3
+            ]
+            if len(words) >= 3:
+                return [" ".join(words[:5])]
         return []
 
     # ------------------------------------------------------------------
@@ -367,11 +399,14 @@ Respond ONLY with valid JSON:
                     max_tokens=settings.llm_max_tokens_goal_reflect,
                 )
 
-            logger.debug("[Goals] reflect raw: %s", reflect_raw[:400])
+            logger.info("[Goals] reflect raw len=%d preview=%.200r", len(reflect_raw), reflect_raw)
+            if not reflect_raw.strip():
+                logger.warning("[Goals] LLM returned empty response — max_tokens may be too low (budget=%d)", settings.llm_max_tokens_goal_reflect)
+                return
             try:
                 plan = self._extract_json(reflect_raw)
             except (json.JSONDecodeError, ValueError) as exc:
-                logger.warning("[Goals] reflection parse error (%s): %s", exc, reflect_raw[:300])
+                logger.warning("[Goals] reflection parse error (%s) — raw: %.400s", exc, reflect_raw)
                 return
             logger.info("[Goals] plan — new:%d achieved:%d abandoned:%d actions:%d",
                         len(plan.get('new_goals', [])),

@@ -31,6 +31,7 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 import json
 import logging
+import time as _time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,6 +46,10 @@ _DB_PATH: Path = settings.sqlite_path
 _EMA_ALPHA: float = 0.10          # slow drift — don't over-react to single interactions
 _PREFERRED_BOOST: float = 0.25    # boost when user explicitly marks as preferred
 _MAX_TOPICS: int = 100            # cap the table size
+
+# TTL caches — prevent repeated LLM calls from API polling
+_ZPD_CACHE_TTL: float = 600.0    # 10 min — ZPD topics change slowly
+_PRIMARY_CACHE_TTL: float = 300.0  # 5 min — profile updates after interactions
 
 _TOPIC_EXTRACT_PROMPT = """\
 Extract the main intellectual topics from the following AI-user conversation.
@@ -133,15 +138,26 @@ class UserInterestProfile:
     # ZPD topics (vector-space, zero extra LLM calls)
     # ------------------------------------------------------------------
 
+    # TTL cache for zpd_topics — avoids LLM call on every API poll
+    _zpd_cache: tuple[float, list[str]] | None = None
+
     async def zpd_topics(self, n: int = 3) -> list[str]:
         """Return *n* ZPD topics — adjacent to primary interests but under-explored.
 
         Strategy:
         1. Take up to 5 primary interests.
-        2. For each, ask the LLM to suggest 2 "adjacent but unexplored" topics.
-        3. Filter out any topic that already has many semantic memories.
-        4. Return top-n by unexploredness (fewest matching semantic memories).
+        2. Ask the LLM to suggest 6 adjacent but unexplored topics.
+        3. Filter out topics already in profile.
+        4. Return top-n.
+
+        Result cached for _ZPD_CACHE_TTL seconds to prevent LLM spam from API polling.
         """
+        # Return cached result if fresh
+        if self._zpd_cache is not None:
+            ts, cached = self._zpd_cache
+            if _time.monotonic() - ts < _ZPD_CACHE_TTL:
+                return cached[:n]
+
         # Never run ZPD when user is active — save LLM budget for interactions
         try:
             from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
@@ -174,11 +190,22 @@ class UserInterestProfile:
                 temperature=0.7,
                 max_tokens=settings.llm_max_tokens_zpd_topics,
             )
-            candidates: list[str] = json.loads(raw.strip())
+            # Robust array extraction — handles markdown fences and thinking model output
+            text = raw.strip()
+            if text.startswith("```"):
+                lines = text.splitlines()
+                end_fence = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "```"), None)
+                text = "\n".join(lines[1:end_fence] if end_fence else lines[1:]).strip()
+            arr_start = text.find("[")
+            arr_end = text.rfind("]")
+            if arr_start == -1 or arr_end == -1:
+                logger.warning("ZPD topic generation produced no JSON array (raw len=%d)", len(raw))
+                return []
+            candidates: list[str] = json.loads(text[arr_start : arr_end + 1])
             if not isinstance(candidates, list):
                 return []
         except Exception as exc:  # noqa: BLE001
-            logger.debug("ZPD topic generation failed: %s", exc)
+            logger.warning("ZPD topic generation failed: %s", exc)
             return []
 
         # Filter candidates: skip if too similar to existing profile topics
@@ -202,7 +229,10 @@ class UserInterestProfile:
             if len(result) >= n:
                 break
 
-        return result[:n]
+        final = result[:n]
+        # Cache result to avoid repeated LLM calls from API polling
+        self._zpd_cache = (_time.monotonic(), final)
+        return final
 
     # ------------------------------------------------------------------
     # Write helpers
@@ -313,7 +343,13 @@ class UserInterestProfile:
                 temperature=0.3,
                 max_tokens=settings.llm_max_tokens_interest_infer,
             )
-            topics: list[str] = json.loads(raw.strip())
+            _text = raw.strip()
+            if _text.startswith("```"):
+                _lines = _text.splitlines()
+                _ef = next((i for i, l in enumerate(_lines[1:], 1) if l.strip() == "```"), None)
+                _text = "\n".join(_lines[1:_ef] if _ef else _lines[1:]).strip()
+            _as = _text.find("["); _ae = _text.rfind("]")
+            topics: list[str] = json.loads(_text[_as:_ae+1]) if _as != -1 and _ae != -1 else []
             if not isinstance(topics, list):
                 return []
             topics = [str(t).strip() for t in topics if t and isinstance(t, str)][:5]
