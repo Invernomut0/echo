@@ -114,6 +114,12 @@ def _build_openai_client() -> AsyncOpenAI:
 def _build_provider_client() -> AsyncOpenAI:
     """Build an OpenAI-compatible async client for the currently selected provider."""
     p = settings.llm_provider
+    if p == "opencode":
+        return AsyncOpenAI(
+            base_url=settings.opencode_base_url,
+            api_key=settings.opencode_api_key or "sk-none",
+            http_client=_http_client,
+        )
     if p == "openai":
         return AsyncOpenAI(
             base_url=settings.openai_base_url,
@@ -139,6 +145,8 @@ def _build_provider_client() -> AsyncOpenAI:
 def _provider_model() -> str:
     """Return the model name for the currently selected provider."""
     p = settings.llm_provider
+    if p == "opencode":
+        return settings.opencode_model
     if p == "openai":
         return settings.openai_model
     if p == "groq":
