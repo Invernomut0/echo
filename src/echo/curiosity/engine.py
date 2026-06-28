@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _recently_searched: dict[str, float] = {}  # topic → monotonic timestamp when last searched
 _RECENTLY_SEARCHED_TTL: float = 600.0      # 10 minutes — TTL-based expiry instead of cycle counter
+_cycle_counter: int = 0                    # incremented each cycle — used for ZPD scheduling
 
 # ---------------------------------------------------------------------------
 # Activity log — persists the last _MAX_LOG cycle records in memory
