@@ -565,8 +565,12 @@ Respond ONLY with valid JSON:
     # Main cycle
     # ------------------------------------------------------------------
 
-    async def run_cycle(self) -> int:
-        """Run one curiosity cycle; return the number of new memories stored."""
+    async def run_cycle(self, *, force: bool = False) -> int:
+        """Run one curiosity cycle; return the number of new memories stored.
+
+        Args:
+            force: bypass idle/activity guards (for manual UI triggers).
+        """
         global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at  # noqa: PLW0603
 
         # ── Activity record ──────────────────────────────────────────────────
@@ -604,10 +608,10 @@ Respond ONLY with valid JSON:
             record["finished_at"] = datetime.now(timezone.utc).isoformat()
             return 0
 
-        # Guard: enforce minimum interval between cycles regardless of trigger source
+        # Guard: enforce minimum interval between cycles (bypassed by force=True)
         import time as _time  # noqa: PLC0415
         _elapsed_since_last = _time.monotonic() - _last_cycle_started_at
-        if _elapsed_since_last < _MIN_CYCLE_INTERVAL:
+        if not force and _elapsed_since_last < _MIN_CYCLE_INTERVAL:
             logger.debug(
                 "Curiosity skipped — too soon (%.0fs < %.0fs min interval)",
                 _elapsed_since_last,
@@ -639,7 +643,7 @@ Respond ONLY with valid JSON:
             record["idle_seconds"] = round(idle_seconds, 1)
             threshold = settings.curiosity_idle_threshold_seconds
 
-            if idle_seconds < threshold:
+            if not force and idle_seconds < threshold:
                 logger.debug(
                     "Curiosity skipped — last interaction %.0fs ago (threshold %ds)",
                     idle_seconds,
@@ -647,9 +651,9 @@ Respond ONLY with valid JSON:
                 )
                 return _done("skipped", f"not_idle ({idle_seconds:.0f}s < {threshold}s)")
 
-            # 2a. Also skip if user is actively in a session (in-memory check)
+            # 2a. Also skip if user is actively in a session (bypassed by force=True)
             from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
-            if _ua():
+            if not force and _ua():
                 logger.debug("Curiosity skipped — user session active")
                 return _done("skipped", "user_session_active")
 

@@ -41,10 +41,10 @@ async def get_activity(limit: int = Query(default=50, ge=1, le=200)):
 
 @router.post("/trigger")
 async def trigger_cycle():
-    """Manually trigger one curiosity cycle (bypasses idle guard via force param)."""
+    """Manually trigger one curiosity cycle — bypasses idle and activity guards."""
     if _is_running:
         return {"status": "already_running", "stored": 0}
-    stored = await _engine.run_cycle()
+    stored = await _engine.run_cycle(force=True)
     return {"status": "completed", "stored": stored}
 
 

@@ -14,10 +14,87 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from echo.curiosity.web_search import SearchResult
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_brave_plaintext(raw: str, query: str, max_results: int) -> list[SearchResult]:
+    """Parse Brave MCP plain-text output into SearchResult objects.
+
+    The Brave Search MCP may return markdown-formatted text instead of JSON,
+    e.g.:
+        **1. Title of Result**
+        URL: https://...
+        Description: ...
+
+    or:
+        Title: ...
+        URL: ...
+        Description: ...
+
+    Falls back to a single consolidated result if no structure is detected.
+    """
+    results: list[SearchResult] = []
+    text = raw.strip()
+    if not text:
+        return results
+
+    # Split on blank-line separated blocks
+    blocks = re.split(r"\n\s*\n", text)
+    for block in blocks:
+        if len(results) >= max_results:
+            break
+        lines = [l.strip() for l in block.splitlines() if l.strip()]
+        if not lines:
+            continue
+
+        title = ""
+        url = ""
+        description = ""
+
+        for line in lines:
+            # Title patterns: "**1. Foo**", "Title: Foo", "# Foo", plain first line
+            m = re.match(r"^\*{0,2}\d*\.?\s*\*{0,2}(.+?)\*{0,2}$", line)
+            if not title and m and not re.match(r"^(url|http|description|snippet):", line, re.I):
+                title = m.group(1).strip()
+            elif re.match(r"^(url|link):\s*(.+)", line, re.I):
+                url = re.sub(r"^(url|link):\s*", "", line, flags=re.I).strip()
+            elif re.match(r"^(description|snippet|summary):\s*(.+)", line, re.I):
+                description = re.sub(r"^(description|snippet|summary):\s*", "", line, flags=re.I).strip()
+            elif not url and line.startswith("http"):
+                url = line
+
+        # Last resort: first line = title, rest = description
+        if not title and lines:
+            title = lines[0][:120]
+            description = " ".join(lines[1:])[:400]
+
+        # Skip if title is still the query itself or empty
+        if not title or title.lower() == query.lower():
+            continue
+
+        results.append(SearchResult(
+            title=title[:120],
+            snippet=description[:500] or text[:500],
+            url=url,
+            source="brave",
+        ))
+
+    # If parsing extracted nothing useful, store the raw text as a single result
+    if not results and text:
+        # Use first non-empty sentence as title
+        first_sentence = re.split(r"[.!?\n]", text)[0][:100].strip()
+        results.append(SearchResult(
+            title=first_sentence or f"Brave: {query}",
+            snippet=text[:600],
+            url="",
+            source="brave",
+        ))
+
+    return results[:max_results]
 
 
 def _mcp() -> "MCPClientManager":  # type: ignore[name-defined]  # noqa: F821
@@ -82,16 +159,11 @@ async def brave_web_search(query: str, max_results: int = 3) -> list[SearchResul
                 )
             )
     except (json.JSONDecodeError, AttributeError):
-        # Plain-text fallback: treat the whole text as a single summary result
-        if raw.strip():
-            results.append(
-                SearchResult(
-                    title=f"Brave search: {query}",
-                    snippet=raw[:500],
-                    url="",
-                    source="brave",
-                )
-            )
+        # Plain-text fallback: parse structured blocks from Brave MCP text output.
+        # The MCP server typically returns results formatted as:
+        #   Title: ...\nURL: ...\nDescription: ...\n\n
+        # or numbered/bulleted lists.
+        results.extend(_parse_brave_plaintext(raw, query, max_results))
 
     logger.debug("[MCP curiosity] brave_web_search(%r): %d results", query, len(results))
     return results
