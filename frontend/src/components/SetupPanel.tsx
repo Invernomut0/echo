@@ -113,6 +113,7 @@ function ProviderSection({
   saving: boolean
 }) {
   const tiles: { id: SetupConfig['llm_provider']; icon: React.ReactNode; name: string; desc: string }[] = [
+    { id: 'opencode',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenCode',        desc: 'Cloud · Big Pickle & more' },
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
     { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
@@ -379,6 +380,39 @@ function ApiKeySection({
         )}
       </div>
     </SectionCard>
+  )
+}
+
+function OpenCodeSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  const [baseUrl, setBaseUrl] = useState(config.opencode_base_url || 'https://opencode.ai/zen/v1')
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="OpenCode"
+      subtitle="opencode.ai zen gateway — get your key at opencode.ai"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="sk-..."
+      apiKeyValue={config.opencode_api_key}
+      modelLabel="Model"
+      modelValue={config.opencode_model || 'big-pickle'}
+      modelPlaceholder="big-pickle"
+      modelSuggestions={['big-pickle']}
+      extraFields={
+        <div className="setup-field-group">
+          <label className="setup-label">Base URL</label>
+          <input
+            className="setup-input"
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://opencode.ai/zen/v1"
+          />
+          <p className="setup-mcp-hint">OpenAI-compatible endpoint · docs: opencode.ai/docs/zen</p>
+        </div>
+      }
+      onSave={async (apiKey, model) => {
+        await onSave({ opencode_api_key: apiKey || undefined, opencode_model: model, opencode_base_url: baseUrl })
+      }}
+    />
   )
 }
 
@@ -1552,6 +1586,7 @@ export default function SetupPanel() {
           onSelect={handleSelectProvider}
           saving={savingProvider}
         />
+        {activeProvider === 'opencode'    && <OpenCodeSection config={config} onSave={handleSave} />}
         {activeProvider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
         {activeProvider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
         {activeProvider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}

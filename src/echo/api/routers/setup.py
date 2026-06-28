@@ -151,8 +151,12 @@ class ConfigPayload(BaseModel):
     lm_studio_model: str | None = None
     lm_studio_embedding_model: str | None = None
     github_token: str | None = None
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama"] | None = None
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode"] | None = None
     copilot_model: str | None = None
+    # OpenCode
+    opencode_api_key: str | None = None
+    opencode_model: str | None = None
+    opencode_base_url: str | None = None
     # OpenAI
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -222,6 +226,10 @@ async def get_config() -> dict:
         "lm_studio_embedding_model": settings.lm_studio_embedding_model,
         "llm_provider": settings.llm_provider,
         "copilot_model": settings.copilot_model,
+        # OpenCode
+        "opencode_api_key": "***" if settings.opencode_api_key else "",
+        "opencode_model": settings.opencode_model,
+        "opencode_base_url": settings.opencode_base_url,
         # OpenAI
         "openai_api_key": "***" if settings.openai_api_key else "",
         "openai_model": settings.openai_model,
@@ -262,6 +270,9 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
         "GITHUB_TOKEN": payload.github_token,
         "LLM_PROVIDER": payload.llm_provider,
         "COPILOT_MODEL": payload.copilot_model,
+        "OPENCODE_API_KEY": payload.opencode_api_key,
+        "OPENCODE_MODEL": payload.opencode_model,
+        "OPENCODE_BASE_URL": payload.opencode_base_url,
         "OPENAI_API_KEY": payload.openai_api_key,
         "OPENAI_MODEL": payload.openai_model,
         "OPENAI_BASE_URL": payload.openai_base_url,
