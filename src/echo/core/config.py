@@ -112,6 +112,15 @@ class Settings(BaseSettings):
     # Set higher (3-6) for fast API backends (OpenAI, Copilot, Groq).
     max_concurrent_agent_calls: int = 2
 
+    # Drive scoring via LLM runs every N interactions (1 = every turn).
+    # Increase to 3+ on slow local backends to reduce LM Studio contention.
+    # Between scored turns the previous drive values are reused with slight decay.
+    drive_scoring_interval: int = 3
+
+    # Minimum message length (chars) to trigger wiki update and interest inference.
+    # Conversational greetings (<60 chars) rarely contain new facts worth storing.
+    wiki_update_min_chars: int = 60
+
     # ---------------------------------------------------------------------------
     # LLM max_tokens per call category
     # Thinking models (e.g. gemma-4-e4b, QwQ, DeepSeek-R1) consume a large

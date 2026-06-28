@@ -639,8 +639,17 @@ Respond ONLY with valid JSON:
                     prediction_error,
                 )
 
-            # BUG-2 / IM-1: LLM-based motivational scoring replaces heuristic drives
-            drive_scores = await score_interaction(user_input, response, meta_state)
+            # Drive scoring via LLM — throttled every N interactions (configurable).
+            # Between scored turns, reuse last drive values so weights stay live.
+            if self._interaction_count % settings.drive_scoring_interval == 0:
+                drive_scores = await score_interaction(user_input, response, meta_state)
+            else:
+                # Reuse last known scores with slight decay toward neutral (0.5)
+                _prev = meta_state.drives
+                drive_scores = {
+                    k: getattr(_prev, k, 0.5) * 0.97 + 0.5 * 0.03
+                    for k in ("coherence", "curiosity", "stability", "competence", "compression")
+                }
 
             # FIX: Update agent routing weights based on drive activations each turn.
             # Each drive has semantic affinity with one or more agents — the agent whose
@@ -754,12 +763,13 @@ Respond ONLY with valid JSON:
             )
             stored_mem = await self.episodic.store(mem)
 
-            # CO-EVOLUTION: interest profile inference + implicit stimulus feedback
-            try:
-                from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
-                await _ip.infer_from_memories(user_input=user_input, response=response)
-            except Exception as _ipe:  # noqa: BLE001
-                logger.debug("Interest profile inference failed: %s", _ipe)
+            # CO-EVOLUTION: interest profile inference — only for substantive exchanges
+            if len(user_input) >= settings.wiki_update_min_chars:
+                try:
+                    from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
+                    await _ip.infer_from_memories(user_input=user_input, response=response)
+                except Exception as _ipe:  # noqa: BLE001
+                    logger.debug("Interest profile inference failed: %s", _ipe)
 
             if injected_stimulus_id:
                 # Implicit positive feedback when memory is self-relevant
@@ -833,14 +843,17 @@ Respond ONLY with valid JSON:
                 )
                 logger.info("Stored user identity: name=%s", user_name)
 
-            # LLM Wiki — lightweight post-interaction update (fire-and-forget within post_interact)
-            try:
-                from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
-                result = await _wiki.update_from_interaction(user_input, response)
-                if result.get("pages_updated", 0):
-                    logger.debug("Wiki: updated %d page(s) from interaction", result["pages_updated"])
-            except Exception as exc:  # noqa: BLE001
-                logger.debug("Wiki update skipped: %s", exc)
+            # LLM Wiki — skip for short/conversational messages (no new facts to store)
+            if len(user_input) >= settings.wiki_update_min_chars:
+                try:
+                    from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
+                    result = await _wiki.update_from_interaction(user_input, response)
+                    if result.get("pages_updated", 0):
+                        logger.debug("Wiki: updated %d page(s) from interaction", result["pages_updated"])
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Wiki update skipped: %s", exc)
+            else:
+                logger.debug("Wiki update skipped — message too short (%d chars)", len(user_input))
 
             self._interaction_count += 1
 

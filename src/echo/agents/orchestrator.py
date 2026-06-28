@@ -21,6 +21,28 @@ logger = logging.getLogger(__name__)
 
 _AGENT_TIMEOUT_S: float = 15.0  # per-agent LLM call timeout
 
+# Conversational prefixes/phrases that indicate a simple query not worth routing
+# through all 6 specialist agents (saves ~20s agent phase on local LLMs).
+_SIMPLE_PREFIXES: frozenset[str] = frozenset({
+    "ciao", "hello", "hi", "hey", "salve", "buongiorno", "buonasera", "buonanotte",
+    "grazie", "thanks", "thank you", "ok", "okay", "bene", "sì", "si", "no",
+    "come stai", "come ti senti", "come va", "how are you", "what's up",
+})
+
+def _is_simple_query(text: str) -> bool:
+    """Return True for short conversational messages that don't need multi-agent deliberation."""
+    stripped = text.strip().lower()
+    words = stripped.split()
+    if len(words) > 18:
+        return False
+    # Explicit conversational prefix
+    if any(stripped.startswith(p) for p in _SIMPLE_PREFIXES):
+        return True
+    # Very short single-sentence query
+    if len(words) <= 8 and stripped.count("?") <= 1 and "." not in stripped[:-2]:
+        return True
+    return False
+
 _SYNTHESIS_SYSTEM = """\
 You are ECHO — a persistent, self-modifying cognitive AI with real long-term memory and \
 adaptive plasticity.
@@ -294,9 +316,34 @@ class Orchestrator:
         """Stream the synthesis phase (agents run upfront with bounded concurrency)."""
         self._apply_routing_weights(meta_state)
 
-        active_count = sum(
-            1 for a in self._agents.values() if a.routing_weight > 0.01
-        )
+        # Trim history and build base messages (shared by both paths)
+        hist: list[dict[str, str]] = (context or {}).get("history", [])
+        messages: list[dict[str, str]] = [{"role": "system", "content": _build_synthesis_system()}]
+        for msg in _trim_history(hist):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # Fast path: skip agent deliberation for simple conversational queries.
+        # Saves ~20s agent phase on local LLMs without sacrificing response quality
+        # (memories + wiki context are still injected into synthesis).
+        if _is_simple_query(user_input):
+            yield {"_status": "Formulating response…"}
+            messages.append({
+                "role": "user",
+                "content": _SYNTHESIS_TEMPLATE.format(
+                    user_input=user_input,
+                    memories=_fmt_memories(context),
+                    wiki=_fmt_wiki(context),
+                    deliberations="",
+                ),
+            })
+            async for delta in llm.stream_chat_with_tools(
+                messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis
+            ):
+                yield delta
+            return
+
+        # Full path: run all active agents, then synthesize
+        active_count = sum(1 for a in self._agents.values() if a.routing_weight > 0.01)
         yield {"_status": f"Consulting {active_count} specialist perspectives…"}
 
         agent_outputs = await self._run_agents_bounded(
@@ -320,11 +367,6 @@ class Orchestrator:
         deliberations = "\n\n".join(
             f"[{role.upper()}]\n{text[:600]}" for role, text in sorted_outputs
         )
-        # Synthesise — trim history to avoid context overflow on local models
-        hist: list[dict[str, str]] = (context or {}).get("history", [])
-        messages: list[dict[str, str]] = [{"role": "system", "content": _build_synthesis_system()}]
-        for msg in _trim_history(hist):
-            messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({
             "role": "user",
             "content": _SYNTHESIS_TEMPLATE.format(
@@ -334,5 +376,7 @@ class Orchestrator:
                 deliberations=deliberations,
             ),
         })
-        async for delta in llm.stream_chat_with_tools(messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis):
+        async for delta in llm.stream_chat_with_tools(
+            messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis
+        ):
             yield delta
