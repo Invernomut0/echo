@@ -131,8 +131,10 @@ class Settings(BaseSettings):
     # User-facing: agents deliberation + final synthesis
     # NOTE: thinking models (gemma-4, QwQ, DeepSeek-R1) spend ~80-90% of max_tokens
     # on internal reasoning. Set high enough that content tokens remain after thinking.
+    # synthesis: 1024 is too low — thinking eats ~600, leaving only ~400 for output.
+    # Raise to 3072 so detailed responses (~800 content tokens) complete without cutoff.
     llm_max_tokens_agent: int = 1024         # each specialist agent (Analyst, Explorer …)
-    llm_max_tokens_synthesis: int = 1024     # orchestrator final answer
+    llm_max_tokens_synthesis: int = 3072     # orchestrator final answer
 
     # User-facing: self-prediction (pre-response internal forecast)
     llm_max_tokens_self_prediction: int = 600
