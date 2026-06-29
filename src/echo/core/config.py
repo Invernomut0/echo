@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     github_token: str = ""
 
     # LLM provider selection
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode"] = "opencode"
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter"] = "opencode"
     copilot_model: str = "gpt-4o"
 
     # OpenCode (opencode.ai — OpenAI-compatible zen gateway)
@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     opencode_api_key: str = ""
     opencode_model: str = "big-pickle"
     opencode_base_url: str = "https://opencode.ai/zen/v1"
+
+    # OpenRouter (openrouter.ai — unified gateway to 300+ models)
+    # Docs: https://openrouter.ai/docs
+    openrouter_api_key: str = ""
+    openrouter_model: str = "openai/gpt-4o-mini"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
     # OpenAI
     openai_api_key: str = ""

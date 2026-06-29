@@ -367,12 +367,16 @@ export interface SetupConfig {
   lm_studio_model: string
   lm_studio_embedding_model: string
   has_github_token: boolean
-  llm_provider: 'copilot' | 'lm_studio' | 'openai' | 'groq' | 'anthropic' | 'ollama' | 'opencode'
+  llm_provider: 'copilot' | 'lm_studio' | 'openai' | 'groq' | 'anthropic' | 'ollama' | 'opencode' | 'openrouter'
   copilot_model: string
   // OpenCode
   opencode_api_key: string
   opencode_model: string
   opencode_base_url: string
+  // OpenRouter
+  openrouter_api_key: string
+  openrouter_model: string
+  openrouter_base_url: string
   // OpenAI
   openai_api_key: string
   openai_model: string

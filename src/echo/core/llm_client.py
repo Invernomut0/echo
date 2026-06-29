@@ -114,6 +114,13 @@ def _build_openai_client() -> AsyncOpenAI:
 def _build_provider_client() -> AsyncOpenAI:
     """Build an OpenAI-compatible async client for the currently selected provider."""
     p = settings.llm_provider
+    if p == "openrouter":
+        return AsyncOpenAI(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key or "sk-none",
+            http_client=_http_client,
+            default_headers={"HTTP-Referer": "https://github.com/echo-ai", "X-Title": "ECHO"},
+        )
     if p == "opencode":
         return AsyncOpenAI(
             base_url=settings.opencode_base_url,
@@ -145,6 +152,8 @@ def _build_provider_client() -> AsyncOpenAI:
 def _provider_model() -> str:
     """Return the model name for the currently selected provider."""
     p = settings.llm_provider
+    if p == "openrouter":
+        return settings.openrouter_model
     if p == "opencode":
         return settings.opencode_model
     if p == "openai":

@@ -114,6 +114,7 @@ function ProviderSection({
 }) {
   const tiles: { id: SetupConfig['llm_provider']; icon: React.ReactNode; name: string; desc: string }[] = [
     { id: 'opencode',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenCode',        desc: 'Cloud · Big Pickle & more' },
+    { id: 'openrouter', icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenRouter',      desc: 'Cloud · 300+ models' },
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
     { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
@@ -411,6 +412,35 @@ function OpenCodeSection({ config, onSave }: { config: SetupConfig; onSave: (u: 
       }
       onSave={async (apiKey, model) => {
         await onSave({ opencode_api_key: apiKey || undefined, opencode_model: model, opencode_base_url: baseUrl })
+      }}
+    />
+  )
+}
+
+function OpenRouterSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="OpenRouter"
+      subtitle="openrouter.ai — unified gateway to 300+ models. Get your key at openrouter.ai/keys"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="sk-or-..."
+      apiKeyValue={config.openrouter_api_key}
+      modelLabel="Model"
+      modelValue={config.openrouter_model || 'openai/gpt-4o-mini'}
+      modelPlaceholder="openai/gpt-4o-mini"
+      modelSuggestions={[
+        'openai/gpt-4o-mini',
+        'openai/gpt-4o',
+        'anthropic/claude-3.5-haiku',
+        'anthropic/claude-sonnet-4-5',
+        'google/gemini-2.0-flash-exp',
+        'meta-llama/llama-3.3-70b-instruct',
+        'mistralai/mistral-nemo',
+        'deepseek/deepseek-chat',
+      ]}
+      onSave={async (apiKey, model) => {
+        await onSave({ openrouter_api_key: apiKey || undefined, openrouter_model: model, openrouter_base_url: config.openrouter_base_url })
       }}
     />
   )
@@ -1587,6 +1617,7 @@ export default function SetupPanel() {
           saving={savingProvider}
         />
         {activeProvider === 'opencode'    && <OpenCodeSection config={config} onSave={handleSave} />}
+        {activeProvider === 'openrouter'  && <OpenRouterSection config={config} onSave={handleSave} />}
         {activeProvider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
         {activeProvider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
         {activeProvider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}
