@@ -158,11 +158,15 @@ class UserInterestProfile:
             if _time.monotonic() - ts < _ZPD_CACHE_TTL:
                 return cached[:n]
 
-        # Never run ZPD when user is active — save LLM budget for interactions
+        # Never run ZPD when user is active — save LLM budget for interactions.
+        # Store timestamp of when we last skipped so repeated API polls don't
+        # keep checking: treat the "skipped" result as cached for 60s.
         try:
             from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
             if _ua():
                 logger.debug("ZPD skipped — user active")
+                # Cache empty with short TTL so next poll re-checks after 60s
+                self._zpd_cache = (_time.monotonic() - _ZPD_CACHE_TTL + 60.0, [])
                 return []
         except Exception:  # noqa: BLE001
             pass

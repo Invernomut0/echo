@@ -33,7 +33,7 @@ _last_interaction_at: float = 0.0
 
 # How long (seconds) after an interaction we consider the user "active".
 # Background tasks will skip LLM calls during this window.
-_ACTIVE_WINDOW_SECONDS: float = 120.0
+_ACTIVE_WINDOW_SECONDS: float = 300.0  # 5 minutes
 
 
 def mark_active() -> None:
