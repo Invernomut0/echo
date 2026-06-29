@@ -904,20 +904,43 @@ class LLMClient:
         current_messages = list(messages)
         client = _build_provider_client()
 
+        _tools_supported = True  # assume support; flip on 404 tool error
+
         for _round in range(max_rounds):
             content_parts: list[str] = []
             # tool_call_acc: index → {"id", "name", "args"}
             tool_call_acc: dict[int, dict[str, str]] = {}
 
-            stream = await client.chat.completions.create(
+            create_kwargs: dict[str, Any] = dict(
                 model=model or _provider_model(),
                 messages=current_messages,
-                tools=tools,
-                tool_choice="auto",
                 temperature=temperature,
                 max_tokens=max_tokens,
                 stream=True,
             )
+            if _tools_supported:
+                create_kwargs["tools"] = tools
+                create_kwargs["tool_choice"] = "auto"
+
+            try:
+                stream = await client.chat.completions.create(**create_kwargs)
+            except Exception as _exc:
+                # Some models/providers (e.g. OpenRouter with certain models) return
+                # 404 when tools are passed but not supported. Fall back to plain chat.
+                _msg = str(_exc).lower()
+                if _tools_supported and (
+                    "404" in _msg or "tool" in _msg or "endpoint" in _msg
+                ):
+                    logger.warning(
+                        "Tool use not supported by this model/provider (%s) — "
+                        "retrying without tools", type(_exc).__name__,
+                    )
+                    _tools_supported = False
+                    create_kwargs.pop("tools", None)
+                    create_kwargs.pop("tool_choice", None)
+                    stream = await client.chat.completions.create(**create_kwargs)
+                else:
+                    raise
             try:
                 async for chunk in stream:
                     if not chunk.choices:
