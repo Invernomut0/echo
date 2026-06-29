@@ -199,7 +199,17 @@ class TelegramTestPayload(BaseModel):
 
 
 def _set_env_key(key: str, value: str) -> None:
-    """Update (or append) a single key in the .env file."""
+    """Update (or append) a single key in the .env file AND in os.environ.
+
+    Updating os.environ is critical: pydantic-settings gives priority to
+    process environment variables over .env file content, so on Docker (where
+    vars are injected via -e / compose `environment:`) writing only to .env
+    has no effect. Patching os.environ makes the reload pick up the new value
+    regardless of how the process was started.
+    """
+    import os  # noqa: PLC0415
+
+    os.environ[key] = value
     try:
         from dotenv import set_key  # python-dotenv is already a dependency
 
