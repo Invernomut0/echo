@@ -327,10 +327,15 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
 
 def _reload_settings() -> None:
     """Re-read .env into the global settings singleton (best-effort)."""
+    old_provider = settings.llm_provider
     try:
         new = settings.__class__()
         for field in settings.model_fields:
             object.__setattr__(settings, field, getattr(new, field))
+        if settings.llm_provider != old_provider:
+            logger.info("Provider changed: %s → %s", old_provider, settings.llm_provider)
+        else:
+            logger.debug("Settings reloaded (provider unchanged: %s)", settings.llm_provider)
     except Exception as exc:
         logger.warning("Settings hot-reload failed: %s", exc)
         return

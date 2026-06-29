@@ -1562,7 +1562,9 @@ export default function SetupPanel() {
   }, [])
 
   const handleSave = async (updates: Partial<SetupConfig>) => {
-    await saveSetupConfig(updates)
+    // Always include llm_provider so the active provider is confirmed on every save,
+    // even if the tile-click save somehow failed or was skipped.
+    await saveSetupConfig({ ...updates, llm_provider: activeProvider })
     // Refresh config (best-effort — UI already reflects selection)
     const fresh = await fetchSetupConfig()
     setConfig(fresh)
