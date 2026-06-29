@@ -20,6 +20,8 @@ export interface MetaState {
 }
 
 export interface StateResponse {
+  llm_provider: string
+  llm_model: string
   meta_state: MetaState
   workspace_items: number
   identity_beliefs: number

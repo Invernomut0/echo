@@ -460,6 +460,23 @@ Respond ONLY with valid JSON:
                 continue
             full_response.append(delta)
             yield delta
+
+        # Safety metadata filter — some providers (e.g. OpenRouter moderation) return
+        # safety classification text instead of the actual response. Detect and discard.
+        _raw = "".join(full_response).strip()
+        _is_safety_metadata = (
+            _raw.startswith("User Safety:") or
+            _raw.startswith("Response Safety:") or
+            ("User Safety:" in _raw and "Response Safety:" in _raw and len(_raw) < 400)
+        )
+        if _is_safety_metadata:
+            logger.warning(
+                "Response appears to be safety metadata (provider moderation), discarding: %.200s",
+                _raw,
+            )
+            # Replace buffered response and yield error message to user
+            full_response = ["Mi dispiace, non ho potuto generare una risposta. Riprova."]
+            yield "\n\nMi dispiace, non ho potuto generare una risposta. Riprova."
         _generation_ms = round((time.monotonic() - _t_generation) * 1000)
         _total_ms = round((time.monotonic() - _t_pipeline) * 1000)
         self._last_pipeline_trace["step_times"]["generation_ms"] = _generation_ms

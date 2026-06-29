@@ -68,9 +68,16 @@ export default function App() {
           <div className={`status-dot ${error ? 'offline' : ''}`} />
           {error ? 'Backend offline' : 'Connected'}
           {state && (
-            <span style={{ marginLeft: 12, color: '#06b6d4' }}>
-              {state.interaction_count} interactions
-            </span>
+            <>
+              <span style={{ marginLeft: 12, color: '#06b6d4' }}>
+                {state.interaction_count} interactions
+              </span>
+              {state.llm_provider && (
+                <span style={{ marginLeft: 10, color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
+                  {state.llm_provider}/{state.llm_model}
+                </span>
+              )}
+            </>
           )}
         </div>
       </header>

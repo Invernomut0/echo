@@ -37,6 +37,8 @@ class StateResponse(BaseModel):
     identity_beliefs: int
     episodic_memories: int
     interaction_count: int
+    llm_provider: str = ""
+    llm_model: str = ""
 
 
 class HistoryPoint(BaseModel):

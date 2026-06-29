@@ -6,6 +6,8 @@ from fastapi import APIRouter
 
 from echo.api.schemas import HistoryPoint, StateResponse
 from echo.core.pipeline import pipeline
+from echo.core.config import settings
+from echo.core.llm_client import _provider_model
 
 router = APIRouter(prefix="/api/state", tags=["state"])
 
@@ -19,6 +21,8 @@ async def get_state() -> StateResponse:
         identity_beliefs=len(pipeline.identity_graph.all_beliefs()),
         episodic_memories=pipeline.episodic.count(),
         interaction_count=pipeline._interaction_count,
+        llm_provider=settings.llm_provider,
+        llm_model=_provider_model(),
     )
 
 
