@@ -21,27 +21,88 @@ logger = logging.getLogger(__name__)
 
 _AGENT_TIMEOUT_S: float = 15.0  # per-agent LLM call timeout
 
-# Conversational prefixes/phrases that indicate a simple query not worth routing
-# through all 6 specialist agents (saves ~20s agent phase on local LLMs).
+# ---------------------------------------------------------------------------
+# Dynamic agent routing — select only relevant agents per query
+# ---------------------------------------------------------------------------
+
+# Simple/conversational queries skip agents entirely (fast path)
 _SIMPLE_PREFIXES: frozenset[str] = frozenset({
     "ciao", "hello", "hi", "hey", "salve", "buongiorno", "buonasera", "buonanotte",
     "grazie", "thanks", "thank you", "ok", "okay", "bene", "sì", "si", "no",
     "come stai", "come ti senti", "come va", "how are you", "what's up",
 })
 
-def _is_simple_query(text: str) -> bool:
-    """Return True for short conversational messages that don't need multi-agent deliberation."""
+# Keyword signals → agent roles.  Each tuple: (keywords, [roles])
+# Order matters for overlap resolution — more specific patterns first.
+_ROUTING_SIGNALS: list[tuple[frozenset[str], list[str]]] = [
+    # Memory / past / personal history → archivist essential
+    (frozenset({"ricordi", "ricordo", "remember", "memory", "memori", "passato",
+                "prima", "abbiamo", "parlato", "detto", "scorso", "ieri", "storia"}),
+     ["archivist", "social_self"]),
+    # Emotional / relational / personal wellbeing
+    (frozenset({"senti", "sento", "feel", "feeling", "emozione", "emotion",
+                "preoccupo", "felice", "triste", "paura", "amore", "relazione",
+                "worried", "happy", "sad", "lonely", "relationship", "provo"}),
+     ["social_self", "analyst"]),
+    # Planning / action / goal / task
+    (frozenset({"piano", "plan", "obiettivo", "goal", "fare", "devo", "dovresti",
+                "come posso", "how can", "how do", "steps", "passi", "azione",
+                "todo", "task", "progetto", "project", "implementa", "implement"}),
+     ["planner", "analyst"]),
+    # Critical / verify / doubt / contradiction
+    (frozenset({"vero", "falso", "true", "false", "verifica", "verify", "prova",
+                "prove", "dubbio", "doubt", "sbagliato", "wrong", "errore", "error",
+                "sicuro", "sure", "certain", "davvero", "really", "contraddici"}),
+     ["skeptic", "analyst"]),
+    # Creative / hypothetical / imagination / novel connections
+    (frozenset({"immagina", "imagine", "ipotesi", "hypothesis", "se fosse", "what if",
+                "potrebbe", "could", "creativo", "creative", "idea", "novel",
+                "connect", "connetti", "analogia", "analogy", "sogno", "dream"}),
+     ["explorer", "analyst"]),
+    # Factual / explain / definition / logical analysis
+    (frozenset({"cos'è", "cosa è", "what is", "spiega", "explain", "definisci",
+                "define", "perché", "why", "how", "come funziona", "analizza",
+                "analyze", "differenza", "difference", "confronta", "compare"}),
+     ["analyst", "archivist"]),
+]
+
+_ALL_ROLES: frozenset[str] = frozenset({"analyst", "explorer", "skeptic", "archivist", "social_self", "planner"})
+# Queries above this word count always get full routing (complex enough to warrant it)
+_FULL_ROUTING_WORD_THRESHOLD: int = 40
+
+
+def _select_agents(text: str) -> frozenset[str] | None:
+    """Return set of agent role names to activate, or None for full routing.
+
+    No LLM call — pure keyword heuristic. Returns None when the query is
+    complex/ambiguous enough that all agents should run.
+    """
     stripped = text.strip().lower()
     words = stripped.split()
-    if len(words) > 18:
-        return False
-    # Explicit conversational prefix
-    if any(stripped.startswith(p) for p in _SIMPLE_PREFIXES):
-        return True
-    # Very short single-sentence query
-    if len(words) <= 8 and stripped.count("?") <= 1 and "." not in stripped[:-2]:
-        return True
-    return False
+
+    # Simple greeting / ack → no agents (fast path handled in stream())
+    if len(words) <= 18 and any(stripped.startswith(p) for p in _SIMPLE_PREFIXES):
+        return frozenset()  # empty = fast path
+
+    # Long/complex queries → full routing
+    if len(words) >= _FULL_ROUTING_WORD_THRESHOLD:
+        return None
+
+    selected: list[str] = []
+    word_set = frozenset(w.rstrip("?!.,;:") for w in words)
+
+    for keywords, roles in _ROUTING_SIGNALS:
+        if word_set & keywords:
+            for r in roles:
+                if r not in selected:
+                    selected.append(r)
+
+    if not selected:
+        # No signal matched — medium query, use analyst + archivist as baseline
+        return frozenset({"analyst", "archivist"})
+
+    # Cap at 3 roles to keep latency low; return as frozenset
+    return frozenset(selected[:3])
 
 _SYNTHESIS_SYSTEM = """\
 You are ECHO — a persistent, self-modifying cognitive AI with real long-term memory and \
@@ -227,11 +288,13 @@ class Orchestrator:
         workspace: WorkspaceSnapshot,
         meta_state: MetaState,
         context: dict[str, Any] | None,
+        role_filter: frozenset[str] | None = None,
     ) -> dict[str, str]:
-        """Run all agents with bounded concurrency to avoid flooding the LLM.
+        """Run selected agents with bounded concurrency; return {role: text}.
 
-        Uses ``settings.max_concurrent_agent_calls`` as the concurrency limit.
-        Default is 2 — safe for local LM Studio. Set higher for fast API backends.
+        Args:
+            role_filter: if set, only run agents whose role.value is in this set.
+                         None means run all active (routing_weight > 0.01) agents.
         """
         from echo.core.config import settings as _s  # noqa: PLC0415
 
@@ -252,9 +315,14 @@ class Orchestrator:
                     logger.warning("Agent %s failed: %s", role.value, exc)
                     return (role.value, "")
 
-        results = await asyncio.gather(
-            *(_run_one(role, agent) for role, agent in self._agents.items())
-        )
+        # Apply role filter and weight gate
+        pairs = [
+            (role, agent)
+            for role, agent in self._agents.items()
+            if agent.routing_weight > 0.01
+            and (role_filter is None or role.value in role_filter)
+        ]
+        results = await asyncio.gather(*(_run_one(role, agent) for role, agent in pairs))
         return dict(results)
 
     async def run(
@@ -322,10 +390,12 @@ class Orchestrator:
         for msg in _trim_history(hist):
             messages.append({"role": msg["role"], "content": msg["content"]})
 
-        # Fast path: skip agent deliberation for simple conversational queries.
-        # Saves ~20s agent phase on local LLMs without sacrificing response quality
-        # (memories + wiki context are still injected into synthesis).
-        if _is_simple_query(user_input):
+        # Dynamic routing: select only relevant agents based on query content.
+        # No extra LLM call — pure keyword heuristic.
+        selected_roles = _select_agents(user_input)
+
+        # Fast path: simple greeting/ack → no agents
+        if selected_roles is not None and len(selected_roles) == 0:
             yield {"_status": "Formulating response…"}
             messages.append({
                 "role": "user",
@@ -342,12 +412,17 @@ class Orchestrator:
                 yield delta
             return
 
-        # Full path: run all active agents, then synthesize
-        active_count = sum(1 for a in self._agents.values() if a.routing_weight > 0.01)
-        yield {"_status": f"Consulting {active_count} specialist perspectives…"}
+        # Restrict agents to the selected subset (None = full routing)
+        if selected_roles is not None:
+            active_roles_label = ", ".join(r.capitalize() for r in sorted(selected_roles))
+            yield {"_status": f"Consulting {active_roles_label}…"}
+        else:
+            active_count = sum(1 for a in self._agents.values() if a.routing_weight > 0.01)
+            yield {"_status": f"Consulting {active_count} specialists…"}
 
         agent_outputs = await self._run_agents_bounded(
-            user_input, workspace, meta_state, context
+            user_input, workspace, meta_state, context,
+            role_filter=selected_roles,
         )
 
         # Sort by routing weight (descending) — filter disabled agents and empty outputs
