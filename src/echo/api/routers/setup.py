@@ -323,6 +323,16 @@ def _reload_settings() -> None:
             object.__setattr__(settings, field, getattr(new, field))
     except Exception as exc:
         logger.warning("Settings hot-reload failed: %s", exc)
+        return
+
+    # Notify LLMClient singleton so it flushes cached provider state.
+    # This makes provider switches (e.g. lm_studio → openrouter) take
+    # effect immediately without a server restart.
+    try:
+        from echo.core.llm_client import llm as _llm  # noqa: PLC0415
+        _llm.on_settings_reload()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("LLMClient settings reload notification failed: %s", exc)
 
 
 async def _apply_telegram_bridge_runtime(request: Request) -> str:

@@ -182,6 +182,29 @@ class LLMClient:
         self._last_tools_used: list[str] = []
         self._embed_cache = _EmbedCache(max_size=256, ttl_seconds=300.0)
         self._model_confirmed_loaded: bool = False  # set True once we verify model is ready
+        self._last_known_provider: str = settings.llm_provider  # detect provider changes
+
+    def on_settings_reload(self) -> None:
+        """Reset cached provider state after a settings hot-reload.
+
+        Called by _reload_settings() in setup.py whenever config changes.
+        Ensures that a provider switch (e.g. lm_studio → openrouter) takes
+        effect immediately without restarting the server.
+        """
+        new_provider = settings.llm_provider
+        if new_provider != self._last_known_provider:
+            logger.info(
+                "LLM provider changed %s → %s — resetting client state",
+                self._last_known_provider, new_provider,
+            )
+            self._last_known_provider = new_provider
+        # Always reset: model confirmation is provider-specific
+        self._model_confirmed_loaded = False
+        # Rebuild LM Studio client in case base_url or key changed
+        self._client = _build_openai_client()
+        self.model = settings.lm_studio_model
+        self.embedding_model = settings.lm_studio_embedding_model
+        self._embed_cache = _EmbedCache(max_size=256, ttl_seconds=300.0)
 
     # ── Model availability check (LM Studio only) ─────────────────────────────
 
