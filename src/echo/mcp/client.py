@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -247,6 +248,11 @@ class MCPClientManager:
         self._all_configs: dict[str, MCPServerConfig] = {}  # ALL servers (enabled + disabled)
         self._connections: dict[str, _ServerConnection] = {}  # only active connections
         self._running = False
+        # Internal (native Python) tools: qualified_name → (openai_def, async handler)
+        self._internal_tools: dict[
+            str,
+            tuple[dict[str, Any], Callable[[dict[str, Any]], Coroutine[Any, Any, str]]],
+        ] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -377,23 +383,56 @@ class MCPClientManager:
     # ------------------------------------------------------------------
 
     def list_tools(self) -> list[MCPToolDef]:
-        """Return all tools from all *connected* servers."""
+        """Return all tools: connected MCP server tools + registered internal tools."""
         result: list[MCPToolDef] = []
         for conn in self._connections.values():
             if conn.connected:
                 result.extend(conn.tools)
+        # Include internal (native Python) tools as MCPToolDef objects so they
+        # appear in the synthesis system prompt and any other caller that uses
+        # list_tools() for discovery.
+        for qualified_name, (openai_def, _) in self._internal_tools.items():
+            fn = openai_def.get("function", {})
+            # Split "server__tool" → server_name="server", name="tool"
+            parts = qualified_name.split("__", 1)
+            server_name = parts[0] if len(parts) == 2 else "echo"
+            tool_name = parts[1] if len(parts) == 2 else qualified_name
+            result.append(MCPToolDef(
+                server_name=server_name,
+                name=tool_name,
+                description=fn.get("description", ""),
+                input_schema=fn.get("parameters", {}),
+            ))
         return result
 
     def list_tools_openai(self) -> list[dict[str, Any]]:
-        """Return tools in OpenAI function-call format."""
-        return [t.to_openai() for t in self.list_tools()]
+        """Return tools in OpenAI function-call format (MCP + internal)."""
+        # External MCP server tools
+        result: list[dict[str, Any]] = [
+            t.to_openai()
+            for conn in self._connections.values()
+            if conn.connected
+            for t in conn.tools
+        ]
+        # Internal tools: use the original OpenAI defs exactly as registered
+        result.extend(openai_def for openai_def, _ in self._internal_tools.values())
+        return result
 
     # ------------------------------------------------------------------
     # Tool invocation
     # ------------------------------------------------------------------
 
     async def call_tool(self, qualified_name: str, arguments: dict[str, Any]) -> str:
-        """Call a tool by its qualified name  ``<server>__<tool>``."""
+        """Call a tool by its qualified name  ``<server>__<tool>`` or internal name."""
+        # Internal tools take priority — dispatched directly to Python handlers
+        internal = self._internal_tools.get(qualified_name)
+        if internal is not None:
+            _, handler = internal
+            try:
+                return await handler(dict(arguments))
+            except Exception as exc:  # noqa: BLE001
+                return f"[Internal tool error] {qualified_name}: {exc}"
+
         # Split on the first __ to support tools whose names contain __
         parts = qualified_name.split("__", 1)
         if len(parts) != 2:
@@ -405,6 +444,33 @@ class MCPClientManager:
             return f"[MCP ERROR] Unknown server: {server_name!r}"
 
         return await conn.call_tool(tool_name, arguments)
+
+    # ------------------------------------------------------------------
+    # Internal tool registry
+    # ------------------------------------------------------------------
+
+    def register_internal_tool(
+        self,
+        qualified_name: str,
+        openai_def: dict[str, Any],
+        handler: Callable[[dict[str, Any]], Coroutine[Any, Any, str]],
+    ) -> None:
+        """Register a native Python async function as an LLM-callable tool.
+
+        Parameters
+        ----------
+        qualified_name:
+            Unique tool name as it appears in the LLM's tool list, e.g.
+            ``echo__cron_list_tasks``.
+        openai_def:
+            Full OpenAI function-call tool definition dict
+            (``{"type": "function", "function": {...}}``).
+        handler:
+            Async callable ``(arguments: dict) -> str`` that executes the tool
+            and returns a JSON string result.
+        """
+        self._internal_tools[qualified_name] = (openai_def, handler)
+        logger.debug("[MCP] Registered internal tool: %s", qualified_name)
 
     # ------------------------------------------------------------------
     # Status
