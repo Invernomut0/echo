@@ -926,3 +926,125 @@ export async function guideTopics(preferred: string[], excluded: string[]): Prom
   })
   if (!r.ok) throw new Error(`guide topics: ${r.status}`)
 }
+
+// ── Cron ───────────────────────────────────────────────────────────────────
+
+export interface CronTask {
+  id: string
+  name: string
+  description: string
+  schedule_type: 'cron' | 'interval'
+  schedule: string
+  task_type: string
+  task_config: Record<string, unknown>
+  enabled: boolean
+  last_run_at: string | null
+  next_run_at: string | null
+  run_count: number
+  created_at: string
+  updated_at: string
+}
+
+export interface CronRun {
+  id: string
+  task_id: string
+  started_at: string
+  finished_at: string | null
+  status: 'running' | 'success' | 'error'
+  result: unknown
+  duration_ms: number | null
+}
+
+export interface CronTaskCreate {
+  name: string
+  description?: string
+  schedule_type: 'cron' | 'interval'
+  schedule: string
+  task_type: string
+  task_config?: Record<string, unknown>
+  enabled?: boolean
+}
+
+export interface CronTaskTypeInfo {
+  type: string
+  description: string
+  config_example: Record<string, unknown>
+}
+
+export interface CronTaskTypes {
+  task_types: CronTaskTypeInfo[]
+  schedule_types: Array<{ type: string; description: string; example: string }>
+}
+
+export async function fetchCronTasks(): Promise<CronTask[]> {
+  const r = await fetch(`${BASE}/cron/tasks`)
+  if (!r.ok) throw new Error(`cron tasks: ${r.status}`)
+  return r.json()
+}
+
+export async function fetchCronTaskTypes(): Promise<CronTaskTypes> {
+  const r = await fetch(`${BASE}/cron/task-types`)
+  if (!r.ok) throw new Error(`cron task-types: ${r.status}`)
+  return r.json()
+}
+
+export async function createCronTask(data: CronTaskCreate): Promise<CronTask> {
+  const r = await fetch(`${BASE}/cron/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `create cron task: ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function updateCronTask(
+  id: string,
+  data: Partial<CronTaskCreate>,
+): Promise<CronTask> {
+  const r = await fetch(`${BASE}/cron/tasks/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `update cron task: ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function deleteCronTask(id: string): Promise<void> {
+  const r = await fetch(`${BASE}/cron/tasks/${id}`, { method: 'DELETE' })
+  if (!r.ok && r.status !== 204) throw new Error(`delete cron task: ${r.status}`)
+}
+
+export async function enableCronTask(id: string): Promise<CronTask> {
+  const r = await fetch(`${BASE}/cron/tasks/${id}/enable`, { method: 'POST' })
+  if (!r.ok) throw new Error(`enable cron task: ${r.status}`)
+  return r.json()
+}
+
+export async function disableCronTask(id: string): Promise<CronTask> {
+  const r = await fetch(`${BASE}/cron/tasks/${id}/disable`, { method: 'POST' })
+  if (!r.ok) throw new Error(`disable cron task: ${r.status}`)
+  return r.json()
+}
+
+export async function triggerCronTask(id: string): Promise<{ status: string; result: unknown }> {
+  const r = await fetch(`${BASE}/cron/tasks/${id}/trigger`, { method: 'POST' })
+  if (!r.ok) {
+    const body = await r.json().catch(() => ({ detail: r.statusText }))
+    throw new Error(body.detail ?? `trigger cron task: ${r.status}`)
+  }
+  return r.json()
+}
+
+export async function fetchCronRuns(taskId: string, limit = 20): Promise<CronRun[]> {
+  const r = await fetch(`${BASE}/cron/tasks/${taskId}/runs?limit=${limit}`)
+  if (!r.ok) throw new Error(`cron runs: ${r.status}`)
+  return r.json()
+}

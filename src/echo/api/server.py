@@ -19,6 +19,7 @@ from echo.api.routers import consolidation, identity, interact, memory, mcp as m
 from echo.api.routers import curiosity as curiosity_router
 from echo.api.routers import wiki as wiki_router
 from echo.api.routers import goals as goals_router
+from echo.api.routers import cron as cron_router
 from echo.api.schemas import HealthResponse
 from echo import __version__
 from echo.core.config import settings
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     app.include_router(curiosity_router.router)
     app.include_router(wiki_router.router)
     app.include_router(goals_router.router)
+    app.include_router(cron_router.router)
 
     # Health check
     @app.get("/health", response_model=HealthResponse, tags=["health"])

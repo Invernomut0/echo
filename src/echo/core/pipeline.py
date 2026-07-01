@@ -14,6 +14,7 @@ from typing import Any
 
 from echo.agents.orchestrator import Orchestrator
 from echo.consolidation.scheduler import ConsolidationScheduler
+from echo.cron.scheduler import CronScheduler
 from echo.core.config import settings
 from echo.core.event_bus import bus
 from echo.core.types import (
@@ -129,6 +130,7 @@ class CognitivePipeline:
         self.consolidation = ConsolidationScheduler()
         self.decay = DecayScheduler()
         self.learning = LearningEngine()  # module 16: deep real-time learning
+        self.cron = CronScheduler()
         self._interaction_count = 0
         self._last_drift: float = 0.0  # last identity-drift score (fed to LearningEngine)
         self._last_pipeline_trace: dict[str, Any] = {}  # pipeline trace for UI visualisation
@@ -151,6 +153,8 @@ class CognitivePipeline:
         self.decay.start()
         await mcp_manager.startup()
         await self.learning.startup()
+        self.cron.attach_pipeline(self)
+        await self.cron.startup()
         self._ready = True
 
         # Warn if the configured model is not yet loaded in LM Studio.
@@ -214,6 +218,7 @@ Respond ONLY with valid JSON:
             logger.warning("Belief bootstrap failed (non-fatal): %s", exc)
 
     async def shutdown(self) -> None:
+        await self.cron.shutdown()
         await self.consolidation.stop()
         await self.decay.stop()
 
