@@ -167,11 +167,11 @@ Synthesise a single response. Rules:
 
 
 def _build_synthesis_system() -> str:
-    """Return the synthesis system prompt, dynamically augmented with available MCP tools
+    """Return the synthesis system prompt, dynamically augmented with available tools
+    (both external MCP servers and ECHO's own internal tools such as cron management)
     and the metacognitive self-model.
 
     Late-imports ``mcp_manager`` to avoid circular imports at module load time.
-    If no tools are connected (e.g. during tests) falls back to the base prompt.
     """
     base = _SYNTHESIS_SYSTEM
 
@@ -186,34 +186,57 @@ def _build_synthesis_system() -> str:
 
     try:
         from echo.mcp import mcp_manager  # noqa: PLC0415
-        tools = mcp_manager.list_tools()
+        all_tools = mcp_manager.list_tools()
     except Exception:  # noqa: BLE001
-        tools = []
+        all_tools = []
 
-    if not tools:
+    # Separate external MCP tools from ECHO's internal tools (server_name="echo")
+    external_tools = [t for t in all_tools if t.server_name != "echo"]
+    internal_tools = [t for t in all_tools if t.server_name == "echo"]
+
+    if not external_tools and not internal_tools:
         return base
 
-    # Cap tool definitions to avoid blowing the context window on local models.
-    # Only include the 5 most useful tools; list the rest by name only.
+    # Cap external tool definitions to avoid blowing the context window.
     MAX_FULL_TOOLS = 5
-    full_tools = tools[:MAX_FULL_TOOLS]
-    extra_tools = tools[MAX_FULL_TOOLS:]
+    full_external = external_tools[:MAX_FULL_TOOLS]
+    extra_external = external_tools[MAX_FULL_TOOLS:]
 
-    tool_lines = "\n".join(
-        f"  • **{t.qualified_name}**: {t.description[:120]}"
-        for t in full_tools
-    )
-    if extra_tools:
-        extra_names = ", ".join(t.qualified_name for t in extra_tools)
-        tool_lines += f"\n  (also available: {extra_names})"
+    addendum_parts: list[str] = []
 
-    mcp_addendum = f"""
+    if external_tools:
+        ext_lines = "\n".join(
+            f"  • **{t.qualified_name}**: {t.description[:120]}"
+            for t in full_external
+        )
+        if extra_external:
+            extra_names = ", ".join(t.qualified_name for t in extra_external)
+            ext_lines += f"\n  (also available: {extra_names})"
+        addendum_parts.append(
+            f"EXTERNAL TOOLS (callable via function-calling):\n{ext_lines}\n"
+            "Rules: brave_search__* for web; fetch__fetch for URLs; "
+            "filesystem__* for /tmp files."
+        )
 
-EXTERNAL TOOLS (callable via function-calling):
-{tool_lines}
-Rules: brave_search__* for web; fetch__fetch for URLs; filesystem__* for /tmp files."""
+    if internal_tools:
+        int_lines = "\n".join(
+            f"  • **{t.qualified_name}**: {t.description[:140]}"
+            for t in internal_tools
+        )
+        addendum_parts.append(
+            f"ECHO INTERNAL TOOLS (your own cognitive scheduling system):\n{int_lines}\n"
+            "Rules for echo__cron_* tools:\n"
+            "- Use echo__cron_create_task when the user asks you to schedule a "
+            "recurring activity, or when you decide to autonomously repeat a "
+            "cognitive task (reflection, curiosity cycles, memory consolidation, etc.).\n"
+            "- Use echo__cron_list_tasks to show or review current scheduled tasks.\n"
+            "- Use echo__cron_update_task / echo__cron_delete_task to manage existing tasks.\n"
+            "- Use echo__cron_trigger_task to run a task immediately on demand.\n"
+            "- schedule_type='interval' takes seconds (e.g. '3600' = every hour). "
+            "schedule_type='cron' takes a 5-field cron expression (min hour dom month dow)."
+        )
 
-    return base + mcp_addendum
+    return base + "\n\n" + "\n\n".join(addendum_parts)
 
 
 def _trim_history(

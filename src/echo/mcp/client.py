@@ -383,18 +383,40 @@ class MCPClientManager:
     # ------------------------------------------------------------------
 
     def list_tools(self) -> list[MCPToolDef]:
-        """Return all tools from all *connected* servers."""
+        """Return all tools: connected MCP server tools + registered internal tools."""
         result: list[MCPToolDef] = []
         for conn in self._connections.values():
             if conn.connected:
                 result.extend(conn.tools)
+        # Include internal (native Python) tools as MCPToolDef objects so they
+        # appear in the synthesis system prompt and any other caller that uses
+        # list_tools() for discovery.
+        for qualified_name, (openai_def, _) in self._internal_tools.items():
+            fn = openai_def.get("function", {})
+            # Split "server__tool" → server_name="server", name="tool"
+            parts = qualified_name.split("__", 1)
+            server_name = parts[0] if len(parts) == 2 else "echo"
+            tool_name = parts[1] if len(parts) == 2 else qualified_name
+            result.append(MCPToolDef(
+                server_name=server_name,
+                name=tool_name,
+                description=fn.get("description", ""),
+                input_schema=fn.get("parameters", {}),
+            ))
         return result
 
     def list_tools_openai(self) -> list[dict[str, Any]]:
         """Return tools in OpenAI function-call format (MCP + internal)."""
-        tools = [t.to_openai() for t in self.list_tools()]
-        tools.extend(openai_def for openai_def, _ in self._internal_tools.values())
-        return tools
+        # External MCP server tools
+        result: list[dict[str, Any]] = [
+            t.to_openai()
+            for conn in self._connections.values()
+            if conn.connected
+            for t in conn.tools
+        ]
+        # Internal tools: use the original OpenAI defs exactly as registered
+        result.extend(openai_def for openai_def, _ in self._internal_tools.values())
+        return result
 
     # ------------------------------------------------------------------
     # Tool invocation
