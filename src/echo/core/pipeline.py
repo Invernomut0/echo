@@ -141,6 +141,7 @@ class CognitivePipeline:
     async def startup(self) -> None:
         """Initialise all stateful components."""
         from echo.core.db import startup as db_startup
+        from echo.cron.tools import register_cron_tools
         from echo.mcp import mcp_manager
         from echo.self_model.metacognition import metacognitive_model
 
@@ -155,6 +156,7 @@ class CognitivePipeline:
         await self.learning.startup()
         self.cron.attach_pipeline(self)
         await self.cron.startup()
+        register_cron_tools(mcp_manager, self.cron)
         self._ready = True
 
         # Warn if the configured model is not yet loaded in LM Studio.
