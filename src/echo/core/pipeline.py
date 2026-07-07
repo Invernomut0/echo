@@ -274,6 +274,9 @@ Respond ONLY with valid JSON:
             )
         )
 
+        # Advance workspace turn counter — enables age-penalty on stale items
+        self.workspace.advance_turn()
+
         # Status: memory retrieval
         _t_pipeline = time.monotonic()
         yield {"_status": "Recovering memories…"}
@@ -734,6 +737,14 @@ Respond ONLY with valid JSON:
             # Apply momentum deltas to drives
             if drive_dynamics["momentum_deltas"]:
                 self.meta_tracker.update_drives(drive_dynamics["momentum_deltas"])
+            # Record conflict outcomes for evidence-based future resolution
+            for conflict_desc in drive_dynamics.get("conflicts_resolved", []):
+                # Extract winner from "X wins over Y (…)" format
+                if " wins over " in conflict_desc:
+                    winner = conflict_desc.split(" wins over ")[0].strip()
+                    # Use mean episodic salience of this interaction as outcome quality
+                    outcome_salience = sum(m.salience for m in memories) / max(len(memories), 1) if memories else 0.5
+                    adaptive_drives.record_conflict_outcome(winner, outcome_salience)
             # Inject drive behaviors into workspace for next turn
             for behavior_content, behavior_salience in drive_dynamics["behaviors"]:
                 self.workspace.broadcast(

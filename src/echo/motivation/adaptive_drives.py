@@ -98,12 +98,15 @@ _DRIVE_GOAL_TEMPLATES: dict[str, dict[str, str]] = {
 
 @dataclass
 class DriveState:
-    """Tracks momentum and goal-trigger state for one drive."""
+    """Tracks momentum, evidence, and goal-trigger state for one drive."""
     history: deque = field(default_factory=lambda: deque(maxlen=_MOMENTUM_WINDOW))
     consecutive_high: int = 0
     consecutive_low: int = 0
     momentum: float = 0.0  # positive = trending up, negative = trending down
     goal_created_at_turn: int = 0  # last turn when a goal was auto-created
+    # Evidence accumulation: tracks historical wins and their associated response quality
+    win_outcomes: deque = field(default_factory=lambda: deque(maxlen=50))  # salience when this drive won
+    evidence_weight: float = 0.5  # [0,1] — higher = this drive has historically won conflicts well
 
 
 # ---------------------------------------------------------------------------
@@ -226,41 +229,86 @@ class AdaptiveDriveEngine:
         drive_scores: dict[str, float],
         current_drives: Any,
     ) -> list[str]:
-        """Detect and resolve drive conflicts by suppressing the loser."""
+        """Detect and resolve drive conflicts using blended momentum + evidence.
+
+        Winner = argmax(0.6 × momentum_norm + 0.4 × evidence_weight).
+        Evidence weight accumulates from historical outcomes: drives that won
+        past conflicts and produced high-salience responses get higher weight.
+        Falls back to pure momentum when evidence is sparse (<5 wins each).
+        """
         resolved: list[str] = []
 
         for drive_a, drive_b in _CONFLICT_PAIRS:
             val_a = getattr(current_drives, drive_a, 0.5)
             val_b = getattr(current_drives, drive_b, 0.5)
 
-            # Both above threshold = conflict
-            if val_a > _CONFLICT_THRESHOLD and val_b > _CONFLICT_THRESHOLD:
-                # Winner is determined by which has more momentum
-                state_a = self._states[drive_a]
-                state_b = self._states[drive_b]
+            if val_a <= _CONFLICT_THRESHOLD or val_b <= _CONFLICT_THRESHOLD:
+                continue
 
-                if state_a.momentum >= state_b.momentum:
-                    # drive_a wins — suppress drive_b
-                    suppression = min(0.05, (val_b - 0.5) * 0.1)
-                    setattr(current_drives, drive_b,
-                           max(0.3, val_b - suppression))
-                    resolved.append(
-                        f"{drive_a} wins over {drive_b} "
-                        f"(momentum {state_a.momentum:.3f} vs {state_b.momentum:.3f})"
-                    )
-                else:
-                    suppression = min(0.05, (val_a - 0.5) * 0.1)
-                    setattr(current_drives, drive_a,
-                           max(0.3, val_a - suppression))
-                    resolved.append(
-                        f"{drive_b} wins over {drive_a} "
-                        f"(momentum {state_b.momentum:.3f} vs {state_a.momentum:.3f})"
-                    )
+            state_a = self._states[drive_a]
+            state_b = self._states[drive_b]
+
+            # Blend momentum (fast signal) with evidence weight (slow, historical)
+            sufficient_evidence = (
+                len(state_a.win_outcomes) >= 5 and len(state_b.win_outcomes) >= 5
+            )
+            if sufficient_evidence:
+                # Normalise momentum to [0,1] range for blending
+                mom_range = max(abs(state_a.momentum), abs(state_b.momentum), 0.001)
+                mom_a_norm = (state_a.momentum + mom_range) / (2 * mom_range)
+                mom_b_norm = (state_b.momentum + mom_range) / (2 * mom_range)
+                score_a = 0.6 * mom_a_norm + 0.4 * state_a.evidence_weight
+                score_b = 0.6 * mom_b_norm + 0.4 * state_b.evidence_weight
+                method = "evidence+momentum"
+            else:
+                score_a = state_a.momentum
+                score_b = state_b.momentum
+                method = "momentum"
+
+            if score_a >= score_b:
+                winner, loser = drive_a, drive_b
+                loser_val = val_b
+                winner_state, loser_state = state_a, state_b
+                score_w, score_l = score_a, score_b
+            else:
+                winner, loser = drive_b, drive_a
+                loser_val = val_a
+                winner_state, loser_state = state_b, state_a
+                score_w, score_l = score_b, score_a
+
+            suppression = min(0.05, (loser_val - 0.5) * 0.1)
+            setattr(current_drives, loser, max(0.3, loser_val - suppression))
+            resolved.append(
+                f"{winner} wins over {loser} ({method}: {score_w:.3f} vs {score_l:.3f})"
+            )
 
         if resolved:
             logger.info("Drive conflicts resolved: %s", resolved)
 
         return resolved
+
+    def record_conflict_outcome(
+        self,
+        winning_drive: str,
+        response_salience: float,
+    ) -> None:
+        """Record the quality outcome when a drive won a conflict.
+
+        Called post-interaction so evidence accumulates over time.
+        Drives that win conflicts AND produce high-salience responses
+        gain higher evidence_weight for future conflict resolution.
+        """
+        if winning_drive not in self._states:
+            return
+        state = self._states[winning_drive]
+        state.win_outcomes.append(response_salience)
+        if len(state.win_outcomes) >= 3:
+            # EMA of outcome salience, normalised to [0,1]
+            mean_outcome = sum(state.win_outcomes) / len(state.win_outcomes)
+            # evidence_weight is EWMA: blend toward mean_outcome slowly
+            state.evidence_weight = round(
+                0.9 * state.evidence_weight + 0.1 * mean_outcome, 4
+            )
 
     # ------------------------------------------------------------------
     # Behavior generation

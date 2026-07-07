@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 # Learning rate for weight adjustment
 _LR = 0.05
-_MIN_WEIGHT = 0.1
+_MIN_WEIGHT = 0.3  # floor raised from 0.1 — ensures cognitive diversity, no agent goes dormant
 _MAX_WEIGHT = 2.0
 # Gentle pull toward neutral weight each cycle (prevents monotonic drift)
 _DECAY_RATE = 0.005

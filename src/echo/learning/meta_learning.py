@@ -43,6 +43,12 @@ _ALPHA_BASE = 0.08          # default EMA alpha (matches personalization.py)
 _ALPHA_MIN = 0.03           # minimum α (very slow learning — noisy regime)
 _ALPHA_MAX = 0.20           # maximum α (fast learning — high quality regime)
 
+# Stagnation detection — triggers alpha boost to force plasticity
+_STAGNATION_WINDOW = 20     # look at last N observations for stagnation
+_STAGNATION_ERROR_VAR = 0.0015   # prediction error variance threshold (flat = stagnant)
+_STAGNATION_NOVELTY_MEAN = 0.35  # mean novelty threshold (low = repetitive interactions)
+_ALPHA_STAGNATION_BOOST = 0.08   # extra alpha added when stagnation detected
+
 
 # ---------------------------------------------------------------------------
 # SQLAlchemy model — persists meta-learning observations
@@ -254,6 +260,21 @@ class MetaLearningEngine:
         is_improving = trend < -0.001 and n >= 20
         is_stagnant = abs(trend) < 0.0005 and n >= 50
 
+        # Stagnation detection: flat prediction error AND low novelty → boost alpha
+        # to force plasticity and escape local equilibrium
+        stagnation_boost = self._compute_stagnation_boost(obs)
+        if stagnation_boost > 0.0:
+            logger.info(
+                "Stagnation detected (error_var=%.4f, novelty=%.3f) — boosting alpha by %.3f",
+                stagnation_boost,
+                sum(o.novelty_score for o in obs[-_STAGNATION_WINDOW:]) / _STAGNATION_WINDOW,
+                stagnation_boost,
+            )
+            recommended_alpha = round(
+                min(_ALPHA_MAX, recommended_alpha + stagnation_boost), 4
+            )
+            is_stagnant = True
+
         self._cached_quality = LearningQuality(
             trend=round(trend, 6),
             volatility=round(volatility, 4),
@@ -308,6 +329,31 @@ class MetaLearningEngine:
     def recommended_alpha(self) -> float:
         """Dynamic EMA alpha for personalization — use this instead of the static 0.08."""
         return self._cached_quality.recommended_alpha
+
+    def _compute_stagnation_boost(self, obs: list) -> float:
+        """Return alpha boost if interaction pattern shows stagnation.
+
+        Stagnation = prediction error variance flat AND mean novelty low
+        over the last _STAGNATION_WINDOW observations.
+
+        Returns _ALPHA_STAGNATION_BOOST if stagnant, 0.0 otherwise.
+        Requires at least _STAGNATION_WINDOW observations.
+        """
+        if len(obs) < _STAGNATION_WINDOW:
+            return 0.0
+        recent = obs[-_STAGNATION_WINDOW:]
+        errors = [o.prediction_error for o in recent]
+        novelties = [o.novelty_score for o in recent]
+
+        # Variance of prediction error
+        mean_err = sum(errors) / len(errors)
+        err_variance = sum((e - mean_err) ** 2 for e in errors) / len(errors)
+
+        mean_novelty = sum(novelties) / len(novelties)
+
+        if err_variance < _STAGNATION_ERROR_VAR and mean_novelty < _STAGNATION_NOVELTY_MEAN:
+            return _ALPHA_STAGNATION_BOOST
+        return 0.0
 
     def get_type_performance(self) -> dict[str, dict[str, float]]:
         """Return mean prediction error per interaction type."""
