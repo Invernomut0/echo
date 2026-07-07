@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     github_token: str = ""
 
     # LLM provider selection
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter"] = "opencode"
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras"] = "opencode"
     copilot_model: str = "gpt-4o"
 
     # OpenCode (opencode.ai — OpenAI-compatible zen gateway)
@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     openrouter_model: str = "openai/gpt-4o-mini"
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+
+    # Cerebras (cloud.cerebras.ai — ultra-fast inference, generous free tier)
+    # Docs: https://inference-docs.cerebras.ai
+    cerebras_api_key: str = ""
+    cerebras_model: str = "llama-3.3-70b"
+    cerebras_base_url: str = "https://api.cerebras.ai/v1"
 
     # OpenAI
     openai_api_key: str = ""

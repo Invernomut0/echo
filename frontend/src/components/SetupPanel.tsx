@@ -115,6 +115,7 @@ function ProviderSection({
   const tiles: { id: SetupConfig['llm_provider']; icon: React.ReactNode; name: string; desc: string }[] = [
     { id: 'opencode',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenCode',        desc: 'Cloud · Big Pickle & more' },
     { id: 'openrouter', icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenRouter',      desc: 'Cloud · 300+ models' },
+    { id: 'cerebras',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Cerebras',        desc: 'Cloud · Free · 1800 tok/s' },
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
     { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
@@ -412,6 +413,30 @@ function OpenCodeSection({ config, onSave }: { config: SetupConfig; onSave: (u: 
       }
       onSave={async (apiKey, model) => {
         await onSave({ opencode_api_key: apiKey || undefined, opencode_model: model, opencode_base_url: baseUrl })
+      }}
+    />
+  )
+}
+
+function CerebrasSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="Cerebras"
+      subtitle="cloud.cerebras.ai — ultra-fast free inference (~1800 tok/s). Get your key at cloud.cerebras.ai"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="csk-..."
+      apiKeyValue={config.cerebras_api_key}
+      modelLabel="Model"
+      modelValue={config.cerebras_model || 'llama-3.3-70b'}
+      modelPlaceholder="llama-3.3-70b"
+      modelSuggestions={[
+        'llama-3.3-70b',
+        'llama3.1-8b',
+        'llama-4-scout-17b-16e-instruct',
+      ]}
+      onSave={async (apiKey, model) => {
+        await onSave({ cerebras_api_key: apiKey || undefined, cerebras_model: model, cerebras_base_url: config.cerebras_base_url })
       }}
     />
   )
@@ -1620,6 +1645,7 @@ export default function SetupPanel() {
         />
         {activeProvider === 'opencode'    && <OpenCodeSection config={config} onSave={handleSave} />}
         {activeProvider === 'openrouter'  && <OpenRouterSection config={config} onSave={handleSave} />}
+        {activeProvider === 'cerebras'    && <CerebrasSection config={config} onSave={handleSave} />}
         {activeProvider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
         {activeProvider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
         {activeProvider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}

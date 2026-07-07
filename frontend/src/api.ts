@@ -369,7 +369,7 @@ export interface SetupConfig {
   lm_studio_model: string
   lm_studio_embedding_model: string
   has_github_token: boolean
-  llm_provider: 'copilot' | 'lm_studio' | 'openai' | 'groq' | 'anthropic' | 'ollama' | 'opencode' | 'openrouter'
+  llm_provider: 'copilot' | 'lm_studio' | 'openai' | 'groq' | 'anthropic' | 'ollama' | 'opencode' | 'openrouter' | 'cerebras'
   copilot_model: string
   // OpenCode
   opencode_api_key: string
@@ -379,6 +379,10 @@ export interface SetupConfig {
   openrouter_api_key: string
   openrouter_model: string
   openrouter_base_url: string
+  // Cerebras
+  cerebras_api_key: string
+  cerebras_model: string
+  cerebras_base_url: string
   // OpenAI
   openai_api_key: string
   openai_model: string

@@ -151,7 +151,7 @@ class ConfigPayload(BaseModel):
     lm_studio_model: str | None = None
     lm_studio_embedding_model: str | None = None
     github_token: str | None = None
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter"] | None = None
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras"] | None = None
     copilot_model: str | None = None
     # OpenCode
     opencode_api_key: str | None = None
@@ -161,6 +161,10 @@ class ConfigPayload(BaseModel):
     openrouter_api_key: str | None = None
     openrouter_model: str | None = None
     openrouter_base_url: str | None = None
+    # Cerebras
+    cerebras_api_key: str | None = None
+    cerebras_model: str | None = None
+    cerebras_base_url: str | None = None
     # OpenAI
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -248,6 +252,10 @@ async def get_config() -> dict:
         "openrouter_api_key": "***" if settings.openrouter_api_key else "",
         "openrouter_model": settings.openrouter_model,
         "openrouter_base_url": settings.openrouter_base_url,
+        # Cerebras
+        "cerebras_api_key": "***" if settings.cerebras_api_key else "",
+        "cerebras_model": settings.cerebras_model,
+        "cerebras_base_url": settings.cerebras_base_url,
         # OpenAI
         "openai_api_key": "***" if settings.openai_api_key else "",
         "openai_model": settings.openai_model,
@@ -294,6 +302,9 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
         "OPENROUTER_API_KEY": payload.openrouter_api_key,
         "OPENROUTER_MODEL": payload.openrouter_model,
         "OPENROUTER_BASE_URL": payload.openrouter_base_url,
+        "CEREBRAS_API_KEY": payload.cerebras_api_key,
+        "CEREBRAS_MODEL": payload.cerebras_model,
+        "CEREBRAS_BASE_URL": payload.cerebras_base_url,
         "OPENAI_API_KEY": payload.openai_api_key,
         "OPENAI_MODEL": payload.openai_model,
         "OPENAI_BASE_URL": payload.openai_base_url,
