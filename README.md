@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.4.11 · **Last updated:** 2026-05-09
+**Version:** 0.5.0 · **Last updated:** 2026-07-07
 
 ---
 
@@ -78,10 +78,13 @@ ECHO tracks verbosity, topic depth, and recall frequency preferences and adapts 
 
 - Python ≥ 3.12 (via `uv`)
 - Node.js ≥ 20.19
-- **GitHub Copilot** account (LLM backend — chat + streaming)
-- Ollama running locally on port 11434 with `nomic-embed-text` (embeddings only)
-
-> Previously required LM Studio; replaced by GitHub Copilot in 0.3.0+.
+- **LLM provider** — one of:
+  - **OpenCode** `opencode.ai` — recommended (big-pickle default, no local GPU needed)
+  - **OpenRouter** `openrouter.ai` — 300+ models via single API key
+  - **LM Studio** — local inference, OpenAI-compatible
+  - **Ollama** — local inference
+  - **OpenAI** / **Groq** / **Anthropic** / **GitHub Copilot**
+- Ollama running locally on port 11434 with `nomic-embed-text` for embeddings (optional — HuggingFace fallback available)
 
 ---
 
@@ -263,6 +266,18 @@ p = 0.2 + 0.3 · arousal
 ---
 
 ## Changelog
+
+> Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.0 — 2026-07-07
+- **Multi-provider support**: OpenCode, OpenRouter, LM Studio, Ollama, OpenAI, Groq, Anthropic, GitHub Copilot — switchable via Setup UI without restart
+- **Thinking model support**: all `max_tokens` budgets raised 3-4× for models with internal reasoning (gemma-4, QwQ, DeepSeek-R1)
+- **Dynamic agent routing**: keyword heuristic selects 2-3 relevant agents per query; simple queries skip all agents; ≥40-word queries get full 6-agent routing
+- **Single-pass streaming**: eliminated double synthesis (was ~40s overhead on tool calls); responses stream directly with in-flight tool detection
+- **Cognitive improvements**: agent weight floor 0.1→0.3, workspace age penalty, drive conflict evidence accumulation, meta-learning stagnation detection
+- **Curiosity fixes**: TTL-based topic cache, robust Brave MCP parser, `force=True` manual trigger, 5-min post-interaction silence
+- **Live progress status**: granular step messages during thinking (memory recall → specialist selection → synthesis → tool use)
+- **Safety metadata filter**: detects and discards OpenRouter moderation responses, prevents them entering episodic memory
 
 ### 0.4.11 — 2026-05-09
 - Centralized achieved-goal consolidation in `GoalStore.update_status` (single source of truth across API + curiosity paths)
