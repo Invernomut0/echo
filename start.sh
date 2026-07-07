@@ -92,7 +92,7 @@ done
 echo ""
 
 # ── frontend ─────────────────────────────────────────────────────────────────
-echo -e "${CYAN}▶  Frontend${RESET} →  http://localhost:5173"
+echo -e "${CYAN}▶  Frontend${RESET} →  http://0.0.0.0:5173  (LAN: check Vite output for your IP)"
 cd "$PROJECT_ROOT/frontend"
 # Installa dipendenze se mancanti (es. primo avvio su server)
 [[ ! -d node_modules ]] && echo '  [frontend] npm install…' && npm install --silent
