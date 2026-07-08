@@ -31,6 +31,12 @@ async def heartbeat_status():
     return pipeline.consolidation.heartbeat_status
 
 
+@router.get("/heartbeat-log")
+async def heartbeat_log(limit: int = Query(default=30, ge=1, le=50)):
+    """Return last N heartbeat events (newest first) with actions and results."""
+    return pipeline.consolidation.event_log[:limit]
+
+
 @router.post("/trigger-rem")
 async def trigger_rem():
     """Manually trigger the full REM (deep) consolidation + dream generation."""

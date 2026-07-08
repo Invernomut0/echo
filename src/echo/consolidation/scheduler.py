@@ -15,7 +15,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid
+from collections import deque
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from echo.core.event_bus import bus
 from echo.core.types import CognitiveEvent, ConsolidationReport, DreamEntry, EventTopic
@@ -47,6 +50,7 @@ class ConsolidationScheduler:
 
         # Status tracking
         self._last_report: ConsolidationReport | None = None
+        self._event_log: deque[dict[str, Any]] = deque(maxlen=50)
         self._last_light_at: datetime | None = None
         self._last_deep_at: datetime | None = None
         self._next_light_at: datetime | None = None
@@ -74,6 +78,18 @@ class ConsolidationScheduler:
                 report = await self._run_light()
                 self._last_report = report
                 self._last_light_at = datetime.now(timezone.utc)
+                self._event_log.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "light",
+                    "timestamp": self._last_light_at.isoformat(),
+                    "actions": {
+                        "memories_processed": report.memories_processed,
+                        "memories_promoted": report.memories_promoted,
+                        "memories_pruned": report.memories_pruned,
+                        "patterns_found": len(report.patterns_found),
+                        "patterns": report.patterns_found[:3] if report.patterns_found else [],
+                    },
+                })
                 self._next_light_at = self._last_light_at + timedelta(
                     seconds=self._light_interval
                 )
@@ -100,6 +116,18 @@ class ConsolidationScheduler:
                 report = await self._run_deep()
                 self._last_report = report
                 self._last_deep_at = datetime.now(timezone.utc)
+                self._event_log.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "deep",
+                    "timestamp": self._last_deep_at.isoformat(),
+                    "actions": {
+                        "memories_processed": report.memories_processed,
+                        "memories_promoted": report.memories_promoted,
+                        "memories_pruned": report.memories_pruned,
+                        "patterns_found": len(report.patterns_found),
+                        "patterns": report.patterns_found[:3] if report.patterns_found else [],
+                    },
+                })
                 self._next_deep_at = self._last_deep_at + timedelta(
                     seconds=self._deep_interval
                 )
@@ -137,6 +165,12 @@ class ConsolidationScheduler:
                 new_memories = await CuriosityEngine().run_cycle()
                 if new_memories:
                     logger.info("Curiosity acquired %d new semantic memories", new_memories)
+                self._event_log.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "curiosity",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "actions": {"memories_stored": new_memories or 0},
+                })
         except Exception as exc:  # noqa: BLE001
             logger.warning("Curiosity cycle error: %s", exc)
 
@@ -153,6 +187,15 @@ class ConsolidationScheduler:
                         "Initiative cycle: %d proactive message(s) generated",
                         len(initiatives),
                     )
+                    self._event_log.append({
+                        "id": str(uuid.uuid4())[:8],
+                        "type": "initiative",
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "actions": {
+                            "messages_generated": len(initiatives),
+                            "types": list({i.get("type", "unknown") for i in initiatives}),
+                        },
+                    })
         except Exception as exc:  # noqa: BLE001
             logger.warning("Initiative cycle error: %s", exc)
 
@@ -550,6 +593,13 @@ class ConsolidationScheduler:
     # ------------------------------------------------------------------
     # Status
     # ------------------------------------------------------------------
+
+    @property
+    def event_log(self) -> list[dict[str, Any]]:
+        """Return heartbeat event log newest-first (max 50 entries)."""
+        events = list(self._event_log)
+        events.reverse()
+        return events
 
     @property
     def last_report(self) -> ConsolidationReport | None:

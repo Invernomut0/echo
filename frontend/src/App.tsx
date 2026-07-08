@@ -17,10 +17,11 @@ import WikiGraphPanel from './components/WikiGraphPanel'
 import GoalsPanel from './components/GoalsPanel'
 import EchoMdPanel from './components/EchoMdPanel'
 import CronPanel from './components/CronPanel'
+import HeartbeatPanel from './components/HeartbeatPanel'
 import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'heartbeat' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -67,7 +68,9 @@ export default function App() {
         <span className="header-subtitle">Persistent Self-Modifying Cognitive Architecture</span>
         <div className="header-status">
           <div className={`status-dot ${error ? 'offline' : ''}`} />
-          {error ? 'Backend offline' : 'Connected'}
+          <span style={{ color: error ? '#ef4444' : '#22c55e', fontWeight: 600 }}>
+            {error ? 'Backend offline' : 'Connected'}
+          </span>
           {state && (
             <>
               <span style={{ marginLeft: 12, color: '#06b6d4' }}>
@@ -86,7 +89,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron', 'heartbeat'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -145,6 +148,9 @@ export default function App() {
         </div>
         <div style={{ display: tab === 'cron' ? 'contents' : 'none' }}>
           <CronPanel active={tab === 'cron'} />
+        </div>
+        <div style={{ display: tab === 'heartbeat' ? 'contents' : 'none' }}>
+          <HeartbeatPanel active={tab === 'heartbeat'} />
         </div>
         <div style={{ display: tab === 'setup' ? 'contents' : 'none' }}>
           <SetupPanel />
