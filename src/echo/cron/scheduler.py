@@ -295,7 +295,68 @@ class CronScheduler:
         # Update task metadata
         await self._post_run_update(task.id)
 
+        # Notify Telegram if task succeeded and produced content
+        if status == "success":
+            await self._notify_telegram(task, result, duration_ms)
+
         return result
+
+    async def _notify_telegram(
+        self,
+        task: "CronTaskRow",
+        result: dict[str, Any],
+        duration_ms: int,
+    ) -> None:
+        """Send cron task result to Telegram if there is something worth reporting."""
+        try:
+            from echo.integrations.telegram_send import broadcast  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            return
+
+        # Build a concise notification from whatever the executor returned
+        lines: list[str] = [f"⏰ *{task.name}*"]
+
+        # llm_task: show the LLM response
+        response = result.get("response")
+        if response and isinstance(response, str) and response.strip():
+            lines.append(response.strip()[:1800])
+
+        # curiosity cycle: show stored count
+        stored = result.get("result") if task.task_type == "curiosity_cycle" else None
+        if isinstance(stored, int) and stored > 0:
+            lines.append(f"📚 {stored} new memories stored")
+
+        # goal planning: show created/completed goals
+        goals_created = result.get("goals_created", 0)
+        goals_achieved = result.get("goals_achieved", 0)
+        if goals_created:
+            lines.append(f"🎯 {goals_created} new goal(s) created")
+        if goals_achieved:
+            lines.append(f"✅ {goals_achieved} goal(s) achieved")
+
+        # reflection: show insights count
+        insights = result.get("insights")
+        if isinstance(insights, list) and insights:
+            lines.append(f"💡 {len(insights)} insight(s): {'; '.join(str(i)[:80] for i in insights[:3])}")
+
+        # Generic fallback: if result has any string values, show them
+        if len(lines) == 1:  # only the header, nothing added
+            for v in result.values():
+                if isinstance(v, str) and v.strip() and v not in ("ok",):
+                    lines.append(v.strip()[:400])
+                    break
+
+        # Skip if nothing to say beyond the header
+        if len(lines) <= 1:
+            logger.debug("Cron Telegram notification skipped — no content to report for %s", task.name)
+            return
+
+        lines.append(f"_({duration_ms}ms)_")
+        text = "\n\n".join(lines)
+
+        sent = await broadcast(text)
+        if sent:
+            logger.info("Cron result sent to %d Telegram chat(s): %s", sent, task.name)
 
     # ------------------------------------------------------------------
     # Helpers
