@@ -49,9 +49,11 @@ async def lifespan(app: FastAPI):
     if settings.telegram_enabled:
         if settings.telegram_bot_token.strip():
             from echo.integrations.telegram_bot import TelegramBotBridge  # noqa: PLC0415
+            from echo.integrations.telegram_send import set_bridge  # noqa: PLC0415
 
             telegram_bridge = TelegramBotBridge()
             telegram_bridge.start()
+            set_bridge(telegram_bridge)
             logger.info("Telegram bridge started (bootstrap running in background)")
         else:
             logger.warning("Telegram is ENABLED in config but TELEGRAM_BOT_TOKEN is empty — bridge NOT started")

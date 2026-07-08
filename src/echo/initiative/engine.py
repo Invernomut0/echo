@@ -405,35 +405,14 @@ Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}"""
             pass
 
     async def _send_telegram(self, text: str) -> None:
-        """Send a message via Telegram bot."""
-        from echo.core.config import settings  # noqa: PLC0415
-
-        if not settings.telegram_enabled:
-            logger.debug("Telegram disabled — initiative not sent")
-            return
-
-        token = (settings.telegram_bot_token or "").strip()
-        if not token:
-            return
-
-        import httpx  # noqa: PLC0415
-
-        target_chats = list(settings.telegram_allowed_chat_ids)
-        if not target_chats:
-            return
-
-        base_url = settings.telegram_api_base_url.rstrip("/")
-        send_url = f"{base_url}/bot{token}/sendMessage"
-
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for chat_id in target_chats:
-                try:
-                    await client.post(
-                        send_url,
-                        json={"chat_id": int(chat_id), "text": text},
-                    )
-                except Exception as exc:  # noqa: BLE001
-                    logger.debug("Telegram send failed for %s: %s", chat_id, exc)
+        """Send a message via the centralised broadcast helper."""
+        try:
+            from echo.integrations.telegram_send import broadcast  # noqa: PLC0415
+            sent = await broadcast(text)
+            if sent == 0:
+                logger.debug("Telegram broadcast sent 0 chats (disabled or no chat_ids)")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Initiative Telegram send failed: %s", exc)
 
     async def _persist(self, initiative: dict[str, Any]) -> None:
         """Log initiative to SQLite."""

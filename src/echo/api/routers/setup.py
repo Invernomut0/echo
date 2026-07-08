@@ -390,6 +390,8 @@ async def _apply_telegram_bridge_runtime(request: Request) -> str:
         bridge = TelegramBotBridge()
         bridge.start()
         app.state.telegram_bridge = bridge
+        from echo.integrations.telegram_send import set_bridge as _set_bridge  # noqa: PLC0415
+        _set_bridge(bridge)
         logger.info("Telegram bridge runtime apply: running")
         return "running"
     except Exception as exc:  # noqa: BLE001

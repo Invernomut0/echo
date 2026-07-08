@@ -799,6 +799,17 @@ Respond ONLY with valid JSON:
             )
             stored_mem = await self.episodic.store(mem)
 
+            # Mirror web-chat response to Telegram (if enabled)
+            # Only for interactions that didn't originate FROM Telegram
+            # (Telegram bot sets its own response; web chat needs mirroring)
+            try:
+                from echo.integrations.telegram_send import broadcast as _tg_broadcast  # noqa: PLC0415
+                if settings.telegram_enabled and settings.telegram_bot_token.strip():
+                    _label = f"💬 [{user_input[:60]}{'…' if len(user_input) > 60 else ''}]\n\n"
+                    asyncio.create_task(_tg_broadcast(response, prefix=_label))
+            except Exception as _tge:  # noqa: BLE001
+                logger.debug("Telegram mirror failed: %s", _tge)
+
             # CO-EVOLUTION: interest profile inference — only for substantive exchanges
             if len(user_input) >= settings.wiki_update_min_chars:
                 try:
