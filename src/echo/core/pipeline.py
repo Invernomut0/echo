@@ -154,6 +154,7 @@ class CognitivePipeline:
         await self._bootstrap_beliefs_if_empty()
         await self.meta_tracker.load_latest()
         await metacognitive_model.startup()
+        self.consolidation.attach_pipeline(self)
         self.consolidation.start()
         self.decay.start()
         await mcp_manager.startup()

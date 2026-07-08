@@ -48,6 +48,9 @@ class ConsolidationScheduler:
         self._light_running = False  # guard: prevent overlapping light cycles
         self._deep_running = False   # guard: prevent overlapping deep cycles
 
+        # Pipeline reference (set by CognitivePipeline.startup via attach())
+        self._pipeline: Any | None = None
+
         # Status tracking
         self._last_report: ConsolidationReport | None = None
         self._event_log: deque[dict[str, Any]] = deque(maxlen=50)
@@ -549,6 +552,10 @@ class ConsolidationScheduler:
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
+
+    def attach_pipeline(self, pipeline: Any) -> None:
+        """Attach the CognitivePipeline reference so the proactive engine can read state."""
+        self._pipeline = pipeline
 
     def start(self) -> None:
         """Start both heartbeat loops."""
