@@ -892,10 +892,10 @@ class SemanticMemoryStore:
                 )
                 similar_pairs = []
 
-            # Guard: don't hammer the LLM on large memories stores
-            _MAX_PAIRS = 20
+            # Guard: cap pairs to avoid Cerebras 429 bursts during consolidation
+            _MAX_PAIRS = 5  # reduced from 20 — each pair = 1 LLM call, 20 caused 429 cascades
             if len(similar_pairs) > _MAX_PAIRS:
-                logger.info(
+                logger.debug(
                     "detect_and_clean_conflicts: capping %d pairs at %d for LLM budget",
                     len(similar_pairs),
                     _MAX_PAIRS,

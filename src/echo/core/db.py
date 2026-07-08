@@ -78,6 +78,7 @@ async def init_db() -> None:
     import echo.self_model.meta_state  # noqa: F401
     import echo.memory.goals  # noqa: F401
     import echo.cron.models  # noqa: F401
+    import echo.initiative.engine  # noqa: F401  — creates initiative_log table
 
     engine = _get_engine()
     async with engine.begin() as conn:

@@ -186,8 +186,6 @@ class ProactiveEchoEngine:
 
     async def _snapshot(self, pipeline: Any) -> dict[str, str]:
         """Build a compact state snapshot for the LLM evaluator."""
-        from echo.core.user_activity import _last_active as _la  # noqa: PLC0415
-
         meta = pipeline.meta_state
         d = meta.drives
 

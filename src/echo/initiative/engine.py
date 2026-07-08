@@ -25,6 +25,7 @@ from typing import Any
 
 from sqlalchemy import Column, Integer, String, Text, select
 
+from echo.core.config import settings
 from echo.core.db import Base, get_session_factory
 
 logger = logging.getLogger(__name__)
