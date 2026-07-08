@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.0 · **Last updated:** 2026-07-07
+**Version:** 0.5.1 · **Last updated:** 2026-07-08
 
 ---
 
@@ -268,6 +268,13 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.1 — 2026-07-08
+- **Telegram bidirectional**: web chat responses mirrored to Telegram; proactive heartbeat messages (insights/questions) delivered via shared bridge
+- **Cerebras provider**: free, ~1800 tok/s, `llama-3.3-70b` default
+- **Cerebras rate limiter**: global 1.1s/req token bucket prevents 429 bursts; agent timeout raised to 60s
+- **Cron fixes**: `llm_task` prompt fallback from description; `MemoryEntry` JSON serialization bug fixed; `_safe()` serializer on all run records
+- **Telegram stability**: `--reload-dir src/echo` prevents bridge kills on DB writes; `_bootstrap()` validates token + clears webhooks
 
 ### 0.5.0 — 2026-07-07
 - **Multi-provider support**: OpenCode, OpenRouter, LM Studio, Ollama, OpenAI, Groq, Anthropic, GitHub Copilot — switchable via Setup UI without restart

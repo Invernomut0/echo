@@ -174,8 +174,8 @@ async def _exec_llm_task(
             source_agent="cron",
         )
         entry.compute_salience()
-        mem_id = await pipeline.episodic.store(entry)
-        result["memory_id"] = mem_id
+        stored_entry = await pipeline.episodic.store(entry)
+        result["memory_id"] = stored_entry.id if hasattr(stored_entry, "id") else str(stored_entry)
 
     return result
 
@@ -209,8 +209,8 @@ async def _exec_memory_store(
         source_agent="cron",
     )
     entry.compute_salience()
-    mem_id = await pipeline.episodic.store(entry)
-    return {"status": "ok", "memory_id": mem_id}
+    stored = await pipeline.episodic.store(entry)
+    return {"status": "ok", "memory_id": stored.id if hasattr(stored, "id") else str(stored)}
 
 
 async def _exec_goal_reflect(

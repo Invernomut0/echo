@@ -278,7 +278,17 @@ class CronScheduler:
             if run_row:
                 run_row.finished_at = finished_at
                 run_row.status = status
-                run_row.result = json.dumps(result)
+
+                def _safe(v: object) -> object:
+                    if isinstance(v, (str, int, float, bool, type(None))):
+                        return v
+                    if isinstance(v, dict):
+                        return {k: _safe(w) for k, w in v.items()}  # type: ignore[return-value]
+                    if isinstance(v, (list, tuple)):
+                        return [_safe(w) for w in v]
+                    return str(v)
+
+                run_row.result = json.dumps(_safe(result))
                 run_row.duration_ms = duration_ms
                 await session.commit()
 

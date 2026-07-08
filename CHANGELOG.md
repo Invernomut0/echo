@@ -5,6 +5,34 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.1] — 2026-07-08
+
+### Telegram Bidirectional Messaging
+- **Web chat → Telegram mirror**: every web-UI response is now forwarded to all configured Telegram chat IDs (fire-and-forget, async)
+- **Proactive heartbeat messages**: initiative engine (insights, questions, reflections generated during idle heartbeat) now delivered via `telegram_send.broadcast()` — uses running bridge connection instead of creating a new HTTP client per message
+- `telegram_send.py`: new centralised broadcast module used by pipeline, initiative engine, and future senders; prefers open bridge connection, falls back to one-shot httpx
+- Bridge registered with `telegram_send.set_bridge()` at startup and on settings reload
+
+### Telegram Fixes
+- `--reload-dir src/echo`: restricts watchfiles to Python sources only — SQLite writes (every interaction) no longer trigger server restarts that kill the bridge mid-bootstrap
+- `_bootstrap()` in bridge: runs `getMe` (token validation) + `deleteWebhook` (removes conflicts with long-polling) before starting update loop
+- Clearer startup logs: `"Telegram bridge started"`, `"Telegram integration disabled"`, `"bot verified: @username"`
+- `GET /api/setup/telegram/status` endpoint: real-time bridge state
+
+### Cron Fixes
+- `llm_task` no longer crashes with `"requires a 'prompt'"` when task was created with description only — scheduler injects `_task_description` / `_task_name` as config fallbacks
+- `Object of type MemoryEntry is not JSON serializable` fixed: `episodic.store()` returns `MemoryEntry`; executor now extracts `.id` before storing in result dict
+- Scheduler: `_safe()` serializer wraps `json.dumps(result)` to prevent any future non-serializable objects from crashing run records
+
+### Cerebras / Rate Limiting
+- Global token-bucket rate limiter (`_RateLimiter`) in `llm_client.py` — all `chat()` and `stream_chat()` calls serialized at `llm_rate_limit_min_interval_s` (default 1.1s for Cerebras 60 RPM free tier)
+- `max_concurrent_agent_calls: 2 → 1` default for Cerebras compatibility
+- Agent timeout `_AGENT_TIMEOUT_S: 15 → 60s` — survives 57s Cerebras retry delays
+- Set `LLM_RATE_LIMIT_MIN_INTERVAL_S=0` in `.env` to disable for paid providers
+
+### Provider
+- **Cerebras** added: `cloud.cerebras.ai`, ~1800 tok/s, free tier, `llama-3.3-70b` default
+
 ## [0.5.0] — 2026-07-07
 
 ### New Providers
