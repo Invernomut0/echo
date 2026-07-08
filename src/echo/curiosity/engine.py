@@ -51,8 +51,9 @@ logger = logging.getLogger(__name__)
 # Cleared automatically after CLEAR_AFTER_CYCLES light heartbeats.
 # ---------------------------------------------------------------------------
 _recently_searched: dict[str, float] = {}  # topic → monotonic timestamp when last searched
-_RECENTLY_SEARCHED_TTL: float = 600.0      # 10 minutes — TTL-based expiry instead of cycle counter
+_RECENTLY_SEARCHED_TTL: float = 3600.0     # 1 hour — topics won't be re-searched within this window
 _cycle_counter: int = 0                    # incremented each cycle — used for ZPD scheduling
+_last_completed_memory_count: int = 0      # memory count at last completed cycle — skip if unchanged
 
 # ---------------------------------------------------------------------------
 # Activity log — persists the last _MAX_LOG cycle records in memory
@@ -61,12 +62,12 @@ _activity_log: list[dict[str, Any]] = []
 _MAX_LOG: int = 200
 _is_running: bool = False
 _last_goal_cycle_at: float = 0.0  # monotonic timestamp of last goal cycle
-_GOAL_CYCLE_COOLDOWN: float = 900.0  # 15 minutes between goal cycles
+_GOAL_CYCLE_COOLDOWN: float = 3600.0  # 1 hour between goal cycles
 
 # Global minimum interval between any two curiosity cycles.
 import time as _time_init
 _last_cycle_started_at: float = _time_init.monotonic()  # prevent cycle at startup
-_MIN_CYCLE_INTERVAL: float = 300.0  # 5 minutes minimum (matches heartbeat)
+_MIN_CYCLE_INTERVAL: float = 900.0  # 15 minutes minimum between cycles
 
 # Semaphore: limit concurrent LLM calls from curiosity/goal engine to 1
 _llm_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
@@ -572,7 +573,7 @@ Respond ONLY with valid JSON:
         Args:
             force: bypass idle/activity guards (for manual UI triggers).
         """
-        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at  # noqa: PLW0603
+        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at, _last_completed_memory_count  # noqa: PLW0603
 
         # ── Activity record ──────────────────────────────────────────────────
         started_at = datetime.now(timezone.utc)
@@ -634,6 +635,14 @@ Respond ONLY with valid JSON:
             if not recent_memories:
                 logger.debug("Curiosity skipped — no episodic memories yet")
                 return _done("skipped", "no_episodic_memories")
+
+            # Skip if memory count hasn't changed since last completed cycle (no new context)
+            if not force and len(recent_memories) == _last_completed_memory_count:
+                logger.debug(
+                    "Curiosity skipped — memory count unchanged (%d) since last cycle",
+                    _last_completed_memory_count,
+                )
+                return _done("skipped", "no_new_memories")
 
             # 2. Idle guard — skip if the user was active within the threshold
             most_recent = recent_memories[0]       # sorted DESC by created_at
@@ -860,8 +869,9 @@ Respond ONLY with valid JSON:
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Stimulus enqueue failed: %s", exc)
 
-            # 7. Increment cycle counter (used for ZPD cycle detection)
+            # 7. Increment cycle counter + record memory snapshot
             _cycle_counter += 1
+            _last_completed_memory_count = len(recent_memories)
 
             logger.info(
                 "Curiosity cycle done: %d new memories (topics: %s)",

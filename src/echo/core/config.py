@@ -112,11 +112,11 @@ class Settings(BaseSettings):
     # Default: 180 s = 3 minutes — aligned with the 5-min light heartbeat so
     # ECHO can research after just one idle heartbeat interval.
     # Override via ECHO_CURIOSITY_IDLE_THRESHOLD_SECONDS env var.
-    curiosity_idle_threshold_seconds: int = 300
-    curiosity_max_topics: int = 3          # LLM-extracted topics per cycle
-    curiosity_max_arxiv_results: int = 2   # papers per topic
-    curiosity_max_hn_results: int = 3      # news articles per topic
-    curiosity_max_brave_results: int = 3   # web results per topic (Brave Search MCP)
+    curiosity_idle_threshold_seconds: int = 900   # 15 min idle before curiosity fires
+    curiosity_max_topics: int = 1                 # topics per cycle (1 = minimal token usage)
+    curiosity_max_arxiv_results: int = 2          # papers per topic
+    curiosity_max_hn_results: int = 2             # news articles per topic
+    curiosity_max_brave_results: int = 2          # web results per topic (Brave Search MCP)
 
     # Self-prediction timeout (seconds).
     # On low-power devices (e.g. phone CPUs) the LLM call inside predict_response
