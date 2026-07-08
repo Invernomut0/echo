@@ -5,6 +5,19 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.3] — 2026-07-08
+
+### GitHub Wiki Auto-Sync
+- `WikiSyncEngine` (`memory/wiki_sync.py`): fetches all `.md` files from a configured GitHub repo and ingests them into ECHO's wiki
+  - Change detection via commit SHA — only processes new/modified files
+  - Content SHA per-file tracking avoids re-ingesting unchanged files
+  - Prioritizes changed files; processes up to `WIKI_SYNC_MAX_FILES` (default 50) per cycle
+  - Runs in light heartbeat loop respecting `WIKI_SYNC_INTERVAL_H` (default 24h) cooldown
+  - `📚 WIKI` badge (purple) in HeartbeatPanel with synced/changed/total_md stats
+- Config: `WIKI_SYNC_REPO` (default `https://github.com/Invernomut0/echo`), `WIKI_SYNC_ENABLED`, `WIKI_SYNC_INTERVAL_H`, `WIKI_SYNC_MAX_FILES`
+- Optional `GITHUB_TOKEN` raises GitHub API rate limit from 60 to 5000 req/hour
+- Fields exposed in Setup UI and `/api/setup/config`
+
 ## [0.5.2] — 2026-07-08
 
 ### Autonomous Self-Modification

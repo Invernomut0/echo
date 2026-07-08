@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.2 · **Last updated:** 2026-07-08
+**Version:** 0.5.3 · **Last updated:** 2026-07-08
 
 ---
 
@@ -268,6 +268,10 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.3 — 2026-07-08
+- **GitHub wiki auto-sync**: ECHO fetches all `.md` files from a configured repo (default: `Invernomut0/echo`), detects changes by commit SHA, ingests into wiki automatically every 24h
+- `📚 WIKI` badge in HeartbeatPanel; config via `WIKI_SYNC_REPO`, `WIKI_SYNC_INTERVAL_H`, `GITHUB_TOKEN`
 
 ### 0.5.2 — 2026-07-08
 - **Autonomous self-modification**: ECHO can improve its own code, commit + push, notify Telegram, create notes
