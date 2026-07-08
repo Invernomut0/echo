@@ -111,6 +111,32 @@ def _build_openai_client() -> AsyncOpenAI:
     )
 
 
+class _RateLimiter:
+    """Simple async token-bucket rate limiter.
+
+    Used to stay under provider RPM limits (e.g. Cerebras free: 60 RPM = 1/sec).
+    Configured per-provider via settings.llm_rate_limit_rps (0 = disabled).
+    """
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._last_call: float = 0.0
+
+    async def acquire(self) -> None:
+        min_interval = settings.llm_rate_limit_min_interval_s
+        if min_interval <= 0:
+            return
+        async with self._lock:
+            now = time.monotonic()
+            wait = min_interval - (now - self._last_call)
+            if wait > 0:
+                await asyncio.sleep(wait)
+            self._last_call = time.monotonic()
+
+
+_rate_limiter = _RateLimiter()
+
+
 def _build_provider_client() -> AsyncOpenAI:
     """Build an OpenAI-compatible async client for the currently selected provider."""
     p = settings.llm_provider
@@ -434,6 +460,7 @@ class LLMClient:
         model: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> str:
+        await _rate_limiter.acquire()  # enforce per-provider RPM limit
         p = settings.llm_provider
         # Verify model is loaded in LM Studio before making any generation request.
         # This prevents JIT model loading (which causes Channel Errors and latency spikes).
@@ -466,6 +493,7 @@ class LLMClient:
         max_tokens: int = 1024,
         model: str | None = None,
     ) -> AsyncGenerator[str, None]:
+        await _rate_limiter.acquire()
         p = settings.llm_provider
         if p == "copilot":
             async for delta in self._copilot_stream_chat(

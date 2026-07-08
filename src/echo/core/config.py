@@ -131,6 +131,11 @@ class Settings(BaseSettings):
     # Keep at 1-2 for Cerebras free tier (60 RPM limit) to avoid 429s.
     max_concurrent_agent_calls: int = 1
 
+    # Minimum seconds between LLM chat calls (0 = disabled).
+    # Set to 1.1 for Cerebras free tier (60 RPM = 1/sec, with 0.1s headroom).
+    # Set to 0 for fast/paid providers (OpenAI, Groq, etc.).
+    llm_rate_limit_min_interval_s: float = 1.1
+
     # Drive scoring via LLM runs every N interactions (1 = every turn).
     # Increase to 3+ on slow local backends to reduce LM Studio contention.
     # Between scored turns the previous drive values are reused with slight decay.

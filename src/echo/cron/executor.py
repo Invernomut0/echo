@@ -144,6 +144,9 @@ async def _exec_llm_task(
 
     prompt = config.get("prompt")
     if not prompt:
+        # Fall back to task description or name if no explicit prompt set
+        prompt = config.get("_task_description") or config.get("_task_name")
+    if not prompt:
         raise ValueError("llm_task requires a 'prompt' in task_config")
 
     messages: list[dict[str, str]] = []

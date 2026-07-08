@@ -136,6 +136,7 @@ class CognitivePipeline:
         self._last_pipeline_trace: dict[str, Any] = {}  # pipeline trace for UI visualisation
         # Track fire-and-forget tasks so we can await them on graceful shutdown
         self._pending_tasks: set[asyncio.Task] = set()
+        self._interact_lock = asyncio.Lock()  # serialize concurrent interactions (web + telegram)
         self._ready = False
 
     async def startup(self) -> None:

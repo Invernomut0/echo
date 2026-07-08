@@ -258,6 +258,9 @@ class CronScheduler:
             if self._pipeline is None:
                 raise RuntimeError("CronScheduler has no pipeline attached")
             config = json.loads(task.task_config or "{}")
+            # Inject task metadata so executors can use description/name as fallbacks
+            config.setdefault("_task_name", task.name)
+            config.setdefault("_task_description", task.description or "")
             result = await execute_task(task.task_type, config, self._pipeline)
         except Exception as exc:  # noqa: BLE001
             status = "error"
