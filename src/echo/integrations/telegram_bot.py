@@ -140,7 +140,62 @@ class TelegramBotBridge:
         if settings.telegram_enabled:
             logger.info("Telegram bridge stopped")
 
+    async def _bootstrap(self) -> bool:
+        """Verify token + delete any active webhook before polling starts.
+
+        Returns True if bootstrap succeeded, False if the token is invalid.
+        Long-polling and active webhooks are mutually exclusive — any existing
+        webhook must be removed first or getUpdates returns nothing silently.
+        """
+        if self._client is None:
+            return False
+
+        # 1. Verify token via getMe
+        try:
+            r = await self._client.get(f"{self._base_url}/getMe")
+            r.raise_for_status()
+            data = r.json()
+            if not data.get("ok"):
+                logger.error(
+                    "Telegram token invalid — getMe returned: %s", data
+                )
+                return False
+            bot = data.get("result", {})
+            logger.info(
+                "Telegram bot verified: @%s (id=%s)",
+                bot.get("username", "?"),
+                bot.get("id", "?"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Telegram bootstrap getMe failed: %s", exc)
+            return False
+
+        # 2. Delete any active webhook (silently conflicts with long-polling)
+        try:
+            r = await self._client.post(
+                f"{self._base_url}/deleteWebhook",
+                json={"drop_pending_updates": False},
+            )
+            data = r.json()
+            if data.get("ok"):
+                logger.info("Telegram webhook cleared (long-polling mode active)")
+            else:
+                logger.debug("deleteWebhook returned: %s", data)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Telegram deleteWebhook failed (non-fatal): %s", exc)
+
+        return True
+
     async def _run_loop(self) -> None:
+        ok = await self._bootstrap()
+        if not ok:
+            logger.error(
+                "Telegram bridge bootstrap failed — polling loop will not start. "
+                "Check TELEGRAM_BOT_TOKEN and network connectivity."
+            )
+            self._running = False
+            return
+
         while self._running:
             try:
                 updates = await self._fetch_updates()

@@ -555,6 +555,26 @@ async def test_lmstudio_connection(base_url: str | None = None) -> dict:
         return {"ok": False, "error": str(exc)}
 
 
+@router.get("/telegram/status")
+async def telegram_status(request: Request) -> dict:
+    """Return current Telegram bridge runtime state."""
+    bridge = getattr(request.app.state, "telegram_bridge", None)
+    if bridge is None:
+        return {
+            "running": False,
+            "enabled_in_config": settings.telegram_enabled,
+            "has_token": bool(settings.telegram_bot_token.strip()),
+            "reason": "bridge_not_started",
+        }
+    return {
+        "running": getattr(bridge, "_running", False),
+        "enabled_in_config": settings.telegram_enabled,
+        "has_token": bool(settings.telegram_bot_token.strip()),
+        "allowed_chat_ids": settings.telegram_allowed_chat_ids,
+        "offset": getattr(bridge, "_offset", 0),
+    }
+
+
 @router.post("/telegram/test")
 async def test_telegram_connection(payload: TelegramTestPayload) -> dict:
     """Verify Telegram bot API reachability and token validity via getMe."""
