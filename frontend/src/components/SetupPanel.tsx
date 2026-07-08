@@ -116,7 +116,7 @@ function ProviderSection({
     { id: 'opencode',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenCode',        desc: 'Cloud · Big Pickle & more' },
     { id: 'openrouter', icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenRouter',      desc: 'Cloud · 300+ models' },
     { id: 'cerebras',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Cerebras',        desc: 'Cloud · Free · 1800 tok/s' },
-    { id: 'unsloth',    icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Unsloth Studio',  desc: 'Cloud · Fine-tuned models' },
+    { id: 'unsloth',    icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Unsloth Studio',  desc: 'Local · localhost:2242' },
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
     { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
@@ -448,9 +448,9 @@ function UnslothSection({ config, onSave }: { config: SetupConfig; onSave: (u: P
     <ApiKeySection
       icon={<Zap size={18} />}
       title="Unsloth Studio"
-      subtitle="studio.unsloth.ai — fast fine-tuned model inference. Get your key at unsloth.ai/studio"
+      subtitle="Local OpenAI-compatible server. Start with: unsloth-studio serve (default port 2242)"
       apiKeyLabel="API Key"
-      apiKeyPlaceholder="sk-..."
+      apiKeyPlaceholder="unsloth (local server ignores key)"
       apiKeyValue={config.unsloth_api_key}
       modelLabel="Model"
       modelValue={config.unsloth_model || 'unsloth/Llama-3.2-3B-Instruct'}

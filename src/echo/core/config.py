@@ -66,11 +66,12 @@ class Settings(BaseSettings):
     cerebras_model: str = "llama-3.3-70b"
     cerebras_base_url: str = "https://api.cerebras.ai/v1"
 
-    # Unsloth Studio (studio.unsloth.ai — OpenAI-compatible inference)
-    # Docs: https://unsloth.ai/studio
-    unsloth_api_key: str = ""
+    # Unsloth Studio (local OpenAI-compatible inference server)
+    # Start with: unsloth-studio serve  (default port 2242)
+    # Docs: https://github.com/unslothai/unsloth
+    unsloth_api_key: str = "unsloth"   # local server ignores the key, but client requires a value
     unsloth_model: str = "unsloth/Llama-3.2-3B-Instruct"
-    unsloth_base_url: str = "https://api.unsloth.ai/v1"
+    unsloth_base_url: str = "http://localhost:2242/v1"
 
     # OpenAI
     openai_api_key: str = ""
