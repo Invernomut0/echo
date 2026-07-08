@@ -242,6 +242,27 @@ class ConsolidationScheduler:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Proactive engine error: %s", exc)
 
+        # Autonomous self-modification (6h cooldown — effectively max 4×/day)
+        if self._pipeline is not None:
+            try:
+                from echo.core.user_activity import is_active as _ua_sm  # noqa: PLC0415
+                if not _ua_sm():
+                    from echo.self_modification.engine import self_modification_engine  # noqa: PLC0415
+                    mod = await self_modification_engine.evaluate_and_modify(self._pipeline)
+                    if mod:
+                        self._event_log.append({
+                            "id": str(uuid.uuid4())[:8],
+                            "type": "selfmod",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "actions": {
+                                "file": mod.get("file", ""),
+                                "description": mod.get("description", ""),
+                                "pushed": mod.get("pushed", False),
+                            },
+                        })
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Self-modification engine error: %s", exc)
+
         # Spurious / conflicting semantic memory cleanup
         try:
             from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415
