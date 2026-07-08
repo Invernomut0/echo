@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     wiki_sync_max_files: int = 50         # max .md files per sync cycle
 
     # LLM provider selection
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras"] = "opencode"
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras", "unsloth"] = "opencode"
     copilot_model: str = "gpt-4o"
 
     # OpenCode (opencode.ai — OpenAI-compatible zen gateway)
@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     cerebras_api_key: str = ""
     cerebras_model: str = "llama-3.3-70b"
     cerebras_base_url: str = "https://api.cerebras.ai/v1"
+
+    # Unsloth Studio (studio.unsloth.ai — OpenAI-compatible inference)
+    # Docs: https://unsloth.ai/studio
+    unsloth_api_key: str = ""
+    unsloth_model: str = "unsloth/Llama-3.2-3B-Instruct"
+    unsloth_base_url: str = "https://api.unsloth.ai/v1"
 
     # OpenAI
     openai_api_key: str = ""

@@ -140,6 +140,12 @@ _rate_limiter = _RateLimiter()
 def _build_provider_client() -> AsyncOpenAI:
     """Build an OpenAI-compatible async client for the currently selected provider."""
     p = settings.llm_provider
+    if p == "unsloth":
+        return AsyncOpenAI(
+            base_url=settings.unsloth_base_url,
+            api_key=settings.unsloth_api_key or "sk-none",
+            http_client=_http_client,
+        )
     if p == "cerebras":
         return AsyncOpenAI(
             base_url=settings.cerebras_base_url,
@@ -184,6 +190,8 @@ def _build_provider_client() -> AsyncOpenAI:
 def _provider_model() -> str:
     """Return the model name for the currently selected provider."""
     p = settings.llm_provider
+    if p == "unsloth":
+        return settings.unsloth_model
     if p == "cerebras":
         return settings.cerebras_model
     if p == "openrouter":

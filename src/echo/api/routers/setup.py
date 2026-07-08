@@ -151,7 +151,7 @@ class ConfigPayload(BaseModel):
     lm_studio_model: str | None = None
     lm_studio_embedding_model: str | None = None
     github_token: str | None = None
-    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras"] | None = None
+    llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras", "unsloth"] | None = None
     copilot_model: str | None = None
     # OpenCode
     opencode_api_key: str | None = None
@@ -165,6 +165,10 @@ class ConfigPayload(BaseModel):
     cerebras_api_key: str | None = None
     cerebras_model: str | None = None
     cerebras_base_url: str | None = None
+    # Unsloth Studio
+    unsloth_api_key: str | None = None
+    unsloth_model: str | None = None
+    unsloth_base_url: str | None = None
     # Wiki sync
     wiki_sync_repo: str | None = None
     wiki_sync_enabled: bool | None = None
@@ -260,6 +264,10 @@ async def get_config() -> dict:
         "cerebras_api_key": "***" if settings.cerebras_api_key else "",
         "cerebras_model": settings.cerebras_model,
         "cerebras_base_url": settings.cerebras_base_url,
+        # Unsloth Studio
+        "unsloth_api_key": "***" if settings.unsloth_api_key else "",
+        "unsloth_model": settings.unsloth_model,
+        "unsloth_base_url": settings.unsloth_base_url,
         # OpenAI
         "openai_api_key": "***" if settings.openai_api_key else "",
         "openai_model": settings.openai_model,
@@ -312,6 +320,9 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
         "CEREBRAS_API_KEY": payload.cerebras_api_key,
         "CEREBRAS_MODEL": payload.cerebras_model,
         "CEREBRAS_BASE_URL": payload.cerebras_base_url,
+        "UNSLOTH_API_KEY": payload.unsloth_api_key,
+        "UNSLOTH_MODEL": payload.unsloth_model,
+        "UNSLOTH_BASE_URL": payload.unsloth_base_url,
         "WIKI_SYNC_REPO": payload.wiki_sync_repo,
         "WIKI_SYNC_ENABLED": payload.wiki_sync_enabled,
         "WIKI_SYNC_INTERVAL_H": payload.wiki_sync_interval_h,

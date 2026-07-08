@@ -116,6 +116,7 @@ function ProviderSection({
     { id: 'opencode',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenCode',        desc: 'Cloud · Big Pickle & more' },
     { id: 'openrouter', icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenRouter',      desc: 'Cloud · 300+ models' },
     { id: 'cerebras',   icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Cerebras',        desc: 'Cloud · Free · 1800 tok/s' },
+    { id: 'unsloth',    icon: <Zap size={22} className="provider-tile-icon" />,     name: 'Unsloth Studio',  desc: 'Cloud · Fine-tuned models' },
     { id: 'lm_studio',  icon: <Server size={22} className="provider-tile-icon" />,  name: 'LM Studio',       desc: 'Local · OpenAI-compatible' },
     { id: 'ollama',     icon: <Power size={22} className="provider-tile-icon" />,   name: 'Ollama',          desc: 'Local · llama3, mistral…' },
     { id: 'openai',     icon: <Zap size={22} className="provider-tile-icon" />,     name: 'OpenAI',          desc: 'Cloud · GPT-4o, o3…' },
@@ -437,6 +438,33 @@ function CerebrasSection({ config, onSave }: { config: SetupConfig; onSave: (u: 
       ]}
       onSave={async (apiKey, model) => {
         await onSave({ cerebras_api_key: apiKey || undefined, cerebras_model: model, cerebras_base_url: config.cerebras_base_url })
+      }}
+    />
+  )
+}
+
+function UnslothSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  return (
+    <ApiKeySection
+      icon={<Zap size={18} />}
+      title="Unsloth Studio"
+      subtitle="studio.unsloth.ai — fast fine-tuned model inference. Get your key at unsloth.ai/studio"
+      apiKeyLabel="API Key"
+      apiKeyPlaceholder="sk-..."
+      apiKeyValue={config.unsloth_api_key}
+      modelLabel="Model"
+      modelValue={config.unsloth_model || 'unsloth/Llama-3.2-3B-Instruct'}
+      modelPlaceholder="unsloth/Llama-3.2-3B-Instruct"
+      modelSuggestions={[
+        'unsloth/Llama-3.2-3B-Instruct',
+        'unsloth/Llama-3.2-1B-Instruct',
+        'unsloth/Llama-3.1-8B-Instruct',
+        'unsloth/mistral-7b-instruct-v0.3',
+        'unsloth/Qwen2.5-7B-Instruct',
+        'unsloth/gemma-2-9b-it',
+      ]}
+      onSave={async (apiKey, model) => {
+        await onSave({ unsloth_api_key: apiKey || undefined, unsloth_model: model, unsloth_base_url: config.unsloth_base_url })
       }}
     />
   )
@@ -1646,6 +1674,7 @@ export default function SetupPanel() {
         {activeProvider === 'opencode'    && <OpenCodeSection config={config} onSave={handleSave} />}
         {activeProvider === 'openrouter'  && <OpenRouterSection config={config} onSave={handleSave} />}
         {activeProvider === 'cerebras'    && <CerebrasSection config={config} onSave={handleSave} />}
+        {activeProvider === 'unsloth'     && <UnslothSection config={config} onSave={handleSave} />}
         {activeProvider === 'lm_studio'  && <LMStudioSection config={config} onSave={handleSave} />}
         {activeProvider === 'openai'      && <OpenAISection config={config} onSave={handleSave} />}
         {activeProvider === 'groq'        && <GroqSection config={config} onSave={handleSave} />}
