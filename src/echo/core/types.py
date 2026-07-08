@@ -272,6 +272,10 @@ class ConsolidationReport(BaseModel):
     total_active: int = 0
     started_at: datetime = Field(default_factory=_now)
     finished_at: datetime | None = None
+    # Detailed snapshots for UI inspection
+    promoted_snippets: list[str] = Field(default_factory=list)   # first 120 chars of each promoted memory
+    pruned_snippets: list[str] = Field(default_factory=list)     # first 120 chars of pruned/dormant memories
+    deduped_pairs: list[tuple[str, str]] = Field(default_factory=list)  # (winner, loser) content snippets
 
 
 class DreamEntry(BaseModel):

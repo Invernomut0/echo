@@ -108,12 +108,47 @@ function EventRow({ ev }: { ev: HeartbeatEvent }) {
           </div>
           {patterns && patterns.length > 0 && (
             <div>
-              <span style={{ color: '#64748b' }}>patterns: </span>
-              {patterns.map((p, i) => (
-                <span key={i} style={{ marginRight: 6, color: '#94a3b8' }}>"{p}"</span>
+              <span style={{ color: '#64748b' }}>🔍 patterns: </span>
+              {patterns.map((p: string, i: number) => (
+                <span key={i} style={{ marginRight: 8, color: '#c084fc' }}>"{p}"</span>
               ))}
             </div>
           )}
+
+          {/* Promoted memories */}
+          {(ev.actions.promoted_snippets as string[] | undefined)?.length! > 0 && (
+            <div>
+              <div style={{ color: '#22c55e', marginBottom: 2 }}>⬆ promoted to semantic:</div>
+              {(ev.actions.promoted_snippets as string[]).map((s: string, i: number) => (
+                <div key={i} style={{ paddingLeft: 12, color: '#86efac', fontStyle: 'italic' }}>· {s}…</div>
+              ))}
+            </div>
+          )}
+
+          {/* Pruned / dormant memories */}
+          {(ev.actions.pruned_snippets as string[] | undefined)?.length! > 0 && (
+            <div>
+              <div style={{ color: '#f87171', marginBottom: 2 }}>🗑 pruned / dormant:</div>
+              {(ev.actions.pruned_snippets as string[]).map((s: string, i: number) => (
+                <div key={i} style={{ paddingLeft: 12, color: '#fca5a5', fontStyle: 'italic' }}>· {s}…</div>
+              ))}
+            </div>
+          )}
+
+          {/* Deduped pairs */}
+          {(ev.actions.deduped_pairs as Array<{winner:string,loser:string}> | undefined)?.length! > 0 && (
+            <div>
+              <div style={{ color: '#fb923c', marginBottom: 2 }}>♻ deduped pairs (winner kept):</div>
+              {(ev.actions.deduped_pairs as Array<{winner:string,loser:string}>).map((p, i) => (
+                <div key={i} style={{ paddingLeft: 12, fontSize: 10 }}>
+                  <span style={{ color: '#86efac' }}>✓ {p.winner}…</span>
+                  {' → '}
+                  <span style={{ color: '#f87171', textDecoration: 'line-through' }}>{p.loser}…</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {types && types.length > 0 && (
             <div>
               <span style={{ color: '#64748b' }}>initiative types: </span>

@@ -86,8 +86,13 @@ class ConsolidationScheduler:
                         "memories_processed": report.memories_processed,
                         "memories_promoted": report.memories_promoted,
                         "memories_pruned": report.memories_pruned,
+                        "episodic_deduped": report.episodic_deduped,
+                        "semantic_deduped": report.semantic_deduped,
                         "patterns_found": len(report.patterns_found),
-                        "patterns": report.patterns_found[:3] if report.patterns_found else [],
+                        "patterns": report.patterns_found,
+                        "promoted_snippets": report.promoted_snippets,
+                        "pruned_snippets": report.pruned_snippets,
+                        "deduped_pairs": [{"winner": w, "loser": l} for w, l in report.deduped_pairs[:5]],
                     },
                 })
                 self._next_light_at = self._last_light_at + timedelta(
@@ -124,8 +129,13 @@ class ConsolidationScheduler:
                         "memories_processed": report.memories_processed,
                         "memories_promoted": report.memories_promoted,
                         "memories_pruned": report.memories_pruned,
+                        "episodic_deduped": report.episodic_deduped,
+                        "semantic_deduped": report.semantic_deduped,
                         "patterns_found": len(report.patterns_found),
-                        "patterns": report.patterns_found[:3] if report.patterns_found else [],
+                        "patterns": report.patterns_found,
+                        "promoted_snippets": report.promoted_snippets,
+                        "pruned_snippets": report.pruned_snippets,
+                        "deduped_pairs": [{"winner": w, "loser": l} for w, l in report.deduped_pairs[:5]],
                     },
                 })
                 self._next_deep_at = self._last_deep_at + timedelta(

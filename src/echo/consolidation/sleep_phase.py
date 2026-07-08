@@ -204,6 +204,7 @@ class ConsolidationPhase:
         if not pairs:
             return 0, 0
 
+        id_to_mem = {m.id: m for m in memories}
         loser_ids = list({loser for _, loser, _ in pairs})
         logger.info(
             "[Synaptic pruning·episodic] %d duplicate pair(s) (sim≥%.2f) — "
@@ -219,7 +220,15 @@ class ConsolidationPhase:
         else:
             pruned = await self._episodic.mark_dormant_by_ids(loser_ids)
 
-        return len(pairs), pruned
+        # Build deduped pair snippets for UI
+        pair_snippets = []
+        for winner_id, loser_id, _sim in pairs[:10]:
+            w = id_to_mem.get(winner_id)
+            l = id_to_mem.get(loser_id)
+            if w and l:
+                pair_snippets.append((w.content[:80], l.content[:80]))
+
+        return len(pairs), pruned, pair_snippets
 
     async def _dedup_semantic(self, *, hard_prune: bool) -> tuple[int, int]:
         """Synaptic pruning for semantic memories.
@@ -298,7 +307,8 @@ class ConsolidationPhase:
             return report
 
         # 2. Synaptic pruning — episodic deduplication
-        ep_pairs, ep_pruned = await self._dedup_episodic(memories, hard_prune=prune)
+        ep_pairs, ep_pruned, ep_pair_snippets = await self._dedup_episodic(memories, hard_prune=prune)
+        report.deduped_pairs.extend(ep_pair_snippets)
 
         # Refresh list after dedup (dormant ones excluded by default)
         if ep_pruned:
@@ -315,6 +325,7 @@ class ConsolidationPhase:
                     tags=mem.tags,
                 )
                 promoted += 1
+                report.promoted_snippets.append(mem.content[:120])
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Semantic promotion failed: %s", exc)
         report.memories_promoted = promoted
