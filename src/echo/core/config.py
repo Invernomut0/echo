@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     # Default: 180 s = 3 minutes — aligned with the 5-min light heartbeat so
     # ECHO can research after just one idle heartbeat interval.
     # Override via ECHO_CURIOSITY_IDLE_THRESHOLD_SECONDS env var.
+    # Consolidation heartbeat intervals
+    consolidation_light_interval_s: int = 300    # light cycle every 5 min
+    consolidation_deep_interval_s: int = 43_200  # deep/REM cycle every 12 h
+
     curiosity_idle_threshold_seconds: int = 900   # 15 min idle before curiosity fires
     curiosity_max_topics: int = 1                 # topics per cycle (1 = minimal token usage)
     curiosity_max_arxiv_results: int = 2          # papers per topic

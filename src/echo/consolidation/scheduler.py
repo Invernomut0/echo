@@ -25,7 +25,7 @@ from echo.core.types import CognitiveEvent, ConsolidationReport, DreamEntry, Eve
 
 logger = logging.getLogger(__name__)
 
-# Default intervals
+# Default intervals — overridable via CONSOLIDATION_LIGHT_INTERVAL_S / CONSOLIDATION_DEEP_INTERVAL_S
 LIGHT_INTERVAL = 300     # 5 minutes
 DEEP_INTERVAL = 43_200   # 12 hours
 

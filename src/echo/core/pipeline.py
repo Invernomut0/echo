@@ -127,7 +127,10 @@ class CognitivePipeline:
         self.orchestrator = Orchestrator()
         self.reflection = ReflectionEngine(self.identity_graph)
         self.plasticity = PlasticityAdapter()
-        self.consolidation = ConsolidationScheduler()
+        self.consolidation = ConsolidationScheduler(
+            light_interval=settings.consolidation_light_interval_s,
+            deep_interval=settings.consolidation_deep_interval_s,
+        )
         self.decay = DecayScheduler()
         self.learning = LearningEngine()  # module 16: deep real-time learning
         self.cron = CronScheduler()
