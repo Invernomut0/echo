@@ -314,16 +314,24 @@ class ConsolidationPhase:
         if ep_pruned:
             memories = await self._episodic.get_all(limit=500)
 
-        # 3. Promote high-salience episodic → semantic
+        # 3. Promote high-salience episodic → semantic (skip already-promoted content)
         high_salience = [m for m in memories if m.salience >= 0.7]
+        # Build set of content already in semantic to avoid re-promoting same memories every cycle
+        try:
+            existing_semantic = {e.content.strip() for e in await self._semantic.get_all()}
+        except Exception:  # noqa: BLE001
+            existing_semantic = set()
         promoted = 0
         for mem in high_salience[:20]:
+            if mem.content.strip() in existing_semantic:
+                continue  # already promoted in a previous cycle
             try:
                 await self._semantic.store(
                     content=mem.content,
                     salience=mem.salience,
                     tags=mem.tags,
                 )
+                existing_semantic.add(mem.content.strip())
                 promoted += 1
                 report.promoted_snippets.append(mem.content[:120])
             except Exception as exc:  # noqa: BLE001

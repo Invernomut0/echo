@@ -175,12 +175,25 @@ class ConsolidationScheduler:
                 new_memories = await CuriosityEngine().run_cycle()
                 if new_memories:
                     logger.info("Curiosity acquired %d new semantic memories", new_memories)
-                self._event_log.append({
+                # Log curiosity event; include skip reason when known
+                curiosity_log: dict[str, Any] = {
                     "id": str(uuid.uuid4())[:8],
                     "type": "curiosity",
                     "timestamp": datetime.now(timezone.utc).isoformat(),
                     "actions": {"memories_stored": new_memories or 0},
-                })
+                }
+                # Retrieve skip reason from activity log if available
+                try:
+                    from echo.curiosity.engine import _activity_log as _clog  # noqa: PLC0415
+                    if _clog:
+                        last = _clog[-1]
+                        if last.get("status") == "skipped":
+                            curiosity_log["actions"]["skip_reason"] = last.get("skip_reason", "")
+                        elif last.get("status") == "completed":
+                            curiosity_log["actions"]["topics"] = last.get("topics_searched", [])
+                except Exception:  # noqa: BLE001
+                    pass
+                self._event_log.append(curiosity_log)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Curiosity cycle error: %s", exc)
 

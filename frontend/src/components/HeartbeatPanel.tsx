@@ -149,6 +149,23 @@ function EventRow({ ev }: { ev: HeartbeatEvent }) {
             </div>
           )}
 
+          {/* Curiosity skip reason */}
+          {(ev.actions.skip_reason as string | undefined) && (
+            <div style={{ color: '#64748b', fontStyle: 'italic' }}>
+              ⏭ skipped: {ev.actions.skip_reason as string}
+            </div>
+          )}
+
+          {/* Curiosity topics searched */}
+          {(ev.actions.topics as string[] | undefined)?.length! > 0 && (
+            <div>
+              <span style={{ color: '#64748b' }}>🔎 searched: </span>
+              {(ev.actions.topics as string[]).map((t: string, i: number) => (
+                <span key={i} style={{ marginRight: 8, color: '#fbbf24' }}>"{t}"</span>
+              ))}
+            </div>
+          )}
+
           {types && types.length > 0 && (
             <div>
               <span style={{ color: '#64748b' }}>initiative types: </span>
