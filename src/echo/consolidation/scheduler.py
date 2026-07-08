@@ -263,6 +263,20 @@ class ConsolidationScheduler:
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Self-modification engine error: %s", exc)
 
+        # GitHub wiki sync — runs every WIKI_SYNC_INTERVAL_H hours (default 24h)
+        try:
+            from echo.memory.wiki_sync import wiki_sync  # noqa: PLC0415
+            sync_result = await wiki_sync.sync()
+            if sync_result.get("synced", 0) > 0 or sync_result.get("error"):
+                self._event_log.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "wiki_sync",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "actions": sync_result,
+                })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Wiki sync error: %s", exc)
+
         # Spurious / conflicting semantic memory cleanup
         try:
             from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415

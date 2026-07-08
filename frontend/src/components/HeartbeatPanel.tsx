@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 interface HeartbeatEvent {
   id: string
-  type: 'light' | 'deep' | 'curiosity' | 'initiative' | 'cron' | 'proactive' | 'selfmod'
+  type: 'light' | 'deep' | 'curiosity' | 'initiative' | 'cron' | 'proactive' | 'selfmod' | 'wiki_sync'
   timestamp: string
   actions: Record<string, unknown>
 }
@@ -14,7 +14,8 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string }> 
   initiative: { label: 'INITIATIVE', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
   cron:       { label: 'CRON',       color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
   proactive:  { label: 'PROACTIVE', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
-  selfmod:    { label: '🔧 SELFMOD', color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+  selfmod:    { label: '🔧 SELFMOD',  color: '#f97316', bg: 'rgba(249,115,22,0.12)' },
+  wiki_sync:  { label: '📚 WIKI',    color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)' },
 }
 
 function relativeTime(iso: string): string {

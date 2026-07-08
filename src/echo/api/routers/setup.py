@@ -165,6 +165,10 @@ class ConfigPayload(BaseModel):
     cerebras_api_key: str | None = None
     cerebras_model: str | None = None
     cerebras_base_url: str | None = None
+    # Wiki sync
+    wiki_sync_repo: str | None = None
+    wiki_sync_enabled: bool | None = None
+    wiki_sync_interval_h: int | None = None
     # OpenAI
     openai_api_key: str | None = None
     openai_model: str | None = None
@@ -280,6 +284,9 @@ async def get_config() -> dict:
         "telegram_history_turns": settings.telegram_history_turns,
         "telegram_max_reply_chars": settings.telegram_max_reply_chars,
         "has_telegram_token": bool(settings.telegram_bot_token),
+        "wiki_sync_repo": settings.wiki_sync_repo,
+        "wiki_sync_enabled": settings.wiki_sync_enabled,
+        "wiki_sync_interval_h": settings.wiki_sync_interval_h,
         # Never return the actual token value to the frontend
         "has_github_token": bool(settings.github_token),
     }
@@ -305,6 +312,9 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
         "CEREBRAS_API_KEY": payload.cerebras_api_key,
         "CEREBRAS_MODEL": payload.cerebras_model,
         "CEREBRAS_BASE_URL": payload.cerebras_base_url,
+        "WIKI_SYNC_REPO": payload.wiki_sync_repo,
+        "WIKI_SYNC_ENABLED": payload.wiki_sync_enabled,
+        "WIKI_SYNC_INTERVAL_H": payload.wiki_sync_interval_h,
         "OPENAI_API_KEY": payload.openai_api_key,
         "OPENAI_MODEL": payload.openai_model,
         "OPENAI_BASE_URL": payload.openai_base_url,

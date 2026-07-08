@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_token: str = ""
 
+    # Wiki auto-sync from GitHub repository
+    # ECHO fetches all .md files from this repo and ingests them into its wiki
+    wiki_sync_repo: str = "https://github.com/Invernomut0/echo"
+    wiki_sync_enabled: bool = True
+    wiki_sync_interval_h: int = 24        # hours between full re-syncs
+    wiki_sync_max_files: int = 50         # max .md files per sync cycle
+
     # LLM provider selection
     llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras"] = "opencode"
     copilot_model: str = "gpt-4o"
