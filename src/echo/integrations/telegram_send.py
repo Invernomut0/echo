@@ -67,18 +67,23 @@ async def broadcast(text: str, *, prefix: str = "") -> int:
 
     # Fallback: one-shot httpx call
     import httpx  # noqa: PLC0415
+    from echo.integrations.telegram_bot import _md_to_html  # noqa: PLC0415
 
     base = settings.telegram_api_base_url.rstrip("/")
     url = f"{base}/bot{token}/sendMessage"
     sent = 0
+    html_text = _md_to_html(full_text)
     async with httpx.AsyncClient(timeout=15.0) as client:
         for chat_id in chat_ids:
-            # Simple 4096-char chunk split
-            remaining = full_text
+            remaining = html_text
             while remaining:
                 chunk, remaining = remaining[:4096], remaining[4096:]
                 try:
-                    r = await client.post(url, json={"chat_id": int(chat_id), "text": chunk})
+                    r = await client.post(url, json={
+                        "chat_id": int(chat_id),
+                        "text": chunk,
+                        "parse_mode": "HTML",
+                    })
                     if r.json().get("ok"):
                         sent += 1
                 except Exception as exc:  # noqa: BLE001

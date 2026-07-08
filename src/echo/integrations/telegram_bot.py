@@ -25,6 +25,52 @@ def _normalize_space(text: str) -> str:
     return " ".join((text or "").split()).strip().lower()
 
 
+def _md_to_html(text: str) -> str:
+    """Convert LLM Markdown to Telegram-compatible HTML.
+
+    Telegram supports: <b>, <i>, <code>, <pre>, <u>, <s>.
+    Tables, headings (#), and horizontal rules are flattened to plain text.
+    """
+    # Escape HTML special chars first
+    out = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    # Fenced code blocks  ```lang\\n...\\n```  →  <pre>
+    out = re.sub(r"```[a-zA-Z]*\n?(.*?)```", lambda m: f"<pre>{m.group(1).strip()}</pre>", out, flags=re.DOTALL)
+
+    # Inline code  `text`  →  <code>
+    out = re.sub(r"`([^`\n]+)`", r"<code>\1</code>", out)
+
+    # Markdown table separator lines  |---|---|  →  remove
+    out = re.sub(r"^\s*\|[-| :]+\|\s*$", "", out, flags=re.MULTILINE)
+
+    # Table rows  | cell | cell |  →  bullet list
+    def _trow(m: re.Match) -> str:
+        cells = [c.strip() for c in m.group(0).strip().strip("|").split("|")]
+        return "  •  ".join(c for c in cells if c)
+    out = re.sub(r"^\s*\|.+\|\s*$", _trow, out, flags=re.MULTILINE)
+
+    # Headings  # Heading  →  <b>Heading</b>
+    out = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", out, flags=re.MULTILINE)
+
+    # **bold** / __bold__  →  <b>
+    out = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", out, flags=re.DOTALL)
+    out = re.sub(r"__(.+?)__", r"<b>\1</b>", out, flags=re.DOTALL)
+
+    # *italic* (single star, not adjacent to another star)  →  <i>
+    out = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", out)
+
+    # _italic_ (single underscore, not word-internal)  →  <i>
+    out = re.sub(r"(?<!\w)_(?!_)(.+?)(?<!_)_(?!\w)", r"<i>\1</i>", out)
+
+    # Horizontal rules  ---  →  blank line
+    out = re.sub(r"^\s*[-*_]{3,}\s*$", "", out, flags=re.MULTILINE)
+
+    # Collapse 3+ blank lines → 2
+    out = re.sub(r"\n{3,}", "\n\n", out)
+
+    return out.strip()
+
+
 class TelegramBotBridge:
     """Bridge Telegram messages to ECHO's cognitive pipeline."""
 
@@ -615,9 +661,11 @@ class TelegramBotBridge:
         if self._client is None:
             return None
 
-        payload = {
+        html_text = _md_to_html(text)
+        payload: dict[str, Any] = {
             "chat_id": chat_id,
-            "text": text[:4096],
+            "text": html_text[:4096],
+            "parse_mode": "HTML",
         }
         if message_thread_id is not None:
             payload["message_thread_id"] = message_thread_id
