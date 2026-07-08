@@ -128,7 +128,8 @@ class Settings(BaseSettings):
     # Set to 1 for local/slow LLM backends (LM Studio, Ollama) to avoid
     # flooding the server with parallel requests that cause Channel Errors.
     # Set higher (3-6) for fast API backends (OpenAI, Copilot, Groq).
-    max_concurrent_agent_calls: int = 2
+    # Keep at 1-2 for Cerebras free tier (60 RPM limit) to avoid 429s.
+    max_concurrent_agent_calls: int = 1
 
     # Drive scoring via LLM runs every N interactions (1 = every turn).
     # Increase to 3+ on slow local backends to reduce LM Studio contention.

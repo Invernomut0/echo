@@ -19,7 +19,7 @@ from echo.core.types import AgentRole, MetaState, WorkspaceSnapshot
 
 logger = logging.getLogger(__name__)
 
-_AGENT_TIMEOUT_S: float = 15.0  # per-agent LLM call timeout
+_AGENT_TIMEOUT_S: float = 60.0  # per-agent LLM call timeout — must survive provider 429 retries
 
 # ---------------------------------------------------------------------------
 # Dynamic agent routing — select only relevant agents per query
