@@ -387,6 +387,10 @@ export interface SetupConfig {
   unsloth_api_key: string
   unsloth_model: string
   unsloth_base_url: string
+  // Embedding backends (ollama_base_url and lm_studio_embedding_model already declared above)
+  ollama_embedding_model: string
+  hf_embedding_model: string
+  hf_token: string
   // OpenAI
   openai_api_key: string
   openai_model: string

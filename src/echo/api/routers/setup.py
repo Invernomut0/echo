@@ -169,6 +169,12 @@ class ConfigPayload(BaseModel):
     unsloth_api_key: str | None = None
     unsloth_model: str | None = None
     unsloth_base_url: str | None = None
+    # Embedding backends
+    ollama_embedding_model: str | None = None
+    ollama_base_url: str | None = None
+    hf_embedding_model: str | None = None
+    hf_token: str | None = None
+    lm_studio_embedding_model: str | None = None
     # Wiki sync
     wiki_sync_repo: str | None = None
     wiki_sync_enabled: bool | None = None
@@ -292,6 +298,12 @@ async def get_config() -> dict:
         "telegram_history_turns": settings.telegram_history_turns,
         "telegram_max_reply_chars": settings.telegram_max_reply_chars,
         "has_telegram_token": bool(settings.telegram_bot_token),
+        # Embedding backends
+        "ollama_embedding_model": settings.ollama_embedding_model,
+        "ollama_base_url": settings.ollama_base_url,
+        "hf_embedding_model": settings.hf_embedding_model,
+        "hf_token": "***" if settings.hf_token else "",
+        "lm_studio_embedding_model": settings.lm_studio_embedding_model,
         "wiki_sync_repo": settings.wiki_sync_repo,
         "wiki_sync_enabled": settings.wiki_sync_enabled,
         "wiki_sync_interval_h": settings.wiki_sync_interval_h,
@@ -323,6 +335,11 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
         "UNSLOTH_API_KEY": payload.unsloth_api_key,
         "UNSLOTH_MODEL": payload.unsloth_model,
         "UNSLOTH_BASE_URL": payload.unsloth_base_url,
+        "OLLAMA_EMBEDDING_MODEL": payload.ollama_embedding_model,
+        "OLLAMA_BASE_URL": payload.ollama_base_url,
+        "HF_EMBEDDING_MODEL": payload.hf_embedding_model,
+        "HF_TOKEN": payload.hf_token,
+        "LM_STUDIO_EMBEDDING_MODEL": payload.lm_studio_embedding_model,
         "WIKI_SYNC_REPO": payload.wiki_sync_repo,
         "WIKI_SYNC_ENABLED": payload.wiki_sync_enabled,
         "WIKI_SYNC_INTERVAL_H": payload.wiki_sync_interval_h,

@@ -969,6 +969,82 @@ function GitHubSection({
   )
 }
 
+function EmbeddingSection({ config, onSave }: { config: SetupConfig; onSave: (u: Partial<SetupConfig>) => Promise<void> }) {
+  const [ollamaModel, setOllamaModel] = useState(config.ollama_embedding_model || '')
+  const [ollamaUrl, setOllamaUrl] = useState(config.ollama_base_url || '')
+  const [hfModel, setHfModel] = useState(config.hf_embedding_model || '')
+  const [hfToken, setHfToken] = useState('')
+  const [lmModel, setLmModel] = useState(config.lm_studio_embedding_model || '')
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const updates: Partial<SetupConfig> = {
+        ollama_embedding_model: ollamaModel || undefined,
+        ollama_base_url: ollamaUrl || undefined,
+        hf_embedding_model: hfModel || undefined,
+        lm_studio_embedding_model: lmModel || undefined,
+      }
+      if (hfToken.trim()) updates.hf_token = hfToken.trim()
+      await onSave(updates)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <SectionCard icon={null} title="Embedding Models" subtitle="Vector embedding backends (priority: Ollama → LM Studio → HuggingFace)">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        {/* Ollama */}
+        <div>
+          <div style={{ color: '#06b6d4', fontWeight: 600, fontSize: 12, marginBottom: 6 }}>1️⃣ Ollama (primary — local, fast)</div>
+          <div className="setup-field-group" style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <label className="setup-label">Base URL</label>
+              <input className="setup-input" value={ollamaUrl} onChange={e => setOllamaUrl(e.target.value)} placeholder="http://localhost:11434" />
+            </div>
+            <div style={{ flex: 2 }}>
+              <label className="setup-label">Embedding Model</label>
+              <input className="setup-input" value={ollamaModel} onChange={e => setOllamaModel(e.target.value)} placeholder="paraphrase-multilingual:278m-mpnet-base-v2-fp16" />
+            </div>
+          </div>
+          <p className="setup-mcp-hint">Must produce 768-dim vectors. Pull: <code>ollama pull {ollamaModel || 'paraphrase-multilingual:278m-mpnet-base-v2-fp16'}</code></p>
+        </div>
+        {/* LM Studio */}
+        <div>
+          <div style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12, marginBottom: 6 }}>2️⃣ LM Studio (fallback — local)</div>
+          <div className="setup-field-group">
+            <label className="setup-label">Embedding Model</label>
+            <input className="setup-input" value={lmModel} onChange={e => setLmModel(e.target.value)} placeholder="text-embedding-nomic-embed-text-v1.5" />
+          </div>
+        </div>
+        {/* HuggingFace */}
+        <div>
+          <div style={{ color: '#94a3b8', fontWeight: 600, fontSize: 12, marginBottom: 6 }}>3️⃣ HuggingFace (fallback — cloud)</div>
+          <div className="setup-field-group" style={{ display: 'flex', gap: 8 }}>
+            <div style={{ flex: 2 }}>
+              <label className="setup-label">Model</label>
+              <input className="setup-input" value={hfModel} onChange={e => setHfModel(e.target.value)} placeholder="sentence-transformers/paraphrase-multilingual-mpnet-base-v2" />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label className="setup-label">HF Token (optional)</label>
+              <input className="setup-input" type="password" value={hfToken} onChange={e => setHfToken(e.target.value)} placeholder="hf_..." />
+            </div>
+          </div>
+          <p className="setup-mcp-hint">⚠️ Model must produce 768-dim vectors to match ChromaDB collections.</p>
+        </div>
+        <button className="setup-save-btn" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Embedding Config'}
+        </button>
+      </div>
+    </SectionCard>
+  )
+}
+
 function TelegramSection({
   config,
   onSave,
@@ -1681,6 +1757,7 @@ export default function SetupPanel() {
         {activeProvider === 'anthropic'   && <AnthropicSection config={config} onSave={handleSave} />}
         {activeProvider === 'ollama'      && <OllamaSection config={config} onSave={handleSave} />}
         {/* GitHub section always visible — needed for Copilot auth + device flow */}
+        <EmbeddingSection config={config} onSave={handleSave} />
         <GitHubSection config={config} onSave={handleSave} />
         <TelegramSection config={config} onSave={handleSave} />
         <MCPSection />
