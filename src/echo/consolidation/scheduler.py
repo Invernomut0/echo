@@ -222,6 +222,23 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Initiative cycle error: %s", exc)
 
+        # Proactive state evaluator — ECHO decides autonomously what to share via Telegram
+        if self._pipeline is not None:
+            try:
+                from echo.core.user_activity import is_active as _ua_proactive  # noqa: PLC0415
+                if not _ua_proactive():
+                    from echo.initiative.proactive_engine import proactive_echo  # noqa: PLC0415
+                    msg = await proactive_echo.evaluate_and_reach_out(self._pipeline)
+                    if msg:
+                        self._event_log.append({
+                            "id": str(uuid.uuid4())[:8],
+                            "type": "proactive",
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "actions": {"message": msg[:300], "delivered": True},
+                        })
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Proactive engine error: %s", exc)
+
         # Spurious / conflicting semantic memory cleanup
         try:
             from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415

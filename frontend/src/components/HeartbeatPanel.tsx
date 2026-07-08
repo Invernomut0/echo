@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 interface HeartbeatEvent {
   id: string
-  type: 'light' | 'deep' | 'curiosity' | 'initiative' | 'cron'
+  type: 'light' | 'deep' | 'curiosity' | 'initiative' | 'cron' | 'proactive'
   timestamp: string
   actions: Record<string, unknown>
 }
@@ -13,6 +13,7 @@ const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string }> 
   curiosity:  { label: 'CURIOSITY',  color: '#f59e0b', bg: 'rgba(245,158,11,0.12)' },
   initiative: { label: 'INITIATIVE', color: '#22c55e', bg: 'rgba(34,197,94,0.12)' },
   cron:       { label: 'CRON',       color: '#38bdf8', bg: 'rgba(56,189,248,0.12)' },
+  proactive:  { label: 'PROACTIVE', color: '#ec4899', bg: 'rgba(236,72,153,0.12)' },
 }
 
 function relativeTime(iso: string): string {
@@ -221,7 +222,7 @@ export default function HeartbeatPanel({ active }: { active: boolean }) {
         <div>
           <div style={{ fontSize: 15, fontWeight: 600, color: '#e2e8f0' }}>Heartbeat Log</div>
           <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-            Cognitive cycles — consolidation, curiosity, initiative
+            Cognitive cycles — consolidation, curiosity, initiative, proactive outreach
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
