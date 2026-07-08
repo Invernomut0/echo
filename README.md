@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.1 · **Last updated:** 2026-07-08
+**Version:** 0.5.2 · **Last updated:** 2026-07-08
 
 ---
 
@@ -268,6 +268,12 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.2 — 2026-07-08
+- **Autonomous self-modification**: ECHO can improve its own code, commit + push, notify Telegram, create notes
+- **Emotional state UI**: sidebar shows mood emoji (😔→🤩) + drive mini-bars with color intensity
+- **Heartbeat fixes**: LIGHT/PROACTIVE/INITIATIVE events now properly logged; 4 import/init bugs fixed
+- **Telegram HTML format**: markdown converted to proper HTML bold/italic/code before sending
 
 ### 0.5.1 — 2026-07-08
 - **Telegram bidirectional**: web chat responses mirrored to Telegram; proactive heartbeat messages (insights/questions) delivered via shared bridge

@@ -5,6 +5,40 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.2] — 2026-07-08
+
+### Autonomous Self-Modification
+- `SelfModificationEngine`: ECHO can now improve its own codebase autonomously during heartbeat idle cycles
+  - LLM evaluates internal state (knowledge gaps, goals, patterns, curiosity topics) to identify improvements
+  - Applies change, validates with `ast.parse()`, rolls back on failure
+  - `git add + commit + push` fully automated
+  - Creates `notes/YYYY-MM-DD_slug.md` with diff + rationale
+  - Notifies via Telegram: "🔧 Ho appena migliorato il mio codice!"
+  - Security constraints: only `src/echo/`, never `core/db.py`/`config.py`/`self_modification/` itself, 6h cooldown, skips during active user session
+- `🔧 SELFMOD` badge (orange) in HeartbeatPanel
+
+### UI — Emotional State Visualization
+- Right sidebar "System State" now shows:
+  - Large central emoji representing ECHO's mood (😔→😕→😐→🙂→😊→🤩)
+  - Mood label in language ("Abbattuto" / "Neutro" / "Soddisfatto" / "Entusiasta" etc.)
+  - Drive mini-bars: 🔗 Coerenza, 🔍 Curiosità, 🏔️ Stabilità, 💡 Competenza with 8-block fill bars
+  - Color-coded by intensity (amber→green→cyan)
+  - Valence numeric value below emoji
+
+### Heartbeat Fixes
+- `_pipeline` attribute missing from `ConsolidationScheduler.__init__` → `AttributeError` crashed entire light loop; `LIGHT`/`PROACTIVE`/`INITIATIVE` events never logged. Fixed by initializing `self._pipeline = None` + `attach_pipeline()` method called from `pipeline.startup()`
+- `_dedup_episodic()` early returns `(0, 0)` instead of `(0, 0, [])` → `ValueError: not enough values to unpack` in every light cycle. Fixed.
+- `initiative/engine.py`: missing `from echo.core.config import settings` import
+- `proactive_engine.py`: removed invalid `from echo.core.user_activity import _last_active`
+- `db.py`: `initiative_log` table never created (model not imported before `create_all()`). Fixed.
+- `detect_and_clean_conflicts` cap: 20 → 5 pairs per cycle (20 concurrent LLM calls → 429 cascade)
+
+### Telegram
+- Messages now sent as HTML with `parse_mode=HTML` — proper **bold**, *italic*, `code`, table → bullet list conversion
+- `_md_to_html()` converter handles markdown tables, headings, code blocks
+- Cron task results broadcast to Telegram after each successful run
+- Heartbeat intervals now configurable: `CONSOLIDATION_LIGHT_INTERVAL_S`, `CONSOLIDATION_DEEP_INTERVAL_S`
+
 ## [0.5.1] — 2026-07-08
 
 ### Telegram Bidirectional Messaging

@@ -159,44 +159,78 @@ export default function App() {
 
       {/* Right sidebar */}
       <aside className="sidebar">
-        {/* Stats */}
-        <div className="sidebar-section">
-          <div className="sidebar-title">System State</div>
-          <div className="stat-grid">
-            <div className="stat-card">
-              <div className="stat-label">Beliefs</div>
-              <div className="stat-value">{state?.identity_beliefs ?? '—'}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Memories</div>
-              <div className="stat-value">{state?.episodic_memories ?? '—'}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Workspace</div>
-              <div className="stat-value">{state?.workspace_items ?? '—'}</div>
-            </div>
-            <div className="stat-card">
-              <div className="stat-label">Valence</div>
-              <div className="stat-value" style={{ fontSize: 14, paddingTop: 4 }}>
-                {state ? (state.meta_state.emotional_valence >= 0 ? '+' : '') + state.meta_state.emotional_valence.toFixed(2) : '—'}
-              </div>
-            </div>
-          </div>
+        {/* Sentiment / mood display */}
+        {state && (() => {
+          const v = state.meta_state.emotional_valence
+          const d = state.meta_state.drives
+          // Mood emoji based on valence
+          const moodEmoji = v < -0.5 ? '😔' : v < -0.2 ? '😕' : v < 0.05 ? '😐' : v < 0.3 ? '🙂' : v < 0.6 ? '😊' : '🤩'
+          const moodLabel = v < -0.5 ? 'Abbattuto' : v < -0.2 ? 'Turbato' : v < 0.05 ? 'Neutro' : v < 0.3 ? 'Sereno' : v < 0.6 ? 'Soddisfatto' : 'Entusiasta'
+          const moodColor = v < -0.3 ? '#ef4444' : v < 0.1 ? '#94a3b8' : v < 0.4 ? '#22c55e' : '#06b6d4'
+          // Drive emoji indicators
+          const driveRows: [string, string, number][] = [
+            ['🔗', 'Coerenza',   d.coherence],
+            ['🔍', 'Curiosità',  d.curiosity],
+            ['🏔️', 'Stabilità',  d.stability],
+            ['💡', 'Competenza', d.competence],
+          ]
+          const fillBar = (val: number, color: string) => {
+            const blocks = Math.round(val * 8)
+            return Array.from({ length: 8 }, (_, i) => (
+              <span key={i} style={{
+                display: 'inline-block', width: 8, height: 8, borderRadius: 2,
+                margin: '0 1px',
+                background: i < blocks ? color : 'rgba(255,255,255,0.08)',
+              }} />
+            ))
+          }
+          return (
+            <div className="sidebar-section">
+              <div className="sidebar-title">System State</div>
 
-          {/* Valence bar */}
-          {state && (
-            <div className="valence-bar-container" style={{ marginTop: 10 }}>
-              <span className="valence-label">−1</span>
-              <div className="valence-track">
-                <div
-                  className="valence-thumb"
-                  style={{ left: `${((state.meta_state.emotional_valence + 1) / 2) * 100}%` }}
-                />
+              {/* Central mood indicator */}
+              <div style={{ textAlign: 'center', padding: '12px 0 8px' }}>
+                <div style={{ fontSize: 48, lineHeight: 1.1 }}>{moodEmoji}</div>
+                <div style={{ color: moodColor, fontWeight: 600, fontSize: 13, marginTop: 4 }}>{moodLabel}</div>
+                <div style={{ color: '#64748b', fontSize: 11, marginTop: 2 }}>
+                  valence {v >= 0 ? '+' : ''}{v.toFixed(2)}
+                </div>
               </div>
-              <span className="valence-label" style={{ textAlign: 'left' }}>+1</span>
+
+              {/* Drive mini bars */}
+              <div style={{ padding: '4px 0 8px' }}>
+                {driveRows.map(([icon, label, val]) => (
+                  <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+                    <span style={{ fontSize: 13, width: 20 }}>{icon}</span>
+                    <span style={{ fontSize: 10, color: '#64748b', width: 62 }}>{label}</span>
+                    <div>{fillBar(val, val > 0.7 ? '#06b6d4' : val > 0.4 ? '#22c55e' : '#f59e0b')}</div>
+                    <span style={{ fontSize: 10, color: '#475569', marginLeft: 2 }}>{(val * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Stats row */}
+              <div className="stat-grid" style={{ marginTop: 4 }}>
+                <div className="stat-card">
+                  <div className="stat-label">Beliefs</div>
+                  <div className="stat-value">{state.identity_beliefs}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Memories</div>
+                  <div className="stat-value">{state.episodic_memories}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Workspace</div>
+                  <div className="stat-value">{state.workspace_items}</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Turns</div>
+                  <div className="stat-value">{state.interaction_count}</div>
+                </div>
+              </div>
             </div>
-          )}
-        </div>
+          )
+        })()}
 
         {/* Drive gauges */}
         {drives && (
