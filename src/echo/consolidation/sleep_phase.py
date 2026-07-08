@@ -182,16 +182,16 @@ class ConsolidationPhase:
 
     async def _dedup_episodic(
         self, memories: list[MemoryEntry], *, hard_prune: bool
-    ) -> tuple[int, int]:
+    ) -> tuple[int, int, list]:
         """Synaptic pruning for episodic memories.
 
         Light cycle: silence only exact duplicates (sim ≥ HARD_DEDUP_SIM).
         Deep/REM: also remove strong near-duplicates (sim ≥ SOFT_DEDUP_SIM).
 
-        Returns (pairs_found, memories_pruned).
+        Returns (pairs_found, memories_pruned, pair_snippets).
         """
         if len(memories) < 2:
-            return 0, 0
+            return 0, 0, []
 
         vectors = await _embed_memories(memories)
         threshold = SOFT_DEDUP_SIM if hard_prune else HARD_DEDUP_SIM
@@ -202,7 +202,7 @@ class ConsolidationPhase:
             logger.debug("[Dedup·episodic] embedding unavailable, using hash fallback")
             pairs = _find_exact_duplicates(memories)
         if not pairs:
-            return 0, 0
+            return 0, 0, []
 
         id_to_mem = {m.id: m for m in memories}
         loser_ids = list({loser for _, loser, _ in pairs})
