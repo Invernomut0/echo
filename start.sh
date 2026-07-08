@@ -78,6 +78,7 @@ uv run uvicorn echo.api.server:app \
     --host 0.0.0.0 \
     --port 8000 \
     --reload \
+    --reload-dir src/echo \
     --log-level info \
     2>&1 | sed 's/^/  [backend] /' &
 BACKEND_PID=$!
