@@ -316,22 +316,31 @@ class ConsolidationPhase:
 
         # 3. Promote high-salience episodic → semantic (skip already-promoted content)
         high_salience = [m for m in memories if m.salience >= 0.7]
-        # Build set of content already in semantic to avoid re-promoting same memories every cycle
-        try:
-            existing_semantic = {e.content.strip() for e in await self._semantic.get_all()}
-        except Exception:  # noqa: BLE001
-            existing_semantic = set()
         promoted = 0
         for mem in high_salience[:20]:
-            if mem.content.strip() in existing_semantic:
-                continue  # already promoted in a previous cycle
+            # Direct DB lookup — more reliable than loading all semantic rows into a set
+            # (which silently fails if >limit entries or get_all() throws)
+            try:
+                from echo.core.db import get_session_factory as _gsf  # noqa: PLC0415
+                from echo.memory.semantic import SemanticRow as _SR  # noqa: PLC0415
+                from sqlalchemy import select as _sel  # noqa: PLC0415
+                _factory = _gsf()
+                async with _factory() as _sess:
+                    _exists = (await _sess.execute(
+                        _sel(_SR.id).where(_SR.content == mem.content.strip()).limit(1)
+                    )).scalars().first()
+                if _exists:
+                    logger.debug("Promotion skipped — already in semantic: %s…", mem.content[:60])
+                    continue
+            except Exception as _ex:  # noqa: BLE001
+                logger.warning("Semantic existence check failed: %s — skipping promotion", _ex)
+                continue
             try:
                 await self._semantic.store(
                     content=mem.content,
                     salience=mem.salience,
                     tags=mem.tags,
                 )
-                existing_semantic.add(mem.content.strip())
                 promoted += 1
                 report.promoted_snippets.append(mem.content[:120])
             except Exception as exc:  # noqa: BLE001
