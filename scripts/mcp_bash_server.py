@@ -182,9 +182,9 @@ def main() -> None:
 
         output_parts = []
         if result.get("blocked"):
-            output_parts.append(f"🚫 BLOCKED: {result['stderr']}")
+            output_parts.append(f"BLOCKED: {result['stderr']}")
         elif result.get("timed_out"):
-            output_parts.append(f"⏱️ TIMEOUT: {result['stderr']}")
+            output_parts.append(f"TIMEOUT: {result['stderr']}")
         else:
             if result["stdout"]:
                 output_parts.append(f"STDOUT:\n{result['stdout']}")
@@ -196,7 +196,16 @@ def main() -> None:
 
         return [types.TextContent(type="text", text="\n\n".join(output_parts))]
 
-    asyncio.run(stdio_server(server))
+    async def _serve() -> None:
+        # stdio_server is an async context manager in mcp >= 1.0.0
+        async with stdio_server() as (read_stream, write_stream):
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
+
+    asyncio.run(_serve())
 
 
 if __name__ == "__main__":
