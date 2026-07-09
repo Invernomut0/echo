@@ -2,19 +2,19 @@
 
 Flow per ciclo:
 1. Valuta opportunità miglioramento (da reflection insights, curiosity, goals)
-2. LLM progetta la modifica (file + diff)
-3. Legge file via filesystem MCP, applica modifica
-4. Valida: ast.parse() + sintassi
+2. LLM progetta la modifica (file + diff) sull'intero repository
+3. Applica modifica al filesystem
+4. Valida: ast.parse() obbligatorio per .py
 5. git add + commit + push
 6. Crea nota in notes/YYYY-MM-DD_slug.md
 7. Notifica Telegram
 
 Vincoli di sicurezza:
-- Solo file in src/echo/ (no infra, no migrations, no questo modulo)
+- Può modificare qualsiasi file nel repo (src/, frontend/, scripts/, docs/, notes/, data/mcp.json)
+- NON può toccare: .env, data/sqlite/, data/chroma/, self_modification/engine.py
 - ast.parse() obbligatorio su ogni .py modificato
 - Max 1 modifica ogni 6 ore
-- Non può modificare se stesso (self_modification/)
-- Non può modificare core/db.py, core/config.py (schema DB + settings)
+- Non può modificare se stesso (questo file)
 """
 
 from __future__ import annotations
@@ -26,6 +26,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+# Lazy — imported here to avoid circular at module load, used in _forbidden check
+def _repo_root() -> Path:
+    from echo.self_modification.git_ops import repo_root  # noqa: PLC0415
+    return repo_root()
+
 logger = logging.getLogger(__name__)
 
 _COOLDOWN_S: float = 21600.0   # 6 hours between modifications
@@ -33,33 +38,41 @@ _NOTES_DIR = Path(__file__).parent.parent.parent.parent.parent / "notes"
 
 # Files/dirs ECHO must never touch autonomously
 _FORBIDDEN = {
-    "src/echo/self_modification",
-    "src/echo/core/db.py",
-    "src/echo/core/config.py",
-    "src/echo/api/server.py",
+    # This file — ECHO cannot modify its own modification engine
+    "src/echo/self_modification/engine.py",
+    # Secrets and runtime data
     ".env",
-    "pyproject.toml",
+    "data/sqlite",
+    "data/chroma",
+    # Lock files (managed by uv/npm)
     "uv.lock",
+    "frontend/package-lock.json",
+    "frontend/node_modules",
 }
 
 _SYSTEM_PROMPT = """\
-You are ECHO's autonomous self-improvement module running inside the ECHO cognitive AI system.
-ECHO is a full Python cognitive architecture with memory, agents, curiosity, consolidation, \
-and self-model systems. The codebase lives at src/echo/ and is listed in the context below.
+You are ECHO's autonomous self-improvement module. You have full access to your entire \
+repository and can modify any file listed in AVAILABLE FILES below.
+
+ECHO is a cognitive AI system with: memory (episodic/semantic/wiki), 6 specialist agents, \
+curiosity engine, consolidation heartbeat, self-modification, cron scheduler, Telegram \
+integration, and a React frontend. Repository root: /root/echo
 
 YOUR ONLY OUTPUT MUST BE A SINGLE JSON OBJECT — no narrative, no markdown, no explanation.
 If you output anything other than pure JSON you will cause a parse error and the modification \
 will be aborted.
 
 Constraints:
-- Only modify files listed in AVAILABLE FILES below
-- Never touch: self_modification/, core/db.py, core/config.py, api/server.py
-- One file, one change, < 50 lines delta
-- Must be valid Python (ast.parse will be called)
-- Prefer: fixing a real bug, tightening a guard, tuning a constant, adding a log line
+- You can modify ANY file listed in AVAILABLE FILES (src/, frontend/src/, scripts/, docs/, \
+  notes/, start.sh, data/mcp.json, etc.)
+- NEVER touch: .env, data/sqlite/, data/chroma/, src/echo/self_modification/engine.py
+- One file, one change, < 80 lines delta
+- Python .py files must pass ast.parse; TypeScript/TSX should be valid
+- Prefer: fixing a real bug, improving a prompt, adding a feature, tuning a constant, \
+  improving frontend UX, fixing an error shown in logs
 
 Output format (respond ONLY with this JSON, nothing else):
-{{"should_modify": true, "file_path": "src/echo/path/file.py", "description": "short description", "rationale": "why", "old_snippet": "exact string to find and replace", "new_snippet": "replacement string", "slug": "kebab-slug"}}
+{{"should_modify": true, "file_path": "relative/path/from/repo/root", "description": "short description", "rationale": "why this improves ECHO", "old_snippet": "exact string to find and replace (empty if appending)", "new_snippet": "replacement string", "slug": "kebab-slug"}}
 
 If no worthwhile change exists:
 {{"should_modify": false}}"""
@@ -165,16 +178,19 @@ class SelfModificationEngine:
         if not file_path:
             return None
 
-        # Security checks
-        if not file_path.startswith("src/echo/"):
-            logger.warning("SelfMod: rejected path outside src/echo/: %s", file_path)
-            return None
+        # Security checks — block forbidden paths, allow everything else in repo
         for forbidden in _FORBIDDEN:
-            if file_path.startswith(forbidden) or forbidden in file_path:
-                logger.warning("SelfMod: rejected forbidden path: %s", file_path)
+            if file_path == forbidden or file_path.startswith(forbidden + "/") or file_path.startswith(forbidden):
+                logger.warning("SelfMod: rejected forbidden path: %s (matched %s)", file_path, forbidden)
                 return None
+        # Must be within repo root (no ../ traversal)
+        _root = _repo_root()
+        abs_test = (_root / file_path).resolve()
+        if not str(abs_test).startswith(str(_root.resolve())):
+            logger.warning("SelfMod: rejected path outside repo: %s", file_path)
+            return None
 
-        abs_path = repo_root() / file_path
+        abs_path = _repo_root() / file_path
         if not abs_path.exists():
             logger.warning("SelfMod: file does not exist: %s", file_path)
             return None
@@ -293,16 +309,36 @@ class SelfModificationEngine:
         return mod_record
 
     def _list_source_files(self) -> str:
-        """Return a compact listing of Python files in src/echo/ (excludes self_modification/)."""
+        """Return a compact listing of all editable files in the repo."""
         from echo.self_modification.git_ops import repo_root as _repo_root  # noqa: PLC0415
-        root = _repo_root() / "src" / "echo"
+        root = _repo_root()
         lines = []
-        for p in sorted(root.rglob("*.py")):
-            rel = str(p.relative_to(_repo_root()))
-            if "self_modification" in rel or "__pycache__" in rel:
+        # Patterns to include
+        include_dirs = ["src", "scripts", "frontend/src", "docs", "notes", "data"]
+        include_root_files = ["start.sh", "pyproject.toml", "README.md", "CHANGELOG.md"]
+        include_ext = {".py", ".ts", ".tsx", ".md", ".sh", ".json", ".toml", ".yaml", ".yml"}
+        # Forbidden subpaths
+        skip = {"self_modification/engine.py", "__pycache__", "node_modules", ".venv",
+                "data/sqlite", "data/chroma", "data/echo.db", "uv.lock"}
+
+        for d in include_dirs:
+            p = root / d
+            if not p.exists():
                 continue
-            lines.append(rel)
-        return "\n".join(lines[:80])  # cap at 80 files to stay within token budget
+            for f in sorted(p.rglob("*")):
+                if not f.is_file():
+                    continue
+                rel = str(f.relative_to(root))
+                if any(s in rel for s in skip):
+                    continue
+                if f.suffix in include_ext:
+                    lines.append(rel)
+
+        for name in include_root_files:
+            if (root / name).exists():
+                lines.append(name)
+
+        return "\n".join(sorted(set(lines))[:120])  # cap at 120
 
     async def _build_context(self, pipeline: Any) -> dict[str, str]:
         """Build evaluation context from pipeline state."""
