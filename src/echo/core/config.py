@@ -103,7 +103,7 @@ class Settings(BaseSettings):
     # Pull the model once: `ollama pull paraphrase-multilingual:278m-mpnet-base-v2-fp16`
     # ⚠️  Model MUST produce 768-dim vectors to match existing ChromaDB collections.
     ollama_base_url: str = "http://localhost:11434"
-    ollama_embedding_model: str = "paraphrase-multilingual:278m-mpnet-base-v2-fp16"
+    ollama_embedding_model: str = "nomic-embed-text"   # widely available; override with paraphrase-multilingual:278m if needed
 
     # API server
     api_host: str = "0.0.0.0"

@@ -674,6 +674,16 @@ class TelegramBotBridge:
             payload["allow_sending_without_reply"] = True
 
         response = await self._client.post(f"{self._base_url}/sendMessage", json=payload)
+
+        # HTML parse errors (400) → strip HTML and retry as plain text
+        if response.status_code == 400 and payload.get("parse_mode") == "HTML":
+            logger.debug("sendMessage HTML parse error, retrying as plain text")
+            plain_text = re.sub(r"<[^>]+>", "", payload.get("text", ""))
+            plain_text = plain_text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+            plain_payload = {k: v for k, v in payload.items() if k != "parse_mode"}
+            plain_payload["text"] = plain_text
+            response = await self._client.post(f"{self._base_url}/sendMessage", json=plain_payload)
+
         response.raise_for_status()
         data = response.json()
         if not data.get("ok", False):
