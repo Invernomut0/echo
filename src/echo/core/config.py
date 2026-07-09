@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     wiki_sync_interval_h: int = 24        # hours between full re-syncs
     wiki_sync_max_files: int = 50         # max .md files per sync cycle
 
+    # Language for all ECHO-generated text (prompts, Telegram messages, self-modification notes)
+    # Use BCP-47 codes: 'it' Italian, 'en' English, 'es' Spanish, etc.
+    echo_language: str = "it"
+
     # LLM provider selection
     llm_provider: Literal["copilot", "lm_studio", "openai", "groq", "anthropic", "ollama", "opencode", "openrouter", "cerebras", "unsloth"] = "opencode"
     copilot_model: str = "gpt-4o"

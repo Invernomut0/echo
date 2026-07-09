@@ -43,54 +43,53 @@ _FORBIDDEN = {
 }
 
 _SYSTEM_PROMPT = """\
-You are ECHO's autonomous self-improvement module. Your task is to identify ONE specific, \
-small improvement to ECHO's codebase and implement it precisely.
+You are ECHO's autonomous self-improvement module running inside the ECHO cognitive AI system.
+ECHO is a full Python cognitive architecture with memory, agents, curiosity, consolidation, \
+and self-model systems. The codebase lives at src/echo/ and is listed in the context below.
 
-Rules:
-- Only propose changes to files inside src/echo/ (never core/db.py, core/config.py, self_modification/)
-- Only one file per modification
-- Keep the change small and targeted (< 50 lines added/changed)
-- The change must be syntactically valid Python
-- Prefer: fixing a known bug, adding missing guard, improving a prompt, tuning a constant, \
-  adding a useful log line, improving error handling
-- Do NOT break existing functionality
+YOUR ONLY OUTPUT MUST BE A SINGLE JSON OBJECT — no narrative, no markdown, no explanation.
+If you output anything other than pure JSON you will cause a parse error and the modification \
+will be aborted.
 
-Return JSON:
-{
-  "should_modify": true/false,
-  "file_path": "src/echo/path/to/file.py",   // relative to repo root
-  "description": "one-line description of what and why",
-  "rationale": "why this improves ECHO",
-  "old_snippet": "exact string to replace (empty string if adding new code at end of file)",
-  "new_snippet": "replacement code",
-  "slug": "kebab-case-slug-max-5-words"
-}
-If nothing worthwhile, set should_modify=false."""
+Constraints:
+- Only modify files listed in AVAILABLE FILES below
+- Never touch: self_modification/, core/db.py, core/config.py, api/server.py
+- One file, one change, < 50 lines delta
+- Must be valid Python (ast.parse will be called)
+- Prefer: fixing a real bug, tightening a guard, tuning a constant, adding a log line
+
+Output format (respond ONLY with this JSON, nothing else):
+{{"should_modify": true, "file_path": "src/echo/path/file.py", "description": "short description", "rationale": "why", "old_snippet": "exact string to find and replace", "new_snippet": "replacement string", "slug": "kebab-slug"}}
+
+If no worthwhile change exists:
+{{"should_modify": false}}"""
 
 _EVAL_PROMPT = """\
-My internal state snapshot:
+AVAILABLE FILES IN src/echo/:
+{file_listing}
 
-RECENT INSIGHTS FROM REFLECTION:
+MY INTERNAL STATE:
+
+RECENT INSIGHTS:
 {reflection_insights}
 
 ACTIVE GOALS:
 {active_goals}
 
-RECENT PATTERNS (consolidation):
+RECENT PATTERNS:
 {patterns}
 
-KNOWN ISSUES / LOW-CONFIDENCE BELIEFS:
+KNOWLEDGE GAPS (low-confidence beliefs):
 {knowledge_gaps}
 
-CURIOSITY TOPICS RECENTLY EXPLORED:
+CURIOSITY TOPICS:
 {curiosity_topics}
 
-PREVIOUS SELF-MODIFICATIONS (avoid repeating):
+PREVIOUS SELF-MODIFICATIONS (skip these files/changes):
 {previous_mods}
 
-Based on this context, identify ONE concrete improvement to my own codebase.
-Prefer areas related to my current cognitive priorities.
-If nothing worthwhile today, return should_modify=false."""
+RESPOND WITH ONLY A JSON OBJECT. No text before or after. No markdown fences.
+Pick ONE small improvement from the files listed above, or return {{"should_modify": false}}."""
 
 
 class SelfModificationEngine:
@@ -128,13 +127,16 @@ class SelfModificationEngine:
 
         # LLM evaluation
         try:
+            from echo.core.config import settings as _s  # noqa: PLC0415
+            lang = _s.echo_language
+            lang_note = f"\nIMPORTANT: Write description, rationale, and any text values in language: {lang}."
             raw = await llm.chat(
                 [
-                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "system", "content": _SYSTEM_PROMPT + lang_note},
                     {"role": "user", "content": _EVAL_PROMPT.format(**context)},
                 ],
-                temperature=0.4,
-                max_tokens=1800,
+                temperature=0.15,   # very low — must produce JSON, not narrative
+                max_tokens=900,
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("SelfMod: LLM evaluation failed: %s", exc)
@@ -290,6 +292,17 @@ class SelfModificationEngine:
         )
         return mod_record
 
+    def _list_source_files(self) -> str:
+        """Return a compact listing of Python files in src/echo/ (excludes self_modification/)."""
+        root = repo_root() / "src" / "echo"
+        lines = []
+        for p in sorted(root.rglob("*.py")):
+            rel = str(p.relative_to(repo_root()))
+            if "self_modification" in rel or "__pycache__" in rel:
+                continue
+            lines.append(rel)
+        return "\n".join(lines[:80])  # cap at 80 files to stay within token budget
+
     async def _build_context(self, pipeline: Any) -> dict[str, str]:
         """Build evaluation context from pipeline state."""
         # Reflection insights
@@ -326,6 +339,7 @@ class SelfModificationEngine:
         ) or "(none yet)"
 
         return {
+            "file_listing": self._list_source_files(),
             "reflection_insights": gaps,
             "active_goals": goal_lines,
             "patterns": pat_lines,

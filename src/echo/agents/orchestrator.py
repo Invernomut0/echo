@@ -166,6 +166,20 @@ Synthesise a single response. Rules:
 - If the wiki block starts with "Wiki knowledge base (N pages):" you CAN see those pages — reference them by title."""
 
 
+def _language_instruction() -> str:
+    """Return a language directive based on settings.echo_language."""
+    try:
+        from echo.core.config import settings as _s  # noqa: PLC0415
+        lang = _s.echo_language.strip().lower()
+        if lang == "it":
+            return "\nRispondi SEMPRE in italiano, indipendentemente dalla lingua del messaggio."
+        if lang == "en":
+            return "\nAlways respond in English."
+        return f"\nAlways respond in {lang}."
+    except Exception:  # noqa: BLE001
+        return ""
+
+
 def _build_synthesis_system() -> str:
     """Return the synthesis system prompt, dynamically augmented with available tools
     (both external MCP servers and ECHO's own internal tools such as cron management)
@@ -236,7 +250,7 @@ def _build_synthesis_system() -> str:
             "schedule_type='cron' takes a 5-field cron expression (min hour dom month dow)."
         )
 
-    return base + "\n\n" + "\n\n".join(addendum_parts)
+    return base + "\n\n" + "\n\n".join(addendum_parts) + _language_instruction()
 
 
 def _trim_history(

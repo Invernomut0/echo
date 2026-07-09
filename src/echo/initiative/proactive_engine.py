@@ -125,10 +125,13 @@ class ProactiveEchoEngine:
 
         # Evaluate
         try:
+            from echo.core.config import settings as _s  # noqa: PLC0415
+            lang = _s.echo_language
+            lang_note = f"\nIMPORTANT: The 'message' field in the JSON must be written in language: {lang}."
             prompt = _EVAL_PROMPT.format(**state)
             raw = await llm.chat(
                 [
-                    {"role": "system", "content": _EVAL_SYSTEM},
+                    {"role": "system", "content": _EVAL_SYSTEM + lang_note},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.7,
