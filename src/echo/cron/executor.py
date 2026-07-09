@@ -38,6 +38,7 @@ async def execute_task(
         TaskType.LLM_TASK: _exec_llm_task,
         TaskType.MEMORY_STORE: _exec_memory_store,
         TaskType.GOAL_REFLECT: _exec_goal_reflect,
+        TaskType.SELF_MODIFICATION: _exec_self_modification,
     }
     executor = executors.get(task_type)
     if executor is None:
@@ -155,11 +156,23 @@ async def _exec_llm_task(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    response = await llm.chat(
-        messages,
-        temperature=config.get("temperature", 0.7),
-        max_tokens=config.get("max_tokens", 512),
-    )
+    # use_tools: true → stream_chat_with_tools gives LLM access to bash, filesystem, etc.
+    if config.get("use_tools", False):
+        chunks: list[str] = []
+        async for delta in llm.stream_chat_with_tools(
+            messages,
+            temperature=config.get("temperature", 0.7),
+            max_tokens=config.get("max_tokens", 2048),
+        ):
+            if isinstance(delta, str):
+                chunks.append(delta)
+        response = "".join(chunks)
+    else:
+        response = await llm.chat(
+            messages,
+            temperature=config.get("temperature", 0.7),
+            max_tokens=config.get("max_tokens", 512),
+        )
 
     result: dict[str, Any] = {"status": "ok", "response": response}
 
@@ -230,3 +243,43 @@ async def _exec_goal_reflect(
     engine = GoalEngine()
     result = await engine.reflect_and_plan(max_goals=max_goals)
     return {"status": "ok", "result": result}
+
+
+async def _exec_self_modification(
+    config: dict[str, Any],
+    pipeline: CognitivePipeline,
+) -> dict[str, Any]:
+    """Run SelfModificationEngine — ECHO improves its own codebase.
+
+    The engine:
+    1. Snapshots internal state (drives, goals, knowledge gaps)
+    2. Asks LLM to identify one small improvement
+    3. Applies the change to src/echo/
+    4. Validates with ast.parse (rolls back on failure)
+    5. git commit + push
+    6. Creates notes/YYYY-MM-DD_slug.md
+    7. Sends Telegram notification
+
+    config keys (all optional):
+      cooldown_override: bool — bypass 6h cooldown (for manual triggers)
+    """
+    from echo.self_modification.engine import self_modification_engine  # noqa: PLC0415
+
+    if config.get("cooldown_override"):
+        self_modification_engine._last_modified = 0.0  # reset cooldown
+
+    mod = await self_modification_engine.evaluate_and_modify(pipeline)
+
+    if mod is None:
+        return {
+            "status": "skipped",
+            "reason": "no modification warranted or cooldown active",
+        }
+
+    return {
+        "status": "ok",
+        "file": mod.get("file", ""),
+        "description": mod.get("description", ""),
+        "pushed": mod.get("pushed", False),
+        "slug": mod.get("slug", ""),
+    }

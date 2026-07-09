@@ -49,10 +49,46 @@ class CronScheduler:
         """Bind the scheduler to the cognitive pipeline after it's created."""
         self._pipeline = pipeline
 
+    async def _migrate_task_types(self) -> None:
+        """One-time migration: convert known llm_task entries to proper types."""
+        from echo.cron.models import CronTaskRow, TaskType  # noqa: PLC0415
+        from echo.core.db import get_session_factory  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
+
+        MIGRATIONS = {
+            # title pattern → new task_type
+            "self-modification": TaskType.SELF_MODIFICATION,
+            "self modification": TaskType.SELF_MODIFICATION,
+            "selfmod": TaskType.SELF_MODIFICATION,
+        }
+        factory = get_session_factory()
+        try:
+            async with factory() as session:
+                rows = (await session.execute(
+                    select(CronTaskRow).where(CronTaskRow.task_type == TaskType.LLM_TASK)
+                )).scalars().all()
+                changed = 0
+                for row in rows:
+                    title_lower = row.name.lower()
+                    for pattern, new_type in MIGRATIONS.items():
+                        if pattern in title_lower:
+                            logger.info(
+                                "Migrating cron task '%s': llm_task → %s",
+                                row.name, new_type,
+                            )
+                            row.task_type = new_type
+                            changed += 1
+                            break
+                if changed:
+                    await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Cron task type migration failed: %s", exc)
+
     async def startup(self) -> None:
         """Load all enabled tasks from DB and start the APScheduler."""
         if self._running:
             return
+        await self._migrate_task_types()
         self._scheduler.start()
         self._running = True
 

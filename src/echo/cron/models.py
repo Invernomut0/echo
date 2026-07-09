@@ -36,6 +36,7 @@ class TaskType:
     LLM_TASK = "llm_task"
     MEMORY_STORE = "memory_store"
     GOAL_REFLECT = "goal_reflect"
+    SELF_MODIFICATION = "self_modification"   # calls SelfModificationEngine directly
 
     ALL: list[str] = [
         REFLECTION,
@@ -45,6 +46,7 @@ class TaskType:
         LLM_TASK,
         MEMORY_STORE,
         GOAL_REFLECT,
+        SELF_MODIFICATION,
     ]
 
 
