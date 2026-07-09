@@ -1,0 +1,61 @@
+{
+  "servers": [
+    {
+      "name": "bash",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Execute bash commands with timeout and safety guards. cwd defaults to ECHO repo root.",
+      "command": "uv",
+      "args": [
+        "run",
+        "python3",
+        "scripts/mcp_bash_server.py"
+      ],
+      "env": {}
+    },
+    {
+      "name": "fetch",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Fetch web pages and HTTP resources",
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ]
+    },
+    {
+      "name": "filesystem",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Read and write local files (sandboxed to /tmp by default)",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/tmp"
+      ],
+      "env": {
+        "NPM_CONFIG_LOGLEVEL": "silent",
+        "NPM_CONFIG_PROGRESS": "false"
+      },
+      "user_path": "~",
+      "user_path_mode": "read"
+    },
+    {
+      "name": "brave_search",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Web search via Brave Search API (requires BRAVE_API_KEY env var)",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-brave-search"
+      ],
+      "env": {
+        "BRAVE_API_KEY": "",
+        "NPM_CONFIG_LOGLEVEL": "silent",
+        "NPM_CONFIG_PROGRESS": "false"
+      }
+    }
+  ]
+}

@@ -41,6 +41,9 @@ coverage.xml
 
 # Data & databases (generated at runtime)
 data/
+# Track MCP config and examples (not generated, not sensitive)
+!data/mcp.json
+!data/mcp.json.example
 *.db
 *.db-shm
 *.db-wal
