@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.3 · **Last updated:** 2026-07-08
+**Version:** 0.5.4 · **Last updated:** 2026-07-09
 
 ---
 
@@ -268,6 +268,12 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.4 — 2026-07-09
+- **`ECHO_LANGUAGE=it`**: all generated text (synthesis, proactive, self-mod) in configured language
+- **Self-modification fixed**: LLM now outputs JSON instead of narrative; passes full file listing as context
+- **Embedding UI**: dedicated section in Setup showing 3-tier chain (Ollama → LM Studio → HuggingFace)
+- **Unsloth Studio**: corrected to local server (`localhost:2242`); `opencode-mcp` startup crash fixed
 
 ### 0.5.3 — 2026-07-08
 - **GitHub wiki auto-sync**: ECHO fetches all `.md` files from a configured repo (default: `Invernomut0/echo`), detects changes by commit SHA, ingests into wiki automatically every 24h

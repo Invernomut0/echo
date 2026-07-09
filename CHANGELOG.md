@@ -5,6 +5,32 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.4] — 2026-07-09
+
+### Language Setting
+- `ECHO_LANGUAGE` (default `it`) — controls language of all ECHO-generated text: synthesis responses, proactive messages, self-modification notes, cron outputs
+- Injected into orchestrator synthesis system prompt, proactive engine, and self-modification engine
+
+### Self-Modification Fixes
+- System prompt rewritten: explicit `OUTPUT ONLY JSON, NO NARRATIVE` instruction — LLM was generating markdown plans instead of actionable JSON
+- Temperature `0.4 → 0.15` — deterministic JSON output
+- `_list_source_files()`: passes full listing of `src/echo/*.py` as `AVAILABLE FILES` context so LLM knows the real codebase (was hallucinating minimal echo service)
+- Language directive injected into description/rationale fields
+
+### Bug Fixes
+- `opencode-mcp ServeError`: subprocess exited with code 1 on startup because `OPENCODE_SERVER_PASSWORD` was not set; `start.sh` now generates a stable token from hostname if not already in env
+- Unsloth Studio default URL corrected: `https://api.unsloth.ai/v1` → `http://localhost:2242/v1` (Unsloth is a local server, not a cloud API); API key default `"unsloth"`
+- Duplicate field identifiers in `api.ts` SetupConfig (`lm_studio_embedding_model`, `ollama_base_url`) removed
+
+### Embedding Configuration UI
+- New `EmbeddingSection` in Setup UI (always visible, independent of LLM provider)
+- Shows 3-tier embedding chain: 1️⃣ Ollama (primary, local) → 2️⃣ LM Studio (fallback) → 3️⃣ HuggingFace (cloud fallback)
+- All fields configurable: Ollama URL + model, LM Studio embedding model, HF model + token
+- Warning: model must produce 768-dim vectors for ChromaDB compatibility
+
+### Providers
+- **Unsloth Studio**: local OpenAI-compatible server (`localhost:2242`), 6 preset models
+
 ## [0.5.3] — 2026-07-08
 
 ### GitHub Wiki Auto-Sync
