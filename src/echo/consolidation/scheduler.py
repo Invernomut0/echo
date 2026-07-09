@@ -77,7 +77,10 @@ class ConsolidationScheduler:
                 continue
             try:
                 self._light_running = True
-                logger.info("Light consolidation tick")
+                logger.info("Light consolidation tick (cycle #%d)", self._cycle_count if hasattr(self, '_cycle_count') else 0)
+                if not hasattr(self, '_cycle_count'):
+                    self._cycle_count = 0
+                self._cycle_count += 1
                 report = await self._run_light()
                 self._last_report = report
                 self._last_light_at = datetime.now(timezone.utc)

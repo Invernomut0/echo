@@ -13,8 +13,9 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# ECHO repo root — two levels up from this file
-REPO_ROOT = Path(__file__).parent.parent.parent.parent.parent.resolve()
+# ECHO repo root — git_ops.py is at REPO/src/echo/self_modification/git_ops.py
+# so 4 .parent calls reach REPO root
+REPO_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 
 
 async def _run(args: list[str], cwd: Path = REPO_ROOT) -> tuple[int, str, str]:

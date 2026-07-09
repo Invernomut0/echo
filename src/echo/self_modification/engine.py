@@ -294,10 +294,11 @@ class SelfModificationEngine:
 
     def _list_source_files(self) -> str:
         """Return a compact listing of Python files in src/echo/ (excludes self_modification/)."""
-        root = repo_root() / "src" / "echo"
+        from echo.self_modification.git_ops import repo_root as _repo_root  # noqa: PLC0415
+        root = _repo_root() / "src" / "echo"
         lines = []
         for p in sorted(root.rglob("*.py")):
-            rel = str(p.relative_to(repo_root()))
+            rel = str(p.relative_to(_repo_root()))
             if "self_modification" in rel or "__pycache__" in rel:
                 continue
             lines.append(rel)
