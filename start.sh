@@ -70,6 +70,12 @@ cd "$PROJECT_ROOT"
 echo -e "  Risoluzione dipendenze..."
 uv lock --quiet
 
+# ── opencode-mcp needs OPENCODE_SERVER_PASSWORD in env to suppress ServeError ──
+# Generate a stable token from the hostname if not already set
+if [[ -z "${OPENCODE_SERVER_PASSWORD:-}" ]]; then
+    export OPENCODE_SERVER_PASSWORD="echo-$(hostname | md5sum | cut -c1-16)"
+fi
+
 # ── backend ──────────────────────────────────────────────────────────────────
 echo -e "${CYAN}▶  Backend${RESET}  →  http://localhost:8000"
 echo -e "           →  http://localhost:8000/docs  (Swagger)"
