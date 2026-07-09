@@ -14,6 +14,21 @@
       "env": {}
     },
     {
+      "name": "opencode-mcp",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "OpenCode SDK — AI coding tools via opencode.ai (80 tools)",
+      "command": "npx",
+      "args": [
+        "-y",
+        "opencode-mcp@latest"
+      ],
+      "env": {
+        "NPM_CONFIG_LOGLEVEL": "silent",
+        "NPM_CONFIG_PROGRESS": "false"
+      }
+    },
+    {
       "name": "fetch",
       "transport": "stdio",
       "enabled": true,
