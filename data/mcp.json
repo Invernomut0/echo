@@ -1,6 +1,19 @@
 {
   "servers": [
     {
+      "name": "echo-workspace",
+      "transport": "stdio",
+      "enabled": true,
+      "description": "Read, write, edit files and run git inside the ECHO repo. Tools: echo_read_file, echo_write_file, echo_edit_file, echo_append_file, echo_list_files, echo_git, echo_validate_python.",
+      "command": "uv",
+      "args": [
+        "run",
+        "python3",
+        "scripts/mcp_echo_workspace.py"
+      ],
+      "env": {}
+    },
+    {
       "name": "bash",
       "transport": "stdio",
       "enabled": true,
@@ -54,7 +67,7 @@
         "NPM_CONFIG_PROGRESS": "false"
       },
       "user_path": "~",
-      "user_path_mode": "read"
+      "user_path_mode": "readwrite"
     },
     {
       "name": "brave_search",
