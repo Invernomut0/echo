@@ -343,7 +343,18 @@ class CronScheduler:
         result: dict[str, Any],
         duration_ms: int,
     ) -> None:
-        """Send cron task result to Telegram if there is something worth reporting."""
+        """Send cron task result to Telegram — only when there is real content."""
+        # Silently skip when the task was skipped, had no output, or produced only metadata
+        status = result.get("status", "")
+        if status == "skipped":
+            return
+        if result.get("skipped"):
+            return
+        # self_modification: only notify if a modification was actually made
+        if task.task_type == "self_modification":
+            if not result.get("file"):
+                return  # no modification happened
+
         try:
             from echo.integrations.telegram_send import broadcast  # noqa: PLC0415
         except Exception:  # noqa: BLE001
