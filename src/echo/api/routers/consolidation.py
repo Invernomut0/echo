@@ -84,3 +84,19 @@ async def review_echo_md():
     updated = await manager.review_and_update(meta_state=_meta_state, patterns=patterns)
     content = manager.read()
     return {"updated": updated, "content": content}
+
+
+# ---------------------------------------------------------------------------
+# self_growth.md — ECHO's autonomous growth journal
+# ---------------------------------------------------------------------------
+
+@router.get("/self-growth")
+async def get_self_growth():
+    """Return the current content of ECHO's self-growth journal."""
+    from pathlib import Path  # noqa: PLC0415
+
+    repo_root = Path(__file__).parent.parent.parent.parent.parent
+    path = repo_root / "notes" / "self_growth.md"
+    if not path.exists():
+        return {"content": "*(no entries yet)*"}
+    return {"content": path.read_text(encoding="utf-8")}
