@@ -5,6 +5,31 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.5] — 2026-07-12
+
+### ECHO Self-Modification
+- `SelfModificationEngine` expanded to full repo — can now modify any file in `/root/echo` (src/, frontend/, scripts/, docs/, notes/, start.sh, data/mcp.json, etc.)
+- New `self_modification` cron task type — replaces `llm_task` for the Self-Modification Loop; calls `SelfModificationEngine` directly (git commit/push, notes/, Telegram)
+- `_migrate_task_types()`: auto-converts existing "Self-Modification Loop" `llm_task` entries to `self_modification` on startup
+- Cron tasks with `status=skipped` no longer send Telegram notifications
+
+### echo-workspace MCP Server
+- New `scripts/mcp_echo_workspace.py`: 7 tools for full ECHO repo access
+  - `echo_read_file`, `echo_write_file`, `echo_edit_file`, `echo_append_file`, `echo_list_files`, `echo_git`, `echo_validate_python`
+  - ECHO can now directly edit `notes/self_growth.md`, modify prompts, update config, commit — no human copy-paste needed
+- Added to `data/mcp.json` (first entry); `filesystem_user` mode upgraded to `readwrite`
+
+### UI — All Labels in English
+- IdentityGraph: Coherence, beliefs, semantic, episodic, relations, Supports, Contradicts, Refines, etc.
+- AnalyticsPanel: Cognitive Drives, Emotional State, Self-Awareness, Plasticity — Drive Weights, Agent Routing, Valence, Motivation, Compression
+- App.tsx: mood labels (Distressed/Uneasy/Neutral/Calm/Content/Enthusiastic), drive labels
+- WikiGraphPanel: Entities, Concepts, Sources, Syntheses
+- Tab renamed: **GRAPH → MEMORY**
+
+### Telegram Language Fix
+- `llm_task` cron executor injects "Always respond in Italian" when `ECHO_LANGUAGE=it`
+- Fixes cron task results (Daily AI News, Self-Modification) being sent in English
+
 ## [0.5.4] — 2026-07-09
 
 ### Language Setting

@@ -21,7 +21,7 @@ import HeartbeatPanel from './components/HeartbeatPanel'
 import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'pipeline' | 'graph' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'heartbeat' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'memory' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'heartbeat' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -52,7 +52,7 @@ export default function App() {
   const { state, error } = useEchoState()
   const history = useHistory()
   const analyticsHistory = useAnalyticsHistory()
-  const { graph } = useGraph(tab === 'graph')
+  const { graph } = useGraph(tab === 'memory')
   const handleMetaUpdate = useCallback((_ms: MetaState) => {
     // intentionally left empty — pipeline trace polls independently
   }, [])
@@ -89,7 +89,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'pipeline', 'graph', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron', 'heartbeat'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'memory', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron', 'heartbeat'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -112,14 +112,14 @@ export default function App() {
         </div>
         <div
           className="graph-container"
-          style={{ display: tab === 'graph' ? 'flex' : 'none', flex: 1 }}
+          style={{ display: tab === 'memory' ? 'flex' : 'none', flex: 1 }}
         >
           <GraphErrorBoundary>
             <IdentityGraph
               nodes={graph.nodes}
               edges={graph.edges}
               coherenceScore={graph.coherence_score}
-              active={tab === 'graph'}
+              active={tab === 'memory'}
             />
           </GraphErrorBoundary>
         </div>

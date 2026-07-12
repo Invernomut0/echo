@@ -223,7 +223,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0, active
           <span style={{ color: '#f59e0b', fontSize: 16 }}>⬡</span>
           <span style={{ fontSize: 13 }}>Grafo 3D non disponibile — WebGL disabilitato in questo ambiente</span>
           <span style={{ marginLeft: 'auto', fontSize: 11, color: '#475569' }}>
-            Coerenza: <span style={{ color: '#06b6d4' }}>{(coherenceScore * 100).toFixed(0)}%</span>
+            Coherence: <span style={{ color: '#06b6d4' }}>{(coherenceScore * 100).toFixed(0)}%</span>
           </span>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
@@ -306,7 +306,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0, active
         fontSize: 11, color: '#94a3b8', backdropFilter: 'blur(6px)',
         display: 'flex', gap: 10, alignItems: 'center', zIndex: 10,
       }}>
-        <span>Coerenza&nbsp;
+        <span>Coherence&nbsp;
           <span style={{ color: '#06b6d4', fontWeight: 600 }}>
             {(coherenceScore * 100).toFixed(0)}%
           </span>
@@ -314,20 +314,20 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0, active
         <span style={{ color: '#1e293b' }}>·</span>
         <span>
           <span style={{ color: '#06b6d4' }}>●</span>
-          &nbsp;{nodes.filter(n => n.node_type === 'belief').length} credenze
+          &nbsp;{nodes.filter(n => n.node_type === 'belief').length} beliefs
         </span>
         <span style={{ color: '#1e293b' }}>·</span>
         <span>
           <span style={{ color: '#a78bfa' }}>●</span>
-          &nbsp;{nodes.filter(n => n.node_type === 'semantic').length} semantiche
+          &nbsp;{nodes.filter(n => n.node_type === 'semantic').length} semantic
         </span>
         <span style={{ color: '#1e293b' }}>·</span>
         <span>
           <span style={{ color: '#f59e0b' }}>●</span>
-          &nbsp;{nodes.filter(n => n.node_type === 'episodic').length} episodiche
+          &nbsp;{nodes.filter(n => n.node_type === 'episodic').length} episodic
         </span>
         <span style={{ color: '#1e293b' }}>·</span>
-        <span>{edges.length} relazioni</span>
+        <span>{edges.length} relations</span>
         {(relCounts['CONTRADICTS'] ?? 0) > 0 && (
           <>
             <span style={{ color: '#1e293b' }}>·</span>

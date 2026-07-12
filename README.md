@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.4 · **Last updated:** 2026-07-09
+**Version:** 0.5.5 · **Last updated:** 2026-07-12
 
 ---
 
@@ -268,6 +268,12 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.5 — 2026-07-12
+- **Full repo self-modification**: ECHO can now modify any file in its codebase and commit/push autonomously
+- **echo-workspace MCP server**: 7 tools for direct file editing, git ops, Python validation
+- **All UI labels in English**: IdentityGraph, AnalyticsPanel, WikiGraph, mood/drive labels; tab GRAPH → MEMORY
+- **Telegram language fix**: cron tasks now respond in Italian when `ECHO_LANGUAGE=it`
 
 ### 0.5.4 — 2026-07-09
 - **`ECHO_LANGUAGE=it`**: all generated text (synthesis, proactive, self-mod) in configured language
