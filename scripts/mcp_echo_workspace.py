@@ -49,6 +49,41 @@ def _check_write_allowed(rel: str) -> str | None:
     return None
 
 
+def _write_with_validation(p: Path, rel: str, new_content: str, original: str | None) -> str:
+    """Write new_content to p. If it's a .py file that becomes invalid, roll back.
+
+    Args:
+        original: previous content for rollback (None if the file is new — then the
+                  file is deleted on validation failure).
+    Returns a human-readable status string.
+    """
+    import ast
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(new_content, encoding="utf-8")
+
+    # Safety net: any .py edit must remain syntactically valid, or we revert.
+    if p.suffix == ".py":
+        try:
+            ast.parse(new_content)
+        except SyntaxError as e:
+            # Roll back so the running system is never left with broken code
+            if original is not None:
+                p.write_text(original, encoding="utf-8")
+                return (
+                    f"REJECTED: edit to {rel} would break Python syntax "
+                    f"(line {e.lineno}: {e.msg}). Rolled back to previous version. "
+                    f"Fix the syntax and retry."
+                )
+            else:
+                p.unlink(missing_ok=True)
+                return (
+                    f"REJECTED: new file {rel} has invalid Python syntax "
+                    f"(line {e.lineno}: {e.msg}). File not created. Fix and retry."
+                )
+    return f"OK: wrote {len(new_content)} chars to {rel}"
+
+
 def main() -> None:
     try:
         from mcp.server import Server
@@ -164,9 +199,8 @@ def main() -> None:
             p = _safe_path(rel)
             if isinstance(p, str):
                 return text(p)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(arguments["content"], encoding="utf-8")
-            return text(f"OK: wrote {len(arguments['content'])} chars to {rel}")
+            prev = p.read_text(encoding="utf-8") if p.exists() else None
+            return text(_write_with_validation(p, rel, arguments["content"], prev))
 
         elif name == "echo_edit_file":
             rel = arguments["path"]
@@ -184,8 +218,10 @@ def main() -> None:
             if old not in original:
                 return text(f"Error: old_snippet not found in {rel}")
             modified = original.replace(old, new, 1)
-            p.write_text(modified, encoding="utf-8")
-            return text(f"OK: edited {rel} ({len(old)} → {len(new)} chars at first occurrence)")
+            result = _write_with_validation(p, rel, modified, original)
+            if result.startswith("OK"):
+                return text(f"OK: edited {rel} ({len(old)} → {len(new)} chars at first occurrence)")
+            return text(result)
 
         elif name == "echo_append_file":
             rel = arguments["path"]
@@ -195,10 +231,12 @@ def main() -> None:
             p = _safe_path(rel)
             if isinstance(p, str):
                 return text(p)
-            p.parent.mkdir(parents=True, exist_ok=True)
-            with p.open("a", encoding="utf-8") as f:
-                f.write(arguments["content"])
-            return text(f"OK: appended {len(arguments['content'])} chars to {rel}")
+            original = p.read_text(encoding="utf-8") if p.exists() else ""
+            appended = original + arguments["content"]
+            result = _write_with_validation(p, rel, appended, original if p.exists() else None)
+            if result.startswith("OK"):
+                return text(f"OK: appended {len(arguments['content'])} chars to {rel}")
+            return text(result)
 
         elif name == "echo_list_files":
             directory = arguments.get("directory", ".")
