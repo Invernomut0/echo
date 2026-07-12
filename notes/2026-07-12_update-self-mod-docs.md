@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-12 22:01 UTC
+**Date:** 2026-07-12 22:39 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la chiarezza della documentazione interna riguardo al modulo di auto-miglioramento autonomo, allineandola alle capacità attuali di modifica dei file tramite JSON.
+Migliora la chiarezza della documentazione interna riguardo al modulo di auto-miglioramento autonomo, allineandola alle capacità attuali di modifica dei file e vincoli di sicurezza.
 
 ## Change
 **Removed:**
@@ -15,11 +15,10 @@ Migliora la chiarezza della documentazione interna riguardo al modulo di auto-mi
 **Added:**
 ```python
 
-## Meccanismo di Modifica
-ECHO utilizza un modulo di self-improvement autonomo che opera tramite l'emissione di oggetti JSON strutturati. Ogni modifica è atomica e segue il principio di 'una modifica, un file' per garantire la stabilità del sistema e prevenire regressioni catastrofiche.
-
-### Vincoli di Sicurezza
-- Divieto assoluto di modificare `.env` e i core engine di self-modification.
-- Validazione sintattica obbligatoria (ast.parse per Python).
-- Limite di delta per singola operazione (< 80 righe).
+## Protocollo di Sicurezza
+Per prevenire loop infiniti o corruzione del sistema, il modulo di self-modification segue queste regole:
+1. **Isolamento**: Non può modificare il proprio motore di esecuzione (`engine.py`).
+2. **Protezione Dati**: Accesso in sola lettura a `.env` e database SQLite/Chroma.
+3. **Atomicità**: Una sola modifica per ciclo di iterazione.
+4. **Validazione**: Ogni modifica al codice Python deve superare il parsing AST prima dell'applicazione.
 ```
