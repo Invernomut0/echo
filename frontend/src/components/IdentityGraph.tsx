@@ -12,17 +12,17 @@ interface Props {
 }
 
 const RELATION_CFG: Record<string, { color: string; label: string; sym: string }> = {
-  SUPPORTS:     { color: '#10b981', label: 'Supporta',    sym: '↑' },
-  CONTRADICTS:  { color: '#f43f5e', label: 'Contraddice', sym: '⚡' },
-  REFINES:      { color: '#3b82f6', label: 'Raffina',     sym: '↔' },
-  DERIVES_FROM: { color: '#94a3b8', label: 'Deriva da',   sym: '↙' },
+  SUPPORTS:     { color: '#10b981', label: 'Supports',     sym: '↑' },
+  CONTRADICTS:  { color: '#f43f5e', label: 'Contradicts',  sym: '⚡' },
+  REFINES:      { color: '#3b82f6', label: 'Refines',      sym: '↔' },
+  DERIVES_FROM: { color: '#94a3b8', label: 'Derives from', sym: '↙' },
 }
 
 // Semantic / episodic link types — coloured but NOT filterable (always visible)
 const SEMANTIC_LINK_CFG: Record<string, { color: string; label: string; sym: string }> = {
-  INFORMS:          { color: '#a78bfa', label: 'Informa',    sym: '⟶' },
-  SEMANTIC_RELATED: { color: '#7c3aed', label: 'Correlato',  sym: '≈' },
-  RECALLS:          { color: '#f59e0b', label: 'Ricorda',    sym: '↺' },
+  INFORMS:          { color: '#a78bfa', label: 'Informs',  sym: '⟶' },
+  SEMANTIC_RELATED: { color: '#7c3aed', label: 'Related',  sym: '≈' },
+  RECALLS:          { color: '#f59e0b', label: 'Recalls',  sym: '↺' },
 }
 
 const ALL_LINK_CFG = { ...RELATION_CFG, ...SEMANTIC_LINK_CFG }
@@ -377,7 +377,7 @@ export default function IdentityGraph({ nodes, edges, coherenceScore = 0, active
               fontSize: 9, color: '#475569', textTransform: 'uppercase',
               letterSpacing: '0.07em', marginBottom: 5,
             }}>
-              {selectedNode.node_type === 'semantic' ? 'Salienza × Forza' : 'Confidenza'}
+              {selectedNode.node_type === 'semantic' ? 'Salience × Strength' : 'Confidence'}
             </div>
             <div style={{ height: 4, background: '#1e293b', borderRadius: 2, overflow: 'hidden', marginBottom: 3 }}>
               <div style={{

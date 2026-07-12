@@ -38,11 +38,11 @@ const DRIVE_COLORS: Record<string, string> = {
 }
 
 const DRIVE_LABELS: Record<string, string> = {
-  coherence:   'Coerenza',
-  curiosity:   'Curiosità',
-  stability:   'Stabilità',
-  competence:  'Competenza',
-  compression: 'Compressione',
+  coherence:   'Coherence',
+  curiosity:   'Curiosity',
+  stability:   'Stability',
+  competence:  'Competence',
+  compression: 'Compression',
 }
 
 const AGENT_COLORS: Record<string, string> = {
@@ -152,7 +152,7 @@ export default function AnalyticsPanel({ history }: Props) {
   const moodData = useMemo(() =>
     history.map(h => ({
       t: fmt(h.timestamp),
-      valenza: Math.round(((h.emotional_valence + 1) / 2) * 100),
+      valence: Math.round(((h.emotional_valence + 1) / 2) * 100),
       arousal: Math.round((h.arousal ?? 0.5) * 100),
       _rawValence: h.emotional_valence,
     })),
@@ -206,12 +206,12 @@ export default function AnalyticsPanel({ history }: Props) {
       {last && (
         <div className="an-summary">
           <Badge
-            label="Motivazione"
+            label="Motivation"
             value={(last.total_motivation ?? 0.5).toFixed(2)}
             color="#a78bfa"
           />
           <Badge
-            label="Valenza"
+            label="Valence"
             value={
               last.emotional_valence >= 0
                 ? `+${last.emotional_valence.toFixed(2)}`
@@ -225,27 +225,27 @@ export default function AnalyticsPanel({ history }: Props) {
             color="#f59e0b"
           />
           <Badge
-            label="Coerenza"
+            label="Coherence"
             value={`${Math.round(last.drives.coherence * 100)}%`}
             color="#06b6d4"
           />
           <Badge
-            label="Curiosità"
+            label="Curiosity"
             value={`${Math.round(last.drives.curiosity * 100)}%`}
             color="#a78bfa"
           />
           <Badge
-            label="Stabilità"
+            label="Stability"
             value={`${Math.round(last.drives.stability * 100)}%`}
             color="#10b981"
           />
           <Badge
-            label="Competenza"
+            label="Competence"
             value={`${Math.round(last.drives.competence * 100)}%`}
             color="#f59e0b"
           />
           <Badge
-            label="Compressione"
+            label="Compression"
             value={`${Math.round(last.drives.compression * 100)}%`}
             color="#f43f5e"
           />
@@ -255,7 +255,7 @@ export default function AnalyticsPanel({ history }: Props) {
       <div className="an-grid">
 
         {/* ── 1. Drive Cognitivi (full width) ── */}
-        <Card title="Drive Cognitivi" sub="Evoluzione nel tempo (0 – 100%)" full>
+        <Card title="Cognitive Drives" sub="Evolution over time (0 – 100%)" full>
           <ResponsiveContainer width="100%" height={190}>
             <LineChart data={driveData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <Grid />
@@ -298,7 +298,7 @@ export default function AnalyticsPanel({ history }: Props) {
         </Card>
 
         {/* ── 2. Umore Emotivo ── */}
-        <Card title="Umore Emotivo" sub="Valenza (norm. 0-100, neutro=50) · Arousal (0-100%)">
+        <Card title="Emotional State" sub="Valence (norm. 0-100, neutral=50) · Arousal (0-100%)">
           <ResponsiveContainer width="100%" height={190}>
             <ComposedChart data={moodData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <defs>
@@ -328,9 +328,9 @@ export default function AnalyticsPanel({ history }: Props) {
               <Tooltip
                 contentStyle={TIP}
                 formatter={(v: number, name: string) => {
-                  if (name === 'valenza') {
+                  if (name === 'valence') {
                     const raw = ((v / 50) - 1).toFixed(2)
-                    return [raw, 'Valenza']
+                    return [raw, 'Valence']
                   }
                   return [`${v}%`, name === 'arousal' ? 'Arousal' : name]
                 }}
@@ -352,11 +352,11 @@ export default function AnalyticsPanel({ history }: Props) {
               />
               <Line
                 type="monotone"
-                dataKey="valenza"
+                dataKey="valence"
                 stroke="#10b981"
                 dot={false}
                 strokeWidth={2.2}
-                name="valenza"
+                name="valence"
                 activeDot={{ r: 3 }}
               />
             </ComposedChart>
@@ -364,7 +364,7 @@ export default function AnalyticsPanel({ history }: Props) {
         </Card>
 
         {/* ── 3. Autocoscienza ── */}
-        <Card title="Autocoscienza" sub="Motivazione totale M = Σ wᵢ·dᵢ">
+        <Card title="Self-Awareness" sub="Total motivation M = Σ wᵢ·dᵢ">
           <ResponsiveContainer width="100%" height={190}>
             <AreaChart data={driveData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <defs>
@@ -389,7 +389,7 @@ export default function AnalyticsPanel({ history }: Props) {
               />
               <Tooltip
                 contentStyle={TIP}
-                formatter={(v: number) => [`${v}%`, 'Motivazione']}
+                formatter={(v: number) => [`${v}%`, 'Motivation']}
               />
               <ReferenceLine
                 y={50}
@@ -411,7 +411,7 @@ export default function AnalyticsPanel({ history }: Props) {
         </Card>
 
         {/* ── 4. Plasticità — Pesi Drive (full width) ── */}
-        <Card title="Plasticità — Pesi Drive" sub="Adattamento pesi learnable (Σ = 1, init = 0.2)" full>
+        <Card title="Plasticity — Drive Weights" sub="Learnable weight adaptation (Σ = 1, init = 0.2)" full>
           <ResponsiveContainer width="100%" height={190}>
             <LineChart data={plasticityData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <Grid />
@@ -466,7 +466,7 @@ export default function AnalyticsPanel({ history }: Props) {
 
         {/* ── 5. Routing Agenti (full width) ── */}
         <Card
-          title="Routing Agenti"
+          title="Agent Routing"
           sub="Peso orchestratore per agente (init = 1.0, range 0.1 – 2.0)"
           full
           height={220}

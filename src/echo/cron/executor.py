@@ -151,9 +151,19 @@ async def _exec_llm_task(
         raise ValueError("llm_task requires a 'prompt' in task_config")
 
     messages: list[dict[str, str]] = []
-    system_prompt = config.get("system_prompt", "")
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
+    system_prompt = config.get("system_prompt", "You are ECHO, a persistent cognitive AI assistant.")
+    # Inject language instruction so responses match ECHO_LANGUAGE setting
+    try:
+        from echo.core.config import settings as _s  # noqa: PLC0415
+        lang = _s.echo_language.strip().lower()
+        _lang_names = {"it": "Italian", "es": "Spanish", "fr": "French", "de": "German",
+                       "pt": "Portuguese", "ja": "Japanese", "zh": "Chinese"}
+        _lang_name = _lang_names.get(lang, lang)
+        if lang and lang != "en":
+            system_prompt += f"\n\nIMPORTANT: Always respond in {_lang_name}."
+    except Exception:  # noqa: BLE001
+        pass
+    messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
     # use_tools: true → stream_chat_with_tools gives LLM access to bash, filesystem, etc.

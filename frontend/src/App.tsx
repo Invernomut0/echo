@@ -165,14 +165,14 @@ export default function App() {
           const d = state.meta_state.drives
           // Mood emoji based on valence
           const moodEmoji = v < -0.5 ? '😔' : v < -0.2 ? '😕' : v < 0.05 ? '😐' : v < 0.3 ? '🙂' : v < 0.6 ? '😊' : '🤩'
-          const moodLabel = v < -0.5 ? 'Abbattuto' : v < -0.2 ? 'Turbato' : v < 0.05 ? 'Neutro' : v < 0.3 ? 'Sereno' : v < 0.6 ? 'Soddisfatto' : 'Entusiasta'
+          const moodLabel = v < -0.5 ? 'Distressed' : v < -0.2 ? 'Uneasy' : v < 0.05 ? 'Neutral' : v < 0.3 ? 'Calm' : v < 0.6 ? 'Content' : 'Enthusiastic'
           const moodColor = v < -0.3 ? '#ef4444' : v < 0.1 ? '#94a3b8' : v < 0.4 ? '#22c55e' : '#06b6d4'
           // Drive emoji indicators
           const driveRows: [string, string, number][] = [
-            ['🔗', 'Coerenza',   d.coherence],
-            ['🔍', 'Curiosità',  d.curiosity],
-            ['🏔️', 'Stabilità',  d.stability],
-            ['💡', 'Competenza', d.competence],
+            ['🔗', 'Coherence',  d.coherence],
+            ['🔍', 'Curiosity',  d.curiosity],
+            ['🏔️', 'Stability',  d.stability],
+            ['💡', 'Competence', d.competence],
           ]
           const fillBar = (val: number, color: string) => {
             const blocks = Math.round(val * 8)

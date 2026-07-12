@@ -21,10 +21,10 @@ const CAT_COLOR: Record<string, string> = {
   syntheses:  '#10b981',   // green
 }
 const CAT_LABEL: Record<string, string> = {
-  entities:   'Entità',
-  concepts:   'Concetti',
-  sources:    'Sorgenti',
-  syntheses:  'Sintesi',
+  entities:   'Entities',
+  concepts:   'Concepts',
+  sources:    'Sources',
+  syntheses:  'Syntheses',
 }
 const CAT_EMOJI: Record<string, string> = {
   entities:   '👤',
