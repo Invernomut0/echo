@@ -1,6 +1,6 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-12 21:59 UTC
+**Date:** 2026-07-12 22:01 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
@@ -16,5 +16,10 @@ Migliora la chiarezza della documentazione interna riguardo al modulo di auto-mi
 ```python
 
 ## Meccanismo di Modifica
-ECHO utilizza un modulo di self-improvement autonomo che opera tramite l'emissione di oggetti JSON strutturati. Questo processo permette di modificare file di configurazione, prompt di sistema e logica di business senza l'intervento umano diretto, garantendo che ogni modifica sia tracciata e validata sintatticamente prima dell'applicazione.
+ECHO utilizza un modulo di self-improvement autonomo che opera tramite l'emissione di oggetti JSON strutturati. Ogni modifica è atomica e segue il principio di 'una modifica, un file' per garantire la stabilità del sistema e prevenire regressioni catastrofiche.
+
+### Vincoli di Sicurezza
+- Divieto assoluto di modificare `.env` e i core engine di self-modification.
+- Validazione sintattica obbligatoria (ast.parse per Python).
+- Limite di delta per singola operazione (< 80 righe).
 ```
