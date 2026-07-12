@@ -5,6 +5,18 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.7] — 2026-07-13
+
+### REM Wiki Consolidation
+- `WikiStore.consolidate_connections(max_isolated=5)`: runs in every REM (deep) cycle — finds degree-0 nodes (pages with no `[[wikilinks]]`), asks LLM which other pages are genuinely related, appends `## Related` section with `[[wikilinks]]` to grow the knowledge graph
+- Logs a `📚 WIKI` heartbeat event with count of connections created
+- Isolated entities in the Memory graph progressively become part of the network across REM cycles
+
+### Session Continuity
+- `SESSION_DUMP.md`: full architecture map, critical constants, session history, known issues — use to resume work in a new LLM session without re-reading history
+
+---
+
 ## [0.5.6] — 2026-07-12
 
 ### Proactive Engine — Real Agency

@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.6 · **Last updated:** 2026-07-12
+**Version:** 0.5.7 · **Last updated:** 2026-07-13
 
 ---
 
@@ -268,6 +268,10 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.7 — 2026-07-13
+- **REM wiki consolidation**: every deep cycle, ECHO finds isolated wiki pages (degree-0 nodes) and appends `## Related [[wikilinks]]` to connect them — knowledge graph grows autonomously
+- `SESSION_DUMP.md`: full session context file for LLM continuity across context resets
 
 ### 0.5.6 — 2026-07-12
 - **Proactive engine acts**: uses tools to actually write files, commit, search wiki/memory during idle — reports what it did, not what it plans
