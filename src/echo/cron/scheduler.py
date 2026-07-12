@@ -84,11 +84,32 @@ class CronScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Cron task type migration failed: %s", exc)
 
+    async def _auto_achieve_file_goals(self) -> None:
+        """Mark goals achieved if they describe creating a file that now exists."""
+        from echo.memory.goals import goal_store  # noqa: PLC0415
+        from echo.self_modification.git_ops import repo_root  # noqa: PLC0415
+
+        FILE_GOALS = {"self_growth": "notes/self_growth.md"}
+        try:
+            for goal in await goal_store.list_active():
+                text = (goal.get("title", "") + " " + goal.get("description", "")).lower()
+                for keyword, rel_path in FILE_GOALS.items():
+                    if keyword in text and (repo_root() / rel_path).exists():
+                        logger.info("Auto-achieving goal '%s' — %s exists", goal["title"], rel_path)
+                        await goal_store.update_status(
+                            goal["id"], "achieved",
+                            description=f"{rel_path} was created — goal auto-achieved",
+                        )
+                        break
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Auto-achieve file goals failed: %s", exc)
+
     async def startup(self) -> None:
         """Load all enabled tasks from DB and start the APScheduler."""
         if self._running:
             return
         await self._migrate_task_types()
+        await self._auto_achieve_file_goals()
         self._scheduler.start()
         self._running = True
 

@@ -272,9 +272,16 @@ Respond ONLY with valid JSON:
     {{"title": "...", "description": "...", "priority": 0.7}}
   ],
   "next_actions": [
-    {{"goal_id": "<id>", "action": "...", "search_query": "..."}}
+    {{"goal_id": "<id>", "action": "...", "search_query": "...",
+      "file_path": "optional/path.md", "file_content": "optional full content if creating/writing a file"}}
   ]
-}}"""
+}}
+
+For goals that involve creating or writing files (e.g., self_growth.md, notes, journals):
+- Set file_path to the relative path inside the ECHO repo (e.g., "notes/self_growth.md")
+- Set file_content to the full content to write
+- Leave search_query empty
+- DO NOT use web search for file creation tasks"""
 
     _GOAL_PURSUE_PROMPT = """\
 You are working on the following goal for ECHO:
@@ -470,6 +477,27 @@ Respond ONLY with valid JSON:
                 # Check iteration limit before pursuing
                 if len(goal["actions"]) >= MAX_GOAL_ITERATIONS - 1:
                     logger.info("[Goals] Goal '%s' near max iterations — skipping pursuit", goal["title"])
+                    continue
+
+                # File-action: if the plan specifies a file_path + content, use echo_workspace
+                file_path = action_plan.get("file_path")
+                file_content = action_plan.get("file_content")
+                if file_path and file_content:
+                    try:
+                        from echo.mcp.client import mcp_manager  # noqa: PLC0415
+                        result_text = await mcp_manager.call_tool(
+                            "echo-workspace__echo_write_file",
+                            {"path": file_path, "content": file_content},
+                        )
+                        await goal_store.add_action(
+                            goal["id"],
+                            description=f"Wrote file {file_path}",
+                            result=str(result_text)[:400],
+                            status="done",
+                        )
+                        logger.info("[Goals] File action completed: wrote %s", file_path)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[Goals] File action failed for %s: %s", file_path, exc)
                     continue
 
                 query = action_plan.get("search_query", action_plan.get("action", ""))
