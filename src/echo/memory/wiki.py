@@ -787,6 +787,92 @@ class WikiStore:
             "checked_pages": len(sample_pages),
         }
 
+    async def consolidate_connections(self, max_isolated: int = 5) -> dict[str, Any]:
+        """Find solitary wiki entities (degree 0) and connect them via [[wikilinks]].
+
+        For each isolated page, ask the LLM which of the OTHER pages it is
+        genuinely related to, then append a "## Related" section with
+        ``[[wikilink]]`` references. This grows the wiki graph over time —
+        run during the REM/deep consolidation cycle.
+
+        Returns a summary dict: {isolated_found, connected, links_added, details}.
+        """
+        g = self.graph()
+        nodes = g.get("nodes", [])
+        if len(nodes) < 2:
+            return {"isolated_found": 0, "connected": 0, "links_added": 0, "details": []}
+
+        # Solitary nodes: degree 0
+        isolated = [n for n in nodes if n.get("degree", 0) == 0]
+        if not isolated:
+            return {"isolated_found": 0, "connected": 0, "links_added": 0, "details": []}
+
+        # Candidate pool: all other pages (title + summary), title→id map for wikilink
+        title_to_id = {n["title"]: n["id"] for n in nodes}
+        catalogue = "\n".join(
+            f"- {n['title']} [{n['category']}]: {(n.get('summary') or '')[:100]}"
+            for n in nodes
+        )
+
+        connected = 0
+        links_added = 0
+        details: list[dict[str, Any]] = []
+
+        for node in isolated[:max_isolated]:
+            body = self.read_page_by_path(node["path"]) or ""
+            prompt = (
+                f"This wiki page is isolated (no links to other pages):\n"
+                f"TITLE: {node['title']}\n"
+                f"CATEGORY: {node['category']}\n"
+                f"CONTENT:\n{body[:800]}\n\n"
+                f"OTHER WIKI PAGES:\n{catalogue[:2500]}\n\n"
+                "Which OTHER pages is this page genuinely related to? "
+                "Return ONLY a JSON array of exact page titles (max 4), "
+                'e.g. ["Page A", "Page B"]. Return [] if none are truly related.'
+            )
+            try:
+                resp = await llm.chat(
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=settings.llm_max_tokens_wiki_search,
+                )
+                import json as _json
+                txt = resp.strip()
+                s, e = txt.find("["), txt.rfind("]")
+                related_titles = _json.loads(txt[s:e + 1]) if s != -1 and e != -1 else []
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Wiki consolidate: parse failed for %s: %s", node["title"], exc)
+                continue
+
+            # Keep only titles that exist and aren't self
+            valid = [t for t in related_titles if t in title_to_id and t != node["title"]][:4]
+            if not valid:
+                continue
+
+            # Append a Related section with wikilinks
+            related_block = "\n\n## Related\n" + "\n".join(f"- [[{t}]]" for t in valid) + "\n"
+            new_body = body.rstrip("\n") + related_block
+            # node id = slug of path; category from node
+            slug = node["path"].rsplit("/", 1)[-1].replace(".md", "")
+            self._write_page(node["category"], slug, new_body)
+            connected += 1
+            links_added += len(valid)
+            details.append({"page": node["title"], "linked_to": valid})
+            logger.info("Wiki consolidate: linked '%s' → %s", node["title"], valid)
+
+        if connected:
+            self._append_log(
+                "consolidate", "connect-isolated",
+                f"Connected {connected} isolated page(s), added {links_added} link(s).",
+            )
+
+        return {
+            "isolated_found": len(isolated),
+            "connected": connected,
+            "links_added": links_added,
+            "details": details,
+        }
+
 
 # ---------------------------------------------------------------------------
 # Singleton

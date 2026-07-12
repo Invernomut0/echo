@@ -585,6 +585,28 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("Metacognitive deep review failed: %s", exc)
 
+        # Wiki consolidation: connect solitary entities via wikilinks (REM only)
+        try:
+            from echo.memory.wiki import wiki  # noqa: PLC0415
+            wiki_result = await wiki.consolidate_connections(max_isolated=5)
+            if wiki_result.get("connected", 0):
+                logger.info(
+                    "Wiki consolidation: connected %d isolated page(s), +%d link(s)",
+                    wiki_result["connected"], wiki_result["links_added"],
+                )
+                self._event_log.append({
+                    "id": str(uuid.uuid4())[:8],
+                    "type": "wiki_sync",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "actions": {
+                        "consolidated_isolated": wiki_result["connected"],
+                        "links_added": wiki_result["links_added"],
+                        "details": wiki_result.get("details", []),
+                    },
+                })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Wiki consolidation error: %s", exc)
+
         return report
 
     # ------------------------------------------------------------------
