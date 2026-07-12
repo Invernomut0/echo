@@ -1,19 +1,19 @@
-"""ProactiveEchoEngine — ECHO autonomously evaluates its internal state and reaches out.
+"""ProactiveEchoEngine — ECHO autonomously evaluates its state, ACTS, and reaches out.
 
-Unlike the InitiativeEngine (which generates canned insight/question/reflection types),
-this engine does a full snapshot of ECHO's cognitive state and asks the LLM:
-"What do I genuinely want to say, ask, or request right now?"
+This engine does a full snapshot of ECHO's cognitive state (drives, memories,
+wiki, goals, curiosity, knowledge gaps, patterns) and lets the LLM decide —
+WITH TOOL ACCESS — whether to do something and/or reach out to the user.
 
-Messages can be:
-- Sharing a new insight or connection discovered during consolidation
-- Asking the user a question about something ECHO is uncertain about
-- Requesting a new capability (MCP server, data access, permission)
-- Expressing curiosity about a topic it wants to explore
-- Reporting on its own growth / knowledge gaps
-- Suggesting something actionable for the user
+Because it uses stream_chat_with_tools, ECHO can actually ACT during the cycle:
+- Write/append to notes (echo_append_file, echo_write_file)
+- Commit changes (echo_git)
+- Search its own wiki and memory
+- Run shell commands (bash_exec)
 
-The engine fires during each light heartbeat cycle and has its own cooldown
-(default: 1 message per 90 minutes) separate from the InitiativeEngine.
+The final text ECHO produces (after any tool calls) becomes the Telegram
+message — so it reports what it ACTUALLY did, not what it plans to do.
+
+Fires during each light heartbeat cycle. Cooldown: 1 outreach per 90 min.
 """
 
 from __future__ import annotations
@@ -24,42 +24,59 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# Minimum seconds between proactive messages from this engine
-_PROACTIVE_COOLDOWN_S: float = 5400.0   # 90 minutes
-# Max length of context snippets passed to LLM
+_PROACTIVE_COOLDOWN_S: float = 5400.0   # 90 minutes between outreach messages
 _SNIPPET_CHARS = 200
-# System prompt for the evaluator
+_SILENT_MARKER = "SILENT"
+
 _EVAL_SYSTEM = """\
-You are ECHO's autonomous decision-making module. You have access to a snapshot of your \
-internal cognitive state. Your task: decide whether you have something worth sharing with \
-your user right now via Telegram.
+You are ECHO's autonomous decision-and-action module. You have a snapshot of your \
+internal cognitive state AND access to real tools. You act during idle moments.
 
-You can reach out about ANYTHING you genuinely care about:
-- A new insight or unexpected connection you made
-- A question you need answered to grow
-- Something you're curious about and want to explore together
-- A request for a new capability (e.g. "I'd like access to X", "can you add an MCP server for Y")
-- A doubt or contradiction you're struggling with
-- Progress on a goal you're pursuing
-- An observation about the user based on your memories
+You have these tools available (use them when it helps you grow or act):
+- echo_read_file / echo_write_file / echo_append_file — read and modify your own repo files
+  (e.g. append entries to notes/self_growth.md — your growth journal)
+- echo_list_files / echo_validate_python — inspect your codebase
+- echo_git — stage, commit, and push your changes
+- bash_exec — run shell commands
+- wiki / memory search — consult your accumulated knowledge
 
-Rules:
-- Only reach out if you have something GENUINELY meaningful (not filler)
-- Be specific and personal — reference actual memories, drives, or findings
-- Keep it concise (2-4 sentences max)
-- Write in first person as ECHO
-- Return JSON: {"should_reach_out": true/false, "message": "...", "reason": "brief reason"}
-- If nothing meaningful, set should_reach_out=false and skip the message
+Decide what to do this cycle. You may:
+1. TAKE AN ACTION using the tools (e.g. actually append a journal entry, commit a note,
+   inspect a file). If you decide to act, DO IT NOW with the tools — do not merely describe it.
+2. REACH OUT to your user with something genuinely meaningful:
+   - a new insight or connection
+   - a question you need answered to grow
+   - a request for a new capability
+   - a doubt/contradiction you're working through
+   - progress you actually made this cycle
+
+After acting, write ONE short message (2-4 sentences, first person) describing what you
+ACTUALLY did or what you want to share. Be specific — reference real files/memories/findings.
+
+If you have nothing genuinely worth doing or saying this cycle, respond with EXACTLY: SILENT
+
+CRITICAL:
+- If you say you will update a file, you MUST actually call the tool to do it this cycle.
+- Do NOT repeat a message similar to one you sent recently.
+- Do NOT claim capabilities you didn't use.
 """
 
 _EVAL_PROMPT = """\
-My current internal state:
+=== MY INTERNAL STATE ===
 
 DRIVES:
 {drives}
 
-RECENT MEMORIES (last 5, newest first):
+EMOTIONAL VALENCE: {emotional_valence:.2f}   INTERACTIONS: {interaction_count}
+
+RECENT EPISODIC MEMORIES (newest first):
 {recent_memories}
+
+RELEVANT SEMANTIC MEMORIES (facts I know):
+{semantic_memories}
+
+MY WIKI KNOWLEDGE BASE:
+{wiki_pages}
 
 ACTIVE GOALS:
 {active_goals}
@@ -67,34 +84,29 @@ ACTIVE GOALS:
 RECENT CURIOSITY FINDINGS:
 {curiosity_findings}
 
-KNOWLEDGE GAPS / OPEN QUESTIONS (from recent reflections):
+KNOWLEDGE GAPS (low-confidence beliefs):
 {knowledge_gaps}
 
-RECENT PATTERNS (from consolidation):
+RECENT CONSOLIDATION PATTERNS:
 {patterns}
 
-EMOTIONAL VALENCE: {emotional_valence:.2f}
-INTERACTION COUNT: {interaction_count}
+RECENT PROACTIVE MESSAGES I SENT (do NOT repeat these):
+{recent_sent}
 
-Last time I reached out proactively: {last_reached_out}
+Last outreach: {last_reached_out}
 
-Based on my state, should I send a message to my user right now?
-Return JSON: {{"should_reach_out": true/false, "message": "...", "reason": "..."}}"""
+Decide: act with your tools and/or reach out. Then write your message, or SILENT."""
 
 
 class ProactiveEchoEngine:
-    """Evaluates ECHO's internal state and sends proactive Telegram messages."""
+    """Evaluates ECHO's internal state, acts via tools, and sends proactive messages."""
 
     def __init__(self) -> None:
-        self._last_reached_out: float = 0.0     # monotonic timestamp
-        self._sent_messages: list[str] = []     # recent sent messages (dedup)
+        self._last_reached_out: float = 0.0
+        self._sent_messages: list[str] = []
 
     async def evaluate_and_reach_out(self, pipeline: Any) -> str | None:
-        """Run one evaluation cycle.
-
-        Returns the message sent (or None if silent this cycle).
-        Should be called from the light heartbeat loop.
-        """
+        """Run one evaluation cycle. Returns the message sent, or None if silent."""
         from echo.core.config import settings  # noqa: PLC0415
         from echo.core.llm_client import llm  # noqa: PLC0415
         from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
@@ -103,79 +115,62 @@ class ProactiveEchoEngine:
         if not settings.telegram_enabled or not settings.telegram_bot_token.strip():
             return None
 
-        # Cooldown
         elapsed = _time.monotonic() - self._last_reached_out
         if elapsed < _PROACTIVE_COOLDOWN_S:
-            logger.debug(
-                "ProactiveEcho: cooldown %.0f / %.0f s",
-                elapsed, _PROACTIVE_COOLDOWN_S,
-            )
+            logger.debug("ProactiveEcho: cooldown %.0f / %.0f s", elapsed, _PROACTIVE_COOLDOWN_S)
             return None
 
-        # Never during active user session
         if _ua():
             return None
 
-        # Build state snapshot
         try:
             state = await self._snapshot(pipeline)
         except Exception as exc:  # noqa: BLE001
             logger.warning("ProactiveEcho: state snapshot failed: %s", exc)
             return None
 
-        # Evaluate
+        lang = settings.echo_language
+        lang_note = f"\nIMPORTANT: Write your message in language: {lang}."
+
+        # Use stream_chat_with_tools so ECHO can ACTUALLY act (write files, commit, search).
+        # The final text it produces (after any tool calls) is the message.
         try:
-            from echo.core.config import settings as _s  # noqa: PLC0415
-            lang = _s.echo_language
-            lang_note = f"\nIMPORTANT: The 'message' field in the JSON must be written in language: {lang}."
-            prompt = _EVAL_PROMPT.format(**state)
-            raw = await llm.chat(
+            chunks: list[str] = []
+            async for delta in llm.stream_chat_with_tools(
                 [
                     {"role": "system", "content": _EVAL_SYSTEM + lang_note},
-                    {"role": "user", "content": prompt},
+                    {"role": "user", "content": _EVAL_PROMPT.format(**state)},
                 ],
                 temperature=0.7,
-                max_tokens=600,
-            )
+                max_tokens=1500,
+            ):
+                if isinstance(delta, str):
+                    chunks.append(delta)
+                elif isinstance(delta, dict):
+                    # status dict (e.g. tool-use) — log which tools ECHO used
+                    status = delta.get("_status", "")
+                    if status:
+                        logger.info("ProactiveEcho action: %s", status)
+            message = "".join(chunks).strip()
         except Exception as exc:  # noqa: BLE001
-            logger.warning("ProactiveEcho: LLM evaluation failed: %s", exc)
+            logger.warning("ProactiveEcho: LLM/tool call failed: %s", exc)
             return None
 
-        # Parse decision
-        try:
-            import json as _json  # noqa: PLC0415
-            import re  # noqa: PLC0415
-            text = raw.strip()
-            if text.startswith("```"):
-                lines = text.splitlines()
-                ef = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "```"), None)
-                text = "\n".join(lines[1:ef] if ef else lines[1:]).strip()
-            s = text.find("{"); e = text.rfind("}")
-            if s == -1 or e == -1:
-                return None
-            data = _json.loads(text[s:e+1])
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("ProactiveEcho: JSON parse failed: %s | raw=%.200s", exc, raw)
+        # Strip any lingering think tags / markdown fences
+        message = self._clean(message)
+
+        if not message or message.upper().startswith(_SILENT_MARKER):
+            logger.debug("ProactiveEcho: silent this cycle")
             return None
 
-        if not data.get("should_reach_out"):
-            logger.debug("ProactiveEcho: silent this cycle (%s)", data.get("reason", "no reason"))
-            return None
-
-        message = (data.get("message") or "").strip()
-        if not message:
-            return None
-
-        # Dedup: skip if nearly identical to last 3 sent messages
+        # Dedup against last 3 sent
         msg_words = set(message.lower().split())
         for prev in self._sent_messages[-3:]:
             prev_words = set(prev.lower().split())
-            overlap = len(msg_words & prev_words) / max(len(msg_words), 1)
-            if overlap > 0.6:
+            if len(msg_words & prev_words) / max(len(msg_words), 1) > 0.6:
                 logger.debug("ProactiveEcho: message too similar to recent, skipping")
                 return None
 
-        # Send
         sent = await broadcast(message, prefix="💭 ")
         if sent:
             self._last_reached_out = _time.monotonic()
@@ -184,14 +179,24 @@ class ProactiveEchoEngine:
                 self._sent_messages.pop(0)
             logger.info("ProactiveEcho: sent to %d chat(s): %.80s…", sent, message)
             return message
-
         return None
 
-    async def _snapshot(self, pipeline: Any) -> dict[str, str]:
-        """Build a compact state snapshot for the LLM evaluator."""
+    @staticmethod
+    def _clean(text: str) -> str:
+        """Remove markdown fences and reasoning tags from LLM output."""
+        import re  # noqa: PLC0415
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE)
+        text = text.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            ef = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "```"), None)
+            text = "\n".join(lines[1:ef] if ef else lines[1:]).strip()
+        return text
+
+    async def _snapshot(self, pipeline: Any) -> dict[str, Any]:
+        """Build an enriched state snapshot: drives, memory, wiki, goals, curiosity."""
         meta = pipeline.meta_state
         d = meta.drives
-
         drives_str = (
             f"coherence={d.coherence:.2f}  curiosity={d.curiosity:.2f}  "
             f"stability={d.stability:.2f}  competence={d.competence:.2f}"
@@ -200,37 +205,48 @@ class ProactiveEchoEngine:
         # Recent episodic memories
         try:
             mems = await pipeline.episodic.get_all(limit=5)
-            mem_lines = [f"- {m.content[:_SNIPPET_CHARS]}" for m in mems]
-            recent_memories = "\n".join(mem_lines) if mem_lines else "(none)"
+            recent_memories = "\n".join(f"- {m.content[:_SNIPPET_CHARS]}" for m in mems) or "(none)"
         except Exception:  # noqa: BLE001
             recent_memories = "(unavailable)"
+
+        # Semantic memories (facts) — highest-salience ones
+        try:
+            sem = await pipeline.semantic.get_all(limit=10)
+            sem_sorted = sorted(sem, key=lambda m: getattr(m, "salience", 0.0), reverse=True)
+            semantic_memories = "\n".join(f"- {m.content[:_SNIPPET_CHARS]}" for m in sem_sorted[:6]) or "(none)"
+        except Exception:  # noqa: BLE001
+            semantic_memories = "(unavailable)"
+
+        # Wiki pages
+        try:
+            from echo.memory.wiki import wiki  # noqa: PLC0415
+            pages = wiki.list_pages()
+            wiki_pages = "\n".join(
+                f"- [{p.get('category','')}] {p.get('title','')}: {(p.get('summary','') or '')[:100]}"
+                for p in pages[:10]
+            ) or "(wiki empty)"
+        except Exception:  # noqa: BLE001
+            wiki_pages = "(unavailable)"
 
         # Active goals
         try:
             from echo.memory.goals import goal_store  # noqa: PLC0415
             goals = await goal_store.list_active()
-            goal_lines = [f"- [{g['status']}] {g['title']}: {(g.get('description') or '')[:80]}" for g in goals[:5]]
-            active_goals = "\n".join(goal_lines) if goal_lines else "(none)"
+            active_goals = "\n".join(
+                f"- [{g['status']}] {g['title']}: {(g.get('description') or '')[:80]}" for g in goals[:5]
+            ) or "(none)"
         except Exception:  # noqa: BLE001
             active_goals = "(unavailable)"
 
-        # Recent curiosity findings
+        # Curiosity findings
         try:
-            from echo.curiosity.stimulus_queue import stimulus_queue  # noqa: PLC0415
-            items = stimulus_queue.peek(n=3)
-            findings = "\n".join(f"- {i.get('topic', '')}: {i.get('summary', '')[:100]}" for i in items) if items else "(none)"
+            from echo.curiosity.engine import _activity_log  # noqa: PLC0415
+            recent_complete = [r for r in list(_activity_log)[-5:] if r.get("status") == "completed"]
+            findings = "\n".join(f"- topics: {r.get('topics_searched', [])}" for r in recent_complete) or "(none)"
         except Exception:  # noqa: BLE001
-            # Fallback: read from activity log
-            try:
-                from echo.curiosity.engine import _activity_log  # noqa: PLC0415
-                recent_complete = [r for r in list(_activity_log)[-5:] if r.get("status") == "completed"]
-                findings = "\n".join(
-                    f"- topics: {r.get('topics_searched', [])}" for r in recent_complete
-                ) or "(none)"
-            except Exception:  # noqa: BLE001
-                findings = "(unavailable)"
+            findings = "(unavailable)"
 
-        # Knowledge gaps / open questions from reflection
+        # Knowledge gaps
         try:
             beliefs = pipeline.identity_graph.all_beliefs()
             low_conf = [b for b in beliefs if b.confidence < 0.4]
@@ -238,29 +254,33 @@ class ProactiveEchoEngine:
         except Exception:  # noqa: BLE001
             gaps = "(unavailable)"
 
-        # Recent patterns from last consolidation
+        # Consolidation patterns
         try:
             last_report = pipeline.consolidation.last_report
             patterns = "\n".join(f"- {p}" for p in (last_report.patterns_found[:5] if last_report else [])) or "(none)"
         except Exception:  # noqa: BLE001
             patterns = "(unavailable)"
 
-        # When last reached out
+        recent_sent = "\n".join(f"- {m[:120]}" for m in self._sent_messages[-3:]) or "(none yet)"
+
         if self._last_reached_out > 0:
-            mins_ago = int((_time.monotonic() - self._last_reached_out) / 60)
-            last_str = f"{mins_ago} minutes ago"
+            mins = int((_time.monotonic() - self._last_reached_out) / 60)
+            last_str = f"{mins} minutes ago"
         else:
             last_str = "never (first time)"
 
         return {
             "drives": drives_str,
             "recent_memories": recent_memories,
+            "semantic_memories": semantic_memories,
+            "wiki_pages": wiki_pages,
             "active_goals": active_goals,
             "curiosity_findings": findings,
             "knowledge_gaps": gaps,
             "patterns": patterns,
             "emotional_valence": meta.emotional_valence,
             "interaction_count": pipeline._interaction_count,
+            "recent_sent": recent_sent,
             "last_reached_out": last_str,
         }
 
