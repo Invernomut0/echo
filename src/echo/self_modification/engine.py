@@ -34,7 +34,9 @@ def _repo_root() -> Path:
 logger = logging.getLogger(__name__)
 
 _COOLDOWN_S: float = 21600.0   # 6 hours between modifications
-_NOTES_DIR = Path(__file__).parent.parent.parent.parent.parent / "notes"
+def _notes_dir() -> Path:
+    """Return the notes/ directory inside the repo root (lazy to avoid circular)."""
+    return _repo_root() / "notes"
 
 # Files/dirs ECHO must never touch autonomously
 _FORBIDDEN = {
@@ -236,8 +238,9 @@ class SelfModificationEngine:
         # Write notes file
         now = datetime.now(timezone.utc)
         note_filename = f"{now.strftime('%Y-%m-%d')}_{slug}.md"
-        note_path = _NOTES_DIR / note_filename
-        _NOTES_DIR.mkdir(exist_ok=True)
+        _nd = _notes_dir()
+        note_path = _nd / note_filename
+        _nd.mkdir(parents=True, exist_ok=True)
         note_content = (
             f"# {description}\n\n"
             f"**Date:** {now.strftime('%Y-%m-%d %H:%M UTC')}\n"

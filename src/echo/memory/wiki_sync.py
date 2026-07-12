@@ -162,6 +162,11 @@ class WikiSyncEngine:
                     synced += 1
                     logger.debug("WikiSync: ingested %s (%s)", path, result.get("pages_written", "?"))
                 except Exception as exc:  # noqa: BLE001
+                    exc_str = str(exc)
+                    if "token_quota_exceeded" in exc_str or "Tokens per day limit" in exc_str:
+                        logger.warning("WikiSync: daily token quota exceeded — stopping sync (synced %d so far)", synced)
+                        errors += 1
+                        break   # stop immediately, don't waste more calls
                     logger.warning("WikiSync: ingest failed for %s: %s", path, exc)
                     errors += 1
 

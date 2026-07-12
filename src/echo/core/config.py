@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     wiki_sync_repo: str = "https://github.com/Invernomut0/echo"
     wiki_sync_enabled: bool = True
     wiki_sync_interval_h: int = 24        # hours between full re-syncs
-    wiki_sync_max_files: int = 50         # max .md files per sync cycle
+    wiki_sync_max_files: int = 10         # max .md files per sync cycle (keep low to avoid token quota)
 
     # Language for all ECHO-generated text (prompts, Telegram messages, self-modification notes)
     # Use BCP-47 codes: 'it' Italian, 'en' English, 'es' Spanish, etc.

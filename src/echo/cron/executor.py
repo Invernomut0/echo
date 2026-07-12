@@ -72,7 +72,7 @@ async def _exec_reflection(config: dict[str, Any], pipeline: CognitivePipeline) 
         user_input=trigger_input,
         assistant_response="",
         recent_memories=[m.content for m in recent_mems],
-        workspace_context=pipeline.workspace.get_top_items(3),
+        workspace_context=[i.content[:200] for i in pipeline.workspace.snapshot.items[:3]],
     )
 
     return {
