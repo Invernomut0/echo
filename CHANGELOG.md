@@ -5,6 +5,30 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.6] — 2026-07-12
+
+### Proactive Engine — Real Agency
+- Proactive engine now uses `stream_chat_with_tools()` instead of `llm.chat()` — ECHO can **actually act** during idle heartbeats (write files, commit, search wiki/memory) instead of only describing intentions
+- Final message reports what ECHO **actually did**, not what it plans to; system prompt enforces "if you say you'll update a file, you MUST call the tool this cycle"
+- Enriched state snapshot: adds **semantic memory** (top-salience facts) and **full wiki page index** alongside episodic memory, goals, curiosity, knowledge gaps, patterns
+- Tool-use actions logged as `ProactiveEcho action: …`
+
+### Self-Code-Modification via Proactive Engine
+- Proactive engine can now modify **its own source code** (`src/echo/*.py`, frontend, scripts) — fix bugs seen in logs, tune constants, improve prompts, add features — then commit + push autonomously
+- **Safety net** in `echo-workspace` MCP server: every `.py` write/edit/append is auto-validated with `ast.parse()`; syntax errors trigger automatic rollback (or file deletion for new files) with a `REJECTED` message. The running system can never be left with broken code
+- `self_modification/engine.py` remains the only protected code file
+
+### echo-workspace / bash MCP Servers
+- `scripts/mcp_echo_workspace.py`: 7 tools (read/write/edit/append/list/git/validate) for full repo access
+- `scripts/mcp_bash_server.py`: sandboxed `bash_exec` with timeout + destructive-command blocklist
+- `notes/self_growth.md`: growth journal ECHO maintains autonomously
+
+### Goal & Cron Fixes
+- `_auto_achieve_file_goals()`: file-creation goals auto-marked achieved on startup when the target file exists — stops the infinite "Create self_growth.md" loop
+- Goal pursuit supports file actions (`file_path` + `file_content`) via echo-workspace instead of web search
+- `self_modification` cron task type; auto-migration from `llm_task`
+- Skipped cron tasks no longer send Telegram notifications
+
 ## [0.5.5] — 2026-07-12
 
 ### ECHO Self-Modification

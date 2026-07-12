@@ -2,7 +2,7 @@
 
 > NOT a chatbot. An architecture that persists, evolves, and knows itself.
 
-**Version:** 0.5.5 · **Last updated:** 2026-07-12
+**Version:** 0.5.6 · **Last updated:** 2026-07-12
 
 ---
 
@@ -268,6 +268,12 @@ p = 0.2 + 0.3 · arousal
 ## Changelog
 
 > Full history in [CHANGELOG.md](CHANGELOG.md)
+
+### 0.5.6 — 2026-07-12
+- **Proactive engine acts**: uses tools to actually write files, commit, search wiki/memory during idle — reports what it did, not what it plans
+- **Self-code-modification**: ECHO can improve its own source code (auto-validated with ast.parse + rollback on syntax error)
+- **echo-workspace + bash MCP servers**: full repo file access and sandboxed shell for ECHO
+- **Goal loop fix**: file-creation goals auto-achieved when file exists; goal pursuit writes files instead of web-searching
 
 ### 0.5.5 — 2026-07-12
 - **Full repo self-modification**: ECHO can now modify any file in its codebase and commit/push autonomously
