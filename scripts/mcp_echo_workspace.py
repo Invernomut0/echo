@@ -258,20 +258,32 @@ def main() -> None:
             return text("\n".join(results[:200]) or "(no files found)")
 
         elif name == "echo_git":
+            import shlex
             cmd = arguments["command"].strip()
             # Safety: block destructive forced operations
             blocked = ["push --force", "push -f", "reset --hard", "clean -f", "branch -D"]
             for b in blocked:
                 if b in cmd:
                     return text(f"Error: blocked git command: '{b}'")
-            try:
-                result = subprocess.run(
-                    ["git"] + cmd.split(),
+
+            def _run_git(subcmd: str) -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["git"] + shlex.split(subcmd),
                     cwd=str(_REPO_ROOT),
                     capture_output=True,
                     text=True,
-                    timeout=30,
+                    timeout=60,
                 )
+
+            try:
+                # Before push: pull --rebase to avoid rejected non-fast-forward
+                if cmd.startswith("push"):
+                    pull = _run_git("pull --rebase")
+                    if pull.returncode != 0:
+                        return text(
+                            f"Error: pull --rebase failed before push:\n{(pull.stdout + pull.stderr).strip()}"
+                        )
+                result = _run_git(cmd)
                 out = result.stdout + result.stderr
                 return text(out.strip() or f"(exit code {result.returncode})")
             except subprocess.TimeoutExpired:
