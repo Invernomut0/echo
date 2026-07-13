@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 16:13 UTC
+**Date:** 2026-07-13 19:34 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-miglioramento con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di modifica.
+Allinea la documentazione wiki con l'attuale stato operativo del modulo di auto-miglioramento autonomo, integrando i vincoli di sicurezza e il formato di output JSON richiesto.
 
 ## Change
 **Removed:**
@@ -14,19 +14,13 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mig
 
 **Added:**
 ```python
-# Autonomous Self-Modification
-
-## Overview
-Il modulo di self-modification permette a ECHO di analizzare il proprio codice e i propri file di configurazione per apportare miglioramenti incrementali in modo autonomo.
 
 ## Protocollo di Modifica
-1. **Analisi**: Identificazione di bug, inefficienze o opportunità di nuove feature.
-2. **Proposta**: Generazione di un delta di codice (snippet) mirato.
-3. **Validazione**: Verifica sintattica (ast.parse per Python) prima dell'applicazione.
-4. **Applicazione**: Sostituzione atomica di stringhe nel file target.
+Il modulo di self-modification opera seguendo un ciclo di: Analisi Log $\rightarrow$ Identificazione Bug/Miglioramento $\rightarrow$ Proposta JSON $\rightarrow$ Applicazione Atomica.
 
-## Vincoli di Sicurezza
-- **File Protetti**: `.env`, database SQLite e il motore core di self-modification non sono modificabili per prevenire loop infiniti o perdita di credenziali.
-- **Atomicità**: Ogni modifica deve riguardare un singolo file e un delta limitato (< 80 righe).
-- **Tracciabilità**: Ogni cambiamento viene registrato nel CHANGELOG.md.
+### Vincoli di Sicurezza
+- Divieto assoluto di modificare `.env` e i database in `data/sqlite/` o `data/chroma/`.
+- Ogni modifica deve essere limitata a un singolo file per transazione.
+- Il delta di codice deve essere inferiore a 80 righe per prevenire regressioni massive.
+- I file Python devono superare il controllo `ast.parse` prima dell'applicazione.
 ```

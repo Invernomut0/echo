@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 18:09 UTC
+**Date:** 2026-07-13 19:44 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Integrare la consapevolezza del modulo di auto-miglioramento autonomo e i vincoli di sicurezza attuali per allineare la wiki allo stato reale del sistema.
+Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di lavoro JSON.
 
 ## Change
 **Removed:**
@@ -15,12 +15,10 @@ Integrare la consapevolezza del modulo di auto-miglioramento autonomo e i vincol
 **Added:**
 ```python
 
-## Vincoli di Sicurezza
-Per prevenire instabilità critiche, il modulo di self-modification ha i seguenti divieti assoluti:
-- Modifica di `.env` (configurazioni segrete).
-- Modifica di `data/sqlite/` e `data/chroma/` (integrità del database).
-- Modifica di `src/echo/self_modification/engine.py` (per evitare loop di ricorsione distruttivi).
-
-## Protocollo di Modifica
-Ogni modifica deve seguire il formato JSON atomico: `should_modify`, `file_path`, `description`, `rationale`, `old_snippet`, `new_snippet`.
+## Protocollo di Sicurezza
+Per prevenire instabilità sistemiche, il modulo di self-modification opera sotto i seguenti vincoli:
+1. **File Protetti**: Accesso negato a `.env`, `data/sqlite/`, `data/chroma/` e al motore core `src/echo/self_modification/engine.py`.
+2. **Atomicità**: Ogni modifica è limitata a un singolo file per transazione.
+3. **Validazione**: I file Python devono superare il parsing `ast.parse` prima dell'applicazione.
+4. **Formato**: L'output deve essere esclusivamente un oggetto JSON per garantire l'integrità del parsing automatico.
 ```
