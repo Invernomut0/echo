@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 10:24 UTC
+**Date:** 2026-07-13 18:09 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-miglioramento con l'attuale stato operativo e i vincoli di sicurezza (es. protezione di engine.py).
+Integrare la consapevolezza del modulo di auto-miglioramento autonomo e i vincoli di sicurezza attuali per allineare la wiki allo stato reale del sistema.
 
 ## Change
 **Removed:**
@@ -16,9 +16,11 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mig
 ```python
 
 ## Vincoli di Sicurezza
-Per prevenire loop di instabilità o crash sistemici, il modulo di self-modification opera sotto i seguenti vincoli:
-- **File Protetti**: L'accesso in scrittura a `src/echo/self_modification/engine.py` e ai file `.env` è rigorosamente vietato.
-- **Atomicità**: Ogni modifica deve riguardare un singolo file per transazione.
-- **Validazione**: I file Python devono superare il parsing AST prima dell'applicazione della modifica.
-- **Limitazione Delta**: Le modifiche sono limitate a piccoli incrementi (< 80 righe) per garantire la tracciabilità.
+Per prevenire instabilità critiche, il modulo di self-modification ha i seguenti divieti assoluti:
+- Modifica di `.env` (configurazioni segrete).
+- Modifica di `data/sqlite/` e `data/chroma/` (integrità del database).
+- Modifica di `src/echo/self_modification/engine.py` (per evitare loop di ricorsione distruttivi).
+
+## Protocollo di Modifica
+Ogni modifica deve seguire il formato JSON atomico: `should_modify`, `file_path`, `description`, `rationale`, `old_snippet`, `new_snippet`.
 ```
