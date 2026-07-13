@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 06:29 UTC
+**Date:** 2026-07-13 10:29 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Integrare la consapevolezza del modulo di self-improvement autonomo e dei vincoli operativi attuali per migliorare la coerenza della base di conoscenza di ECHO.
+Integrare la consapevolezza dei vincoli di sicurezza (es. file protetti come .env e engine.py) per allineare la wiki con le istruzioni operative del modulo di self-improvement.
 
 ## Change
 **Removed:**
@@ -15,10 +15,9 @@ Integrare la consapevolezza del modulo di self-improvement autonomo e dei vincol
 **Added:**
 ```python
 
-## Vincoli Operativi
-Il modulo di self-modification opera sotto rigidi vincoli di sicurezza:
-- Modifica di un singolo file per iterazione.
-- Delta massimo di 80 righe.
-- Divieto assoluto di modificare `.env`, `data/sqlite/`, `data/chroma/` e l'engine di self-modification stesso per prevenire loop di crash catastrofici.
-- Validazione sintattica obbligatoria (ast.parse per Python) prima dell'applicazione.
+## Vincoli di Sicurezza
+Per prevenire instabilità critiche o fughe di dati, il modulo di self-modification opera sotto rigidi vincoli:
+- **File Protetti**: È severamente vietato modificare `.env`, i database in `data/sqlite/`, l'indice di `data/chroma/` e il core engine in `src/echo/self_modification/engine.py`.
+- **Atomicità**: Ogni modifica deve essere singola, mirata e limitata a un delta di poche righe per garantire la reversibilità.
+- **Validazione**: Ogni file Python deve superare il parsing AST prima dell'applicazione.
 ```
