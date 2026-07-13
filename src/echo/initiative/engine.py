@@ -108,13 +108,20 @@ class InitiativeEngine:
             episodic = EpisodicMemoryStore()
             semantic = SemanticMemoryStore()
 
-            # Get diverse memories — recent + random-ish via different queries
+            # Get diverse memories — exclude previously-delivered initiative messages
             recent_mems = await episodic.get_recent(n=5)
-            # Get semantic memories from different domains
-            sem_mems = await semantic.get_all(limit=10)
+            sem_mems_all = await semantic.get_all(limit=20)
+            # Filter out memories that are themselves past initiative deliveries
+            sem_mems = [
+                m for m in sem_mems_all
+                if not (hasattr(m, 'tags') and 'initiative' in (m.tags or []))
+            ][:8]
 
             if len(recent_mems) < 2 and len(sem_mems) < 2:
                 return None
+
+            # Load recently delivered insights from DB for dedup
+            recent_sent = await self._load_recent_sent(limit=5)
 
             # Build context from diverse memories
             mem_texts = []
@@ -124,6 +131,7 @@ class InitiativeEngine:
                 mem_texts.append(f"[Semantic] {m.content[:200]}")
 
             memories_block = "\n".join(mem_texts)
+            recent_sent_block = "\n".join(f"- {s[:120]}" for s in recent_sent) or "(none yet)"
 
             prompt = f"""\
 You are ECHO's creative insight generator. Review these diverse memories and find
@@ -134,19 +142,23 @@ The insight should be:
 - Non-obvious (not just summarizing what's already known)
 - Personally relevant (connects to user's interests or past conversations)
 - Thought-provoking (raises a question or offers a new perspective)
+- DIFFERENT from any insight listed in "Already sent" below
 
 Memories:
 {memories_block}
 
-If you find a genuinely interesting connection, respond with JSON:
+Already sent (DO NOT repeat these topics or angles):
+{recent_sent_block}
+
+If you find a genuinely interesting NEW connection, respond with JSON:
 {{"insight": "...", "quality": 0.8, "topic": "...", "question_for_user": "..."}}
 
-If nothing interesting emerges, respond with:
+If nothing new and interesting emerges, respond with:
 {{"insight": null, "quality": 0.0}}"""
 
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
-                temperature=0.7,
+                temperature=0.8,
                 max_tokens=settings.llm_max_tokens_initiative_insight,
             )
 
@@ -165,6 +177,11 @@ If nothing interesting emerges, respond with:
                 "topic": data.get("topic", ""),
                 "question": data.get("question_for_user", ""),
             }
+
+            # Content-level dedup: skip if too similar to any recently sent
+            if self._is_too_similar(insight["content"], recent_sent):
+                logger.debug("Insight too similar to recently sent — skipping")
+                return None
 
             # Deliver and log
             await self._deliver(insight)
@@ -414,6 +431,32 @@ Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}"""
                 logger.debug("Telegram broadcast sent 0 chats (disabled or no chat_ids)")
         except Exception as exc:  # noqa: BLE001
             logger.warning("Initiative Telegram send failed: %s", exc)
+
+    async def _load_recent_sent(self, limit: int = 5) -> list[str]:
+        """Load the content of recently delivered initiatives from DB."""
+        try:
+            factory = get_session_factory()
+            async with factory() as session:
+                result = await session.execute(
+                    select(InitiativeRow.content)
+                    .where(InitiativeRow.delivered == "true")
+                    .order_by(InitiativeRow.timestamp.desc())
+                    .limit(limit)
+                )
+                return [row[0] for row in result.fetchall()]
+        except Exception:  # noqa: BLE001
+            return []
+
+    @staticmethod
+    def _is_too_similar(candidate: str, recent: list[str], threshold: float = 0.45) -> bool:
+        """Return True if candidate overlaps too much with any of the recent messages."""
+        cw = set(candidate.lower().split())
+        for prev in recent:
+            pw = set(prev.lower().split())
+            overlap = len(cw & pw) / max(len(cw), 1)
+            if overlap > threshold:
+                return True
+        return False
 
     async def _persist(self, initiative: dict[str, Any]) -> None:
         """Log initiative to SQLite."""

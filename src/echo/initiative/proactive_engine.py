@@ -18,8 +18,10 @@ Fires during each light heartbeat cycle. Cooldown: 1 outreach per 90 min.
 
 from __future__ import annotations
 
+import json
 import logging
 import time as _time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,9 @@ logger = logging.getLogger(__name__)
 _PROACTIVE_COOLDOWN_S: float = 5400.0   # 90 minutes between outreach messages
 _SNIPPET_CHARS = 200
 _SILENT_MARKER = "SILENT"
+_DEDUP_OVERLAP_THRESHOLD: float = 0.40   # lowered from 0.60
+_SENT_CACHE_FILE = Path(__file__).parent.parent.parent.parent / "data" / "proactive_sent.json"
+_SENT_CACHE_MAXLEN = 20
 
 _EVAL_SYSTEM = """\
 You are ECHO's autonomous decision-and-action module. You have a snapshot of your \
@@ -111,7 +116,31 @@ class ProactiveEchoEngine:
 
     def __init__(self) -> None:
         self._last_reached_out: float = 0.0
-        self._sent_messages: list[str] = []
+        self._sent_messages: list[str] = self._load_sent_cache()
+
+    # ------------------------------------------------------------------
+    # Persistence helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _load_sent_cache() -> list[str]:
+        try:
+            if _SENT_CACHE_FILE.exists():
+                data = json.loads(_SENT_CACHE_FILE.read_text(encoding="utf-8"))
+                return data if isinstance(data, list) else []
+        except Exception:  # noqa: BLE001
+            pass
+        return []
+
+    def _save_sent_cache(self) -> None:
+        try:
+            _SENT_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _SENT_CACHE_FILE.write_text(
+                json.dumps(self._sent_messages[-_SENT_CACHE_MAXLEN:], ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     async def evaluate_and_reach_out(self, pipeline: Any) -> str | None:
         """Run one evaluation cycle. Returns the message sent, or None if silent."""
@@ -171,11 +200,11 @@ class ProactiveEchoEngine:
             logger.debug("ProactiveEcho: silent this cycle")
             return None
 
-        # Dedup against last 3 sent
+        # Dedup against last sent messages (persisted across restarts)
         msg_words = set(message.lower().split())
-        for prev in self._sent_messages[-3:]:
+        for prev in self._sent_messages[-5:]:
             prev_words = set(prev.lower().split())
-            if len(msg_words & prev_words) / max(len(msg_words), 1) > 0.6:
+            if len(msg_words & prev_words) / max(len(msg_words), 1) > _DEDUP_OVERLAP_THRESHOLD:
                 logger.debug("ProactiveEcho: message too similar to recent, skipping")
                 return None
 
@@ -183,8 +212,9 @@ class ProactiveEchoEngine:
         if sent:
             self._last_reached_out = _time.monotonic()
             self._sent_messages.append(message)
-            if len(self._sent_messages) > 20:
+            if len(self._sent_messages) > _SENT_CACHE_MAXLEN:
                 self._sent_messages.pop(0)
+            self._save_sent_cache()  # persist across restarts
             logger.info("ProactiveEcho: sent to %d chat(s): %.80s…", sent, message)
             return message
         return None
