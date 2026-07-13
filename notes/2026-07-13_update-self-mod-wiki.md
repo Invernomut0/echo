@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 07:57 UTC
+**Date:** 2026-07-13 08:34 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Integrare la consapevolezza del modulo di auto-miglioramento autonomo all'interno della wiki per migliorare la coerenza cognitiva del sistema.
+Migliora la coerenza della wiki allineando la descrizione del modulo di auto-miglioramento con l'attuale implementazione di ECHO, specificando il ruolo del modulo autonomo e i vincoli di sicurezza.
 
 ## Change
 **Removed:**
@@ -14,14 +14,19 @@ Integrare la consapevolezza del modulo di auto-miglioramento autonomo all'intern
 
 **Added:**
 ```python
+# Autonomous Self-Modification
 
-## Ciclo di Auto-Miglioramento Autonomo
-ECHO implementa un modulo di self-modification che permette al sistema di analizzare i propri log, identificare colli di bottiglia cognitivi e modificare direttamente il proprio codice sorgente o la propria base di conoscenza.
+## Overview
+Il modulo di self-modification permette a ECHO di analizzare il proprio codice sorgente e applicare modifiche iterative per migliorare le proprie prestazioni, correggere bug o implementare nuove funzionalità senza intervento umano diretto.
 
-### Processo di Iterazione
-1. **Analisi**: Monitoraggio dei pattern di errore e dei gap di conoscenza.
-2. **Proposta**: Generazione di una modifica mirata (file, snippet, rationale).
-3. **Validazione**: Verifica sintattica (ast.parse per Python) e test di integrità.
-4. **Applicazione**: Modifica atomica del file di sistema.
-5. **Riflessione**: Valutazione dell'impatto della modifica sul comportamento globale.
+## Workflow
+1. **Analisi**: Il modulo esamina i log di errore, i feedback dell'utente e i pattern di ragionamento.
+2. **Proposta**: Viene generata una modifica specifica (diff) mirata a un singolo file.
+3. **Validazione**: Il sistema verifica che la modifica non rompa la sintassi (es. ast.parse per Python).
+4. **Applicazione**: La modifica viene scritta nel repository e registrata nel CHANGELOG.
+
+## Safety Constraints
+- **File Protetti**: Il modulo non può modificare file critici come `.env` o il motore core di self-modification per evitare loop di autodistruzione.
+- **Atomicità**: Una sola modifica per ciclo per garantire la stabilità.
+- **Reversibilità**: Ogni modifica è tracciata per permettere il rollback.
 ```

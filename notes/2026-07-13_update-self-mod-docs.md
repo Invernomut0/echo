@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 07:47 UTC
+**Date:** 2026-07-13 08:54 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la chiarezza della documentazione interna riguardo al modulo di auto-miglioramento autonomo, allineandola alle capacità attuali di modifica dei file e vincoli di sicurezza.
+Allinea la documentazione wiki con l'attuale implementazione del modulo di auto-miglioramento autonomo, integrando i vincoli di sicurezza e il formato di output JSON richiesto.
 
 ## Change
 **Removed:**
@@ -14,11 +14,11 @@ Migliora la chiarezza della documentazione interna riguardo al modulo di auto-mi
 
 **Added:**
 ```python
+## Vincoli di Sicurezza e Protocollo
 
-## Protocollo di Sicurezza
-Per prevenire loop di regressione o crash sistemici, il modulo di self-modification segue questi vincoli:
-1. **Isolamento**: Non può modificare i file di configurazione sensibili (.env) o il motore core di self-modification.
-2. **Atomicità**: Una sola modifica per ciclo per garantire la tracciabilità.
-3. **Validazione**: Ogni modifica al codice Python deve superare il parsing AST prima dell'applicazione.
-4. **Documentazione**: Ogni cambiamento deve essere giustificato da una rationale basata su insight o gap di conoscenza.
+Il modulo di self-modification opera sotto rigidi vincoli per prevenire l'instabilità del sistema:
+1. **File Protetti**: È assolutamente vietato modificare `.env`, i database in `data/sqlite/`, l'indice di `data/chroma/` e il core engine in `src/echo/self_modification/engine.py`.
+2. **Atomicità**: Ogni modifica deve riguardare un singolo file e non superare le 80 righe di delta.
+3. **Validazione**: I file Python devono superare `ast.parse` e i file TypeScript devono essere sintatticamente validi.
+4. **Output Deterministico**: Il modulo deve rispondere esclusivamente con un oggetto JSON per garantire l'integrazione automatizzata senza l'intervento umano.
 ```
