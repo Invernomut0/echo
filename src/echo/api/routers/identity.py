@@ -92,7 +92,7 @@ async def get_graph() -> GraphResponse:
             seen.values(),
             key=lambda e: (e.salience or 0.5) * (e.current_strength or 1.0),  # type: ignore[union-attr]
             reverse=True,
-        )[:60]  # up to 60 unique memories
+        )[:100]  # up to 100 unique memories
     except Exception:
         logger.exception("Could not load semantic memories for graph")
         sem_entries = []
@@ -131,7 +131,7 @@ async def get_graph() -> GraphResponse:
             if sim > best_sim:
                 best_sim = sim
                 best_bid = bid
-        if best_bid and best_sim >= 0.12:
+        if best_bid and best_sim >= 0.08:
             edges.append({
                 "source": sn["id"],
                 "target": best_bid,
@@ -156,7 +156,7 @@ async def get_graph() -> GraphResponse:
                 continue
             # Text similarity fallback
             sim = _jaccard(sem_tokens[a["id"]], sem_tokens[b["id"]])
-            if sim >= 0.22:
+            if sim >= 0.15:
                 edges.append({
                     "source": a["id"],
                     "target": b["id"],
@@ -167,7 +167,7 @@ async def get_graph() -> GraphResponse:
     # ── 5. Episodic memory nodes ──────────────────────────────────────────
     try:
         ep_store = EpisodicMemoryStore()
-        ep_entries = await ep_store.get_all(limit=40)  # cap at 40 to keep graph readable
+        ep_entries = await ep_store.get_all(limit=80)  # cap at 80 to keep graph readable
     except Exception:
         logger.exception("Could not load episodic memories for graph")
         ep_entries = []
@@ -201,7 +201,7 @@ async def get_graph() -> GraphResponse:
             if sim > best_sim:
                 best_sim = sim
                 best_bid = bid
-        if best_bid and best_sim >= 0.12:
+        if best_bid and best_sim >= 0.08:
             edges.append({
                 "source": en["id"],
                 "target": best_bid,

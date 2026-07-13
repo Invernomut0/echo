@@ -376,6 +376,54 @@ class ConsolidationScheduler:
         except Exception as exc:  # noqa: BLE001
             logger.warning("echo.md review (light) failed: %s", exc)
 
+        # Auto-promote high-salience semantic memories to identity beliefs
+        # This ensures the graph grows continuously, not only during chat
+        try:
+            from echo.core.pipeline import pipeline as _pl2  # noqa: PLC0415
+            from echo.memory.semantic import SemanticMemoryStore  # noqa: PLC0415
+            from echo.core.types import IdentityBelief  # noqa: PLC0415
+
+            if _pl2._ready:
+                sem = SemanticMemoryStore()
+                candidates = await sem.get_all(limit=50)
+                # Keep only high-salience, non-initiative memories
+                candidates = [
+                    m for m in candidates
+                    if (m.salience or 0.0) >= 0.65
+                    and not any(t in (m.tags or []) for t in ("initiative", "consolidated_pattern"))
+                ]
+                existing_beliefs = _pl2.identity_graph.all_beliefs()
+                existing_texts = [b.content.lower() for b in existing_beliefs]
+
+                promoted = 0
+                for mem in candidates[:10]:  # max 10 per cycle
+                    content_lower = mem.content.lower()
+                    # Skip if very similar belief already exists (word overlap > 50%)
+                    mem_words = set(content_lower.split())
+                    already_exists = any(
+                        len(mem_words & set(bt.split())) / max(len(mem_words), 1) > 0.50
+                        for bt in existing_texts
+                    )
+                    if already_exists:
+                        continue
+                    new_belief = IdentityBelief(
+                        content=mem.content,
+                        confidence=min(0.6, (mem.salience or 0.5)),
+                        tags=list(mem.tags or []) + ["auto_promoted"],
+                        evidence_ids=[mem.id],
+                    )
+                    await _pl2.identity_graph.add_belief(new_belief)
+                    existing_texts.append(content_lower)
+                    promoted += 1
+
+                if promoted:
+                    logger.info(
+                        "Auto-promoted %d semantic memor%s to identity graph",
+                        promoted, "y" if promoted == 1 else "ies",
+                    )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Belief auto-promotion failed: %s", exc)
+
         return report
 
     async def _run_deep(self) -> ConsolidationReport:
