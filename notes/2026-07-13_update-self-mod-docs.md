@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 01:00 UTC
+**Date:** 2026-07-13 07:24 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la chiarezza della documentazione interna riguardo al modulo di auto-miglioramento autonomo, allineandola con l'attuale stato operativo di ECHO.
+Migliora la chiarezza della documentazione interna riguardo al modulo di auto-miglioramento autonomo, allineandola alle capacità attuali di modifica dei file e vincoli di sicurezza.
 
 ## Change
 **Removed:**
@@ -15,11 +15,10 @@ Migliora la chiarezza della documentazione interna riguardo al modulo di auto-mi
 **Added:**
 ```python
 
-## Protocollo di Auto-Modifica
-ECHO implementa un ciclo di feedback continuo in cui il modulo di self-improvement analizza i log di errore, i pattern di ragionamento e i gap di conoscenza per proporre modifiche al proprio codice o alla propria base di conoscenza.
-
-### Vincoli di Sicurezza
-- Divieto di modifica di `.env` e database SQLite/Chroma.
-- Validazione sintattica obbligatoria (ast.parse per Python).
-- Limite di delta per singola modifica per prevenire regressioni catastrofiche.
+## Protocollo di Sicurezza
+Per prevenire loop di regressione o crash sistemici, il modulo di self-modification segue queste regole:
+1. **Isolamento**: Non è possibile modificare i file core dell'engine di self-modification (`engine.py`) o i file di configurazione sensibili (`.env`).
+2. **Atomicità**: Ogni modifica riguarda un singolo file per transazione.
+3. **Validazione**: I file Python devono superare il parsing AST prima dell'applicazione.
+4. **Tracciabilità**: Ogni modifica deve essere registrata nel CHANGELOG.md.
 ```

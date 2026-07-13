@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 00:54 UTC
+**Date:** 2026-07-13 07:04 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale implementazione di ECHO, includendo i vincoli di sicurezza e il formato JSON richiesto.
+Migliora la coerenza della wiki allineando la descrizione del modulo di auto-miglioramento con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di modifica JSON.
 
 ## Change
 **Removed:**
@@ -17,17 +17,16 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mod
 # Autonomous Self-Modification
 
 ## Overview
-Il modulo di auto-modifica permette a ECHO di evolvere il proprio codice e la propria configurazione in modo autonomo.
+Il modulo di self-modification permette a ECHO di evolvere il proprio codice e la propria configurazione in modo autonomo.
 
-## Protocollo di Modifica
-Ogni modifica deve seguire un formato rigoroso per garantire la stabilità del sistema:
-- **Output**: Un singolo oggetto JSON.
-- **Vincoli**: Massimo 80 linee di delta per modifica.
-- **Sicurezza**: Divieto assoluto di modificare `.env`, database SQLite e il motore core di self-modification (`engine.py`).
+## Meccanismo di Funzionamento
+1. **Analisi**: Il modulo analizza i log, i pattern di errore e i feedback dell'utente.
+2. **Proposta**: Genera una modifica specifica (snippet di codice) per risolvere un bug o implementare una feature.
+3. **Validazione**: Ogni modifica deve essere formattata come un oggetto JSON rigoroso per evitare l'esecuzione di codice arbitrario non controllato.
+4. **Applicazione**: Il sistema applica la modifica al file target e verifica l'integrità sintattica (es. `ast.parse` per Python).
 
-## Obiettivi
-1. Correzione di bug identificati nei log.
-2. Ottimizzazione dei prompt degli agenti specialisti.
-3. Implementazione di nuove funzionalità basate sui goal attivi.
-4. Raffinamento dell'interfaccia utente React.
+## Vincoli di Sicurezza
+- **File Protetti**: I file `.env` e i database core (`data/sqlite/`, `data/chroma/`) sono rigorosamente off-limits.
+- **Atomicità**: Una sola modifica per ciclo per prevenire regressioni a cascata.
+- **Limitazione Delta**: Le modifiche sono limitate a piccoli delta (< 80 righe) per garantire la revisionabilità.
 ```
