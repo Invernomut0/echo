@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-14 20:49 UTC
+**Date:** 2026-07-14 20:57 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale stato operativo di ECHO, includendo il concetto di loop di feedback autonomo.
+Migliora la coerenza della wiki integrando la consapevolezza che il modulo di self-modification opera tramite un ciclo di feedback autonomo basato su insight e obiettivi attivi.
 
 ## Change
 **Removed:**
@@ -15,6 +15,6 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mod
 **Added:**
 ```python
 
-## Feedback Loop Autonomo
-Il modulo di self-modification non opera in isolamento, ma è guidato dal Curiosity Engine e dai pattern di errore rilevati nei log. Quando un gap di conoscenza o un bug ricorrente viene identificato, il sistema propone una modifica al proprio codice o alla propria configurazione per ottimizzare le prestazioni cognitive.
+## Ciclo di Feedback Autonomo
+Il modulo di self-modification non è solo reattivo, ma proattivo. Utilizza gli 'Active Goals' e i 'Recent Insights' per identificare colli di bottiglia cognitivi o bug nel codice, proponendo modifiche che ottimizzano l'efficienza del sistema senza intervento umano diretto.
 ```
