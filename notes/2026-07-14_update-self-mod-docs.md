@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-14 19:09 UTC
+**Date:** 2026-07-14 20:54 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di lavoro JSON.
+Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale stato operativo e i vincoli di sicurezza (es. protezione di .env e engine.py).
 
 ## Change
 **Removed:**
@@ -15,10 +15,9 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mod
 **Added:**
 ```python
 
-## Protocollo di Sicurezza
-Per prevenire loop infiniti o crash sistemici, il modulo di auto-modifica segue queste regole:
-1. **Atomicità**: Una sola modifica per ciclo.
-2. **Validazione**: Ogni file Python deve superare `ast.parse` prima dell'applicazione.
-3. **Zone Protette**: I file `.env` e il core dell'engine di self-modification sono in sola lettura per l'agente.
-4. **Formato**: L'output deve essere esclusivamente un oggetto JSON per garantire l'integrità del parsing.
+## Vincoli di Sicurezza
+Per garantire la stabilità del sistema, il modulo di auto-modifica opera sotto i seguenti vincoli:
+- **File Protetti**: È severamente vietata la modifica di `.env` e `src/echo/self_modification/engine.py` per prevenire loop infiniti o perdita di configurazioni critiche.
+- **Atomicità**: Ogni modifica deve essere singola, mirata e validata sintatticamente prima dell'applicazione.
+- **Tracciabilità**: Ogni cambiamento deve essere registrato nel CHANGELOG.md.
 ```
