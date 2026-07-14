@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-14 21:19 UTC
+**Date:** 2026-07-14 21:34 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale stato operativo di ECHO, includendo i vincoli di sicurezza e il formato di output JSON richiesto.
+Allinea la documentazione wiki con l'attuale stato operativo del modulo di auto-miglioramento autonomo, integrando i vincoli di sicurezza e il formato di output JSON richiesto.
 
 ## Change
 **Removed:**
@@ -15,11 +15,10 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mod
 **Added:**
 ```python
 
-## Vincoli di Sicurezza e Protocollo
-
-Il modulo di auto-modifica opera sotto rigidi vincoli per prevenire l'instabilità del sistema:
-1. **File Protetti**: È assolutamente vietato modificare `.env`, i database in `data/sqlite/`, l'indice di `data/chroma/` e il core engine in `src/echo/self_modification/engine.py`.
-2. **Atomicità**: Ogni modifica deve riguardare un singolo file e non superare le 80 righe di delta.
-3. **Validazione**: I file Python devono superare `ast.parse` e i file TypeScript devono essere sintatticamente validi.
-4. **Formato di Output**: Il modulo deve rispondere esclusivamente con un oggetto JSON per garantire l'integrazione automatizzata senza l'intervento umano.
+## Vincoli Operativi
+Il modulo di self-modification opera sotto rigidi vincoli per garantire la stabilità del sistema:
+- **Output Deterministico**: L'unico output ammesso è un oggetto JSON singolo.
+- **Protezione Core**: Divieto assoluto di modificare `.env`, `data/sqlite/`, `data/chroma/` e l'engine di self-modification stesso.
+- **Atomicità**: Una sola modifica per ciclo, con delta limitati a 80 righe.
+- **Validazione**: Ogni modifica a file `.py` deve superare il parsing `ast.parse` prima dell'applicazione.
 ```
