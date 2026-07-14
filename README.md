@@ -343,3 +343,9 @@ p = 0.2 + 0.3 · arousal
 
 ### 0.1.0
 - Initial architecture: 6 agents, Global Workspace, Episodic/Semantic/Autobiographical memory, Drive System, Identity Belief Graph, Reflection Engine, Consolidation Scheduler
+
+
+## Contributing
+
+Per contribuire a ECHO, consultare il file CONTRIBUTING.md per linee guida, standard di codice e processo di pull request.
+
