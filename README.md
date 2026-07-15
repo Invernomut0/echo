@@ -349,3 +349,8 @@ p = 0.2 + 0.3 · arousal
 
 Per contribuire a ECHO, consultare il file CONTRIBUTING.md per linee guida, standard di codice e processo di pull request.
 
+
+## Safety Notice
+
+- **Do not modify** `src/echo/self_modification/engine.py` directly. Use the provided configuration and extension mechanisms to customize behavior. Direct edits may break the self‑modification integrity and cause instability.
+
