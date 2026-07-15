@@ -93,7 +93,7 @@ def main() -> None:
         print("mcp SDK not found", file=sys.stderr)
         sys.exit(1)
 
-    server = Server("echo-workspace")
+    server = Server("echo_workspace")
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:

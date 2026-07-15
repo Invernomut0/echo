@@ -1,7 +1,7 @@
 {
   "servers": [
     {
-      "name": "echo-workspace",
+      "name": "echo_workspace",
       "transport": "stdio",
       "enabled": true,
       "description": "Read, write, edit files and run git inside the ECHO repo. Tools: echo_read_file, echo_write_file, echo_edit_file, echo_append_file, echo_list_files, echo_git, echo_validate_python.",

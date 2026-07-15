@@ -486,7 +486,7 @@ Respond ONLY with valid JSON:
                     try:
                         from echo.mcp.client import mcp_manager  # noqa: PLC0415
                         result_text = await mcp_manager.call_tool(
-                            "echo-workspace__echo_write_file",
+                            "echo_workspace__echo_write_file",
                             {"path": file_path, "content": file_content},
                         )
                         await goal_store.add_action(
