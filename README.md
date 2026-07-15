@@ -364,3 +364,11 @@ python -m src.echo.cron
 
 Assicurati che questo comando sia in esecuzione (ad esempio tramite un servizio di sistema o un processo di background) per mantenere ECHO aggiornato e reattivo.
 
+
+## Esecuzione dei Test
+
+Per eseguire la suite di test, utilizzare il comando:
+```
+python -m unittest discover -s tests
+```
+
