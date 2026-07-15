@@ -354,3 +354,13 @@ Per contribuire a ECHO, consultare il file CONTRIBUTING.md per linee guida, stan
 
 - **Do not modify** `src/echo/self_modification/engine.py` directly. Use the provided configuration and extension mechanisms to customize behavior. Direct edits may break the self‑modification integrity and cause instability.
 
+## Cron Tasks
+
+Per garantire che le funzioni di monitoraggio delle notizie AI e la consolidazione della memoria operino correttamente, è necessario avviare il scheduler cron.
+
+```bash
+python -m src.echo.cron
+```
+
+Assicurati che questo comando sia in esecuzione (ad esempio tramite un servizio di sistema o un processo di background) per mantenere ECHO aggiornato e reattivo.
+
