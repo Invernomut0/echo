@@ -384,3 +384,14 @@ python -m unittest discover -s tests
 
 **Nota di sicurezza:** Non modificare il modulo `src/echo/self_modification/engine.py` a meno che non sia strettamente necessario, poiché può compromettere l'integrità del sistema.
 
+
+## Cron Scheduler
+
+Per attivare il ciclo di consolidazione automatica è necessario avviare il **cron scheduler**. Da terminale, nella directory radice del progetto, eseguire:
+
+```bash
+python -m echo.cron
+```
+
+Il comando avvierà il processo in background che gestisce le attività periodiche (es. sintesi giornaliera di notizie AI, pulizia della memoria, ecc.). È consigliato aggiungere il comando a un servizio di avvio (es. systemd) o a `screen`/`tmux` per mantenerlo attivo anche dopo la chiusura della sessione.
+
