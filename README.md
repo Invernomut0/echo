@@ -372,3 +372,12 @@ Per eseguire la suite di test, utilizzare il comando:
 python -m unittest discover -s tests
 ```
 
+
+## Troubleshooting
+
+- **Consolidazione della memoria alta**: se vedi un avviso di "Memory consolidation urgency high" (valore > 0.7), considera di avviare un ciclo di *light‑sleep* manualmente. Puoi farlo eseguendo:
+  ```bash
+  ./scripts/run_light_sleep.sh
+  ```
+  Questo aiuta a processare i dati recenti senza attendere il ciclo di consolidazione programmato.
+
