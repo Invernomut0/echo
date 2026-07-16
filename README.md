@@ -381,3 +381,6 @@ python -m unittest discover -s tests
   ```
   Questo aiuta a processare i dati recenti senza attendere il ciclo di consolidazione programmato.
 
+
+**Nota di sicurezza:** Non modificare il modulo `src/echo/self_modification/engine.py` a meno che non sia strettamente necessario, poiché può compromettere l'integrità del sistema.
+
