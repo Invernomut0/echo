@@ -113,3 +113,8 @@ echo ""
 
 # ── attendi che entrambi terminino ───────────────────────────────────────────
 wait "$BACKEND_PID" "$FRONTEND_PID"
+
+if [ -z "$ECHO_MCP_URL" ]; then
+  echo "Warning: ECHO_MCP_URL is not set. Some features may not work."
+fi
+
