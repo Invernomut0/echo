@@ -404,3 +404,4 @@ export MCP_URL="http://localhost:8000"
 ```
 Se la variabile non è impostata, il sistema terminerà con un errore di connessione.
 
+- **TELEGRAM_BOT_TOKEN**: Token per il bot Telegram usato da ECHO. Deve essere impostata affinché l'integrazione Telegram funzioni correttamente.
