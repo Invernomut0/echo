@@ -395,3 +395,12 @@ python -m echo.cron
 
 Il comando avvierà il processo in background che gestisce le attività periodiche (es. sintesi giornaliera di notizie AI, pulizia della memoria, ecc.). È consigliato aggiungere il comando a un servizio di avvio (es. systemd) o a `screen`/`tmux` per mantenerlo attivo anche dopo la chiusura della sessione.
 
+
+## Configurazione MCP
+
+Assicurati di impostare la variabile d'ambiente `MCP_URL` con l'URL del server MCP prima di avviare ECHO. Esempio:
+```bash
+export MCP_URL="http://localhost:8000"
+```
+Se la variabile non è impostata, il sistema terminerà con un errore di connessione.
+

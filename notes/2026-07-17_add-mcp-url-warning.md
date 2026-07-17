@@ -1,10 +1,10 @@
-# aggiunge avviso per variabile d'ambiente MCP
+# Aggiunta avviso variabile d'ambiente MCP_URL
 
-**Date:** 2026-07-17 01:04 UTC
-**File:** `start.sh`
+**Date:** 2026-07-17 13:39 UTC
+**File:** `README.md`
 
 ## Rationale
-se ECHO_MCP_URL non è impostata, l'AI non può comunicare con il server MCP; avvisare l'utente previene errori silenziosi e migliora l'affidabilità del sistema
+Aiuta gli utenti a configurare correttamente la connessione al server MCP, evitando errori di runtime e migliorando l'affidabilità del sistema
 
 ## Change
 **Removed:**
@@ -14,8 +14,13 @@ se ECHO_MCP_URL non è impostata, l'AI non può comunicare con il server MCP; av
 
 **Added:**
 ```python
-if [ -z "$ECHO_MCP_URL" ]; then
-  echo "Warning: ECHO_MCP_URL is not set. Some features may not work."
-fi
+
+## Configurazione MCP
+
+Assicurati di impostare la variabile d'ambiente `MCP_URL` con l'URL del server MCP prima di avviare ECHO. Esempio:
+```bash
+export MCP_URL="http://localhost:8000"
+```
+Se la variabile non è impostata, il sistema terminerà con un errore di connessione.
 
 ```
