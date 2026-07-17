@@ -118,3 +118,8 @@ if [ -z "$ECHO_MCP_URL" ]; then
   echo "Warning: ECHO_MCP_URL is not set. Some features may not work."
 fi
 
+# Ensure required environment variables are set
+if [[ -z "$GITHUB_TOKEN" ]]; then
+  echo "Error: GITHUB_TOKEN environment variable is not set."
+  exit 1
+fi
