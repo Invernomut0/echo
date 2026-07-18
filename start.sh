@@ -123,3 +123,9 @@ if [[ -z "$GITHUB_TOKEN" ]]; then
   echo "Error: GITHUB_TOKEN environment variable is not set."
   exit 1
 fi
+
+# Verify OpenAI API key
+if [ -z "$OPENAI_API_KEY" ]; then
+  echo "Warning: OPENAI_API_KEY environment variable is not set. Some functionalities may be limited."
+fi
+
