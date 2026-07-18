@@ -415,3 +415,6 @@ Se la variabile non è impostata, il sistema terminerà con un errore di conness
 
 Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l'ID della chat dove ECHO invierà i messaggi. Questo valore è necessario per il corretto funzionamento dell'integrazione Telegram.
 
+
+- `ECHO_LOG_LEVEL` (opzionale): Imposta la verbosità dei log (es. INFO, DEBUG). Il valore predefinito è INFO.
+
