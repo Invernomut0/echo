@@ -410,3 +410,8 @@ Se la variabile non è impostata, il sistema terminerà con un errore di conness
 
 **Nota:** Assicurati che il servizio cron sia attivo (es. `service cron start` o `systemctl enable --now cron`) affinché il ciclo di consolidazione di ECHO venga eseguito regolarmente.
 
+
+## Configurazione Telegram
+
+Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l'ID della chat dove ECHO invierà i messaggi. Questo valore è necessario per il corretto funzionamento dell'integrazione Telegram.
+
