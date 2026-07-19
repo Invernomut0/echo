@@ -140,3 +140,8 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   exit 1
 fi
 
+# Set default log level if not provided
+if [ -z "$LOG_LEVEL" ]; then
+  export LOG_LEVEL="INFO"
+fi
+
