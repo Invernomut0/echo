@@ -134,3 +134,9 @@ if [ -z "$MCP_SERVER_URL" ]; then
   echo "Warning: MCP_SERVER_URL environment variable is not set. MCP integration may fail."
 fi
 
+# Verify required Telegram bot token
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "Error: TELEGRAM_BOT_TOKEN environment variable is not set."
+  exit 1
+fi
+
