@@ -418,3 +418,6 @@ Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l
 
 - `ECHO_LOG_LEVEL` (opzionale): Imposta la verbosità dei log (es. INFO, DEBUG). Il valore predefinito è INFO.
 
+
+- **LOG_LEVEL**: Imposta il livello di log dell'applicazione (es. `INFO`, `DEBUG`, `WARN`). Se non specificato, il valore predefinito è `INFO`.
+
