@@ -129,3 +129,8 @@ if [ -z "$OPENAI_API_KEY" ]; then
   echo "Warning: OPENAI_API_KEY environment variable is not set. Some functionalities may be limited."
 fi
 
+# Verify MCP server URL is set
+if [ -z "$MCP_SERVER_URL" ]; then
+  echo "Warning: MCP_SERVER_URL environment variable is not set. MCP integration may fail."
+fi
+
