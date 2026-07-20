@@ -429,3 +429,24 @@ Il modulo di auto‑modifica **non** deve modificare il file `src/echo/self_modi
 
 **Non modificare** il file `src/echo/self_modification/engine.py`. Questo modulo è critico per la stabilità del sistema e le modifiche non autorizzate possono compromettere l'integrità dell'AI.
 
+
+## Quick Start
+
+```bash
+# Clona il repository
+git clone https://github.com/your-org/echo.git
+cd echo
+
+# Installa le dipendenze
+pip install -r requirements.txt
+
+# Configura le variabili d'ambiente (esempio)
+export LOG_LEVEL=info
+export TELEGRAM_BOT_TOKEN=your_bot_token
+export TELEGRAM_CHAT_ID=your_chat_id
+
+# Avvia il server principale
+./start.sh
+```
+
+Questa sequenza avvia ECHO con le impostazioni di base. Assicurati di impostare le variabili d'ambiente richieste prima di eseguire `start.sh`.
