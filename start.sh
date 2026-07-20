@@ -145,3 +145,9 @@ if [ -z "$LOG_LEVEL" ]; then
   export LOG_LEVEL="INFO"
 fi
 
+
+# Ensure TELEGRAM_CHAT_ID is set for Telegram notifications
+if [ -z "$TELEGRAM_CHAT_ID" ]; then
+  echo "Warning: TELEGRAM_CHAT_ID is not set. Telegram notifications will be disabled."
+fi
+
