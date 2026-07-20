@@ -425,3 +425,7 @@ Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l
 
 Il modulo di auto‑modifica **non** deve modificare il file `src/echo/self_modification/engine.py` per garantire la stabilità del sistema.
 
+### Nota di sicurezza
+
+**Non modificare** il file `src/echo/self_modification/engine.py`. Questo modulo è critico per la stabilità del sistema e le modifiche non autorizzate possono compromettere l'integrità dell'AI.
+
