@@ -421,3 +421,7 @@ Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l
 
 - **LOG_LEVEL**: Imposta il livello di log dell'applicazione (es. `INFO`, `DEBUG`, `WARN`). Se non specificato, il valore predefinito è `INFO`.
 
+### Nota
+
+Il modulo di auto‑modifica **non** deve modificare il file `src/echo/self_modification/engine.py` per garantire la stabilità del sistema.
+
