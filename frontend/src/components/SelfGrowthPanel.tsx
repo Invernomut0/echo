@@ -9,6 +9,22 @@ async function fetchSelfGrowth(): Promise<string> {
   return data.content as string
 }
 
+interface NoteItem { name: string; date: string; title: string }
+
+async function fetchNotesList(): Promise<NoteItem[]> {
+  const res = await fetch(`${API}/notes`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return data.notes as NoteItem[]
+}
+
+async function fetchNote(name: string): Promise<string> {
+  const res = await fetch(`${API}/notes/${encodeURIComponent(name)}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return data.content as string
+}
+
 // ── Simple markdown renderer ─────────────────────────────────────────────────
 
 function inlineMarkdown(text: string): (string | JSX.Element)[] {
@@ -90,6 +106,14 @@ export default function SelfGrowthPanel() {
   const [error, setError] = useState<string | null>(null)
   const [rawMode, setRawMode] = useState(false)
 
+  // Notes state
+  const [notes, setNotes] = useState<NoteItem[]>([])
+  const [notesExpanded, setNotesExpanded] = useState(false)
+  const [selectedNote, setSelectedNote] = useState<string | null>(null)
+  const [noteContent, setNoteContent] = useState<string | null>(null)
+  const [noteLoading, setNoteLoading] = useState(false)
+  const [noteError, setNoteError] = useState<string | null>(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -104,7 +128,37 @@ export default function SelfGrowthPanel() {
     }
   }, [])
 
+  const loadNotes = useCallback(async () => {
+    try {
+      const list = await fetchNotesList()
+      setNotes(list)
+    } catch (_) {
+      // non-critical
+    }
+  }, [])
+
+  const openNote = useCallback(async (name: string) => {
+    if (selectedNote === name) {
+      setSelectedNote(null)
+      setNoteContent(null)
+      return
+    }
+    setSelectedNote(name)
+    setNoteLoading(true)
+    setNoteError(null)
+    setNoteContent(null)
+    try {
+      const text = await fetchNote(name)
+      setNoteContent(text)
+    } catch (e) {
+      setNoteError(String(e))
+    } finally {
+      setNoteLoading(false)
+    }
+  }, [selectedNote])
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadNotes() }, [loadNotes])
 
   return (
     <div className="echo-md-panel">
@@ -154,6 +208,51 @@ export default function SelfGrowthPanel() {
             </div>
           )
         ) : null}
+      </div>
+
+      {/* ── Notes section ─────────────────────────────────────────────────── */}
+      <div className="echo-notes-section">
+        <button
+          className="echo-notes-toggle"
+          onClick={() => setNotesExpanded(e => !e)}
+        >
+          <span className="echo-notes-toggle-icon">{notesExpanded ? '▾' : '▸'}</span>
+          <span className="echo-notes-toggle-label">
+            Change notes ({notes.length})
+          </span>
+        </button>
+
+        {notesExpanded && (
+          <div className="echo-notes-list">
+            {notes.length === 0 ? (
+              <div className="echo-notes-empty">No notes found.</div>
+            ) : (
+              notes.map(n => (
+                <div key={n.name} className="echo-note-item">
+                  <button
+                    className={`echo-note-row${selectedNote === n.name ? ' selected' : ''}`}
+                    onClick={() => openNote(n.name)}
+                  >
+                    <span className="echo-note-date">{n.date}</span>
+                    <span className="echo-note-title">{n.title}</span>
+                    <span className="echo-note-chevron">{selectedNote === n.name ? '▴' : '▾'}</span>
+                  </button>
+                  {selectedNote === n.name && (
+                    <div className="echo-note-body">
+                      {noteLoading && <div className="echo-md-loading">Loading…</div>}
+                      {noteError && <div className="echo-md-error">{noteError}</div>}
+                      {noteContent && (
+                        <div className="echo-md-rendered echo-note-content">
+                          {renderMarkdown(noteContent)}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

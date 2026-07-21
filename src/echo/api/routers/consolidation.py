@@ -100,3 +100,71 @@ async def get_self_growth():
     if not path.exists():
         return {"content": "*(no entries yet)*"}
     return {"content": path.read_text(encoding="utf-8")}
+
+
+# ---------------------------------------------------------------------------
+# notes/ — individual commit/change notes written by the self-mod engine
+# ---------------------------------------------------------------------------
+
+@router.get("/notes")
+async def list_notes():
+    """Return a sorted list of note filenames in the notes/ folder (newest first).
+
+    Excludes self_growth.md which is served separately.
+    Each entry: {"name": str, "date": str, "title": str}
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    repo_root = Path(__file__).parent.parent.parent.parent.parent
+    notes_dir = repo_root / "notes"
+    if not notes_dir.exists():
+        return {"notes": []}
+
+    items = []
+    for p in sorted(notes_dir.glob("*.md"), reverse=True):
+        if p.name == "self_growth.md":
+            continue
+        # Try to extract the title from the first non-empty line
+        title = p.stem
+        try:
+            for line in p.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip().lstrip("#").strip()
+                if stripped:
+                    title = stripped
+                    break
+        except OSError:
+            pass
+        # Extract date prefix (YYYY-MM-DD) from filename if present
+        date = p.stem[:10] if len(p.stem) >= 10 and p.stem[4] == "-" else ""
+        items.append({"name": p.name, "date": date, "title": title})
+
+    return {"notes": items}
+
+
+@router.get("/notes/{note_name}")
+async def get_note(note_name: str):
+    """Return the content of a single note file.
+
+    Only `.md` files inside the notes/ directory are accessible.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    # Security: reject path traversal attempts
+    if "/" in note_name or "\\" in note_name or not note_name.endswith(".md"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid note name.")
+
+    repo_root = Path(__file__).parent.parent.parent.parent.parent
+    path = (repo_root / "notes" / note_name).resolve()
+    notes_dir = (repo_root / "notes").resolve()
+
+    # Ensure resolved path is still inside notes/
+    if not str(path).startswith(str(notes_dir) + "/"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid note name.")
+
+    if not path.exists():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Note not found.")
+
+    return {"name": note_name, "content": path.read_text(encoding="utf-8")}

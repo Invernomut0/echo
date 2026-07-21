@@ -2455,3 +2455,81 @@ a.curiosity-finding-title:hover {
   height: 0.35rem;
 }
 
+
+/* ── SelfGrowthPanel — Notes section ──────────────────────────────────────── */
+
+.echo-notes-section {
+  border-top: 1px solid rgba(139,92,246,0.18);
+  margin-top: 0.5rem;
+}
+
+.echo-notes-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  color: rgba(196,181,253,0.75);
+  font-size: 0.82rem;
+  font-weight: 500;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+.echo-notes-toggle:hover {
+  color: #c4b5fd;
+  background: rgba(139,92,246,0.06);
+}
+.echo-notes-toggle-icon {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+.echo-notes-toggle-label {
+  letter-spacing: 0.02em;
+}
+
+.echo-notes-list {
+  padding: 0 0.5rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.echo-notes-empty {
+  padding: 0.5rem 0.75rem;
+  color: rgba(196,181,253,0.4);
+  font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-sizrem  font-size:   font-ac  font-size:   font-size:   font-size:   fo.45r  font-size:   fonor: poi  font-size:   fontus: 6px;
+  text-ali  text-ali  text-ali n:  text-ali  te15  text-alo-note  text-ali  te background: rgba(139,  text-ali  text-ali  tot  text-ali  tex{
+                           46,0.14)                     {
+  font-size: 0.72re  font-size: 0.7(196,181,253,0.45);
+  white-space: nowrap;
+  font-f  font-f  font-f  font-f mo  font-f  font-fshrink: 0;
+}
+.echo-note-title {
+  flex: 1;
+  font-size: 0.82rem;
+  color: rgba(196,181,253,0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.echo-note-chevron {
+  font-size: 0.65rem;
+  color: rgba(196,181,253,0.35);
+  flex-shrink: 0;
+}
+
+.echo-note-body {
+  background: rgba(0,0,0,0.18);
+  border-top: 1px solid rgba(139,92,246,0.  border-top: 1px m-left-radius: 6px;
+  border-bottom-right-radius: 6px;
+  padding: 0.75rem 1rem;
+}
+
+.echo-note-content {
+  font-size: 0.83rem;
+}
