@@ -156,3 +156,5 @@ if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
   echo "Warning: TELEGRAM_BOT_TOKEN is not set. Telegram integration will be disabled."
 fi
 
+#!/usr/bin/env bash
+

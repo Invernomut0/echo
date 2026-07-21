@@ -1,7 +1,7 @@
 {
   "servers": [
     {
-      "name": "echo_workspace",
+      "name": "echo-workspace",
       "transport": "stdio",
       "enabled": true,
       "description": "Read, write, edit files and run git inside the ECHO repo. Tools: echo_read_file, echo_write_file, echo_edit_file, echo_append_file, echo_list_files, echo_git, echo_validate_python.",
@@ -11,7 +11,9 @@
         "python3",
         "scripts/mcp_echo_workspace.py"
       ],
-      "env": {}
+      "env": {,
+  "feedback_enabled": false
+}
     },
     {
       "name": "bash",
@@ -101,7 +103,3 @@
     }
   ]
 }
-
-
-    "ai_news_api_key": "",
-
