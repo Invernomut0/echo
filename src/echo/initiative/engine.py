@@ -30,6 +30,26 @@ from echo.core.db import Base, get_session_factory
 
 logger = logging.getLogger(__name__)
 
+
+def _lang_directive() -> str:
+    """Return a language instruction to append to every LLM prompt.
+
+    Uses ``settings.echo_language`` so the directive honours the value set
+    in ``.env`` (e.g. ``ECHO_LANGUAGE=it``).
+    """
+    lang = settings.echo_language.strip().lower()
+    labels = {
+        "it": "Italian",
+        "en": "English",
+        "fr": "French",
+        "de": "German",
+        "es": "Spanish",
+        "pt": "Portuguese",
+    }
+    label = labels.get(lang, lang)
+    return f"\nIMPORTANT: All user-facing text in your JSON response MUST be written in {label}."
+
+
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -154,7 +174,8 @@ If you find a genuinely interesting NEW connection, respond with JSON:
 {{"insight": "...", "quality": 0.8, "topic": "...", "question_for_user": "..."}}
 
 If nothing new and interesting emerges, respond with:
-{{"insight": null, "quality": 0.0}}"""
+{{"insight": null, "quality": 0.0}}
+{_lang_directive()}"""
 
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
@@ -225,7 +246,8 @@ about their interests. The question should feel natural and caring, not like
 a survey.
 
 Respond with JSON:
-{{"question": "...", "why": "...", "topic": "..."}}"""
+{{"question": "...", "why": "...", "topic": "..."}}
+{_lang_directive()}"""
 
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
@@ -346,7 +368,8 @@ Current state:
 - Competence map: {eval_status.get('competence_map', {})}
 
 Write a natural, first-person reflection (1-3 sentences). Be genuine, not performative.
-Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}"""
+Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}
+{_lang_directive()}"""
 
             raw = await llm.chat(
                 [{"role": "user", "content": prompt}],
