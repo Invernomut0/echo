@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import stat
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -18,13 +20,21 @@ logger = logging.getLogger(__name__)
 REPO_ROOT = Path(__file__).parent.parent.parent.parent.resolve()
 
 
-async def _run(args: list[str], cwd: Path = REPO_ROOT) -> tuple[int, str, str]:
+async def _run(
+    args: list[str],
+    cwd: Path = REPO_ROOT,
+    extra_env: dict[str, str] | None = None,
+) -> tuple[int, str, str]:
     """Run a command and return (returncode, stdout, stderr)."""
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     proc = await asyncio.create_subprocess_exec(
         *args,
         cwd=str(cwd),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=env,
     )
     stdout, stderr = await proc.communicate()
     return proc.returncode, stdout.decode(errors="replace"), stderr.decode(errors="replace")
@@ -64,8 +74,40 @@ async def git_commit(message: str) -> bool:
 
 
 async def git_push() -> bool:
-    """Push to origin."""
-    rc, out, err = await _run(["git", "push"])
+    """Push to origin, authenticating with GITHUB_TOKEN when available.
+
+    The token is injected via a short-lived GIT_ASKPASS script so it never
+    appears in process arguments or logs.
+    """
+    from echo.core.config import settings  # lazy import to avoid circular deps
+
+    token = (settings.github_token or "").strip()
+    askpass_path: str | None = None
+    extra_env: dict[str, str] = {}
+
+    if token:
+        # Write a temporary executable script that echoes the token.
+        # Git calls GIT_ASKPASS to retrieve passwords non-interactively.
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".sh", delete=False, prefix="echo_askpass_"
+        ) as f:
+            # Use single-quotes in the script; token must not contain single-quotes.
+            safe_token = token.replace("'", "'\"'\"'")
+            f.write(f"#!/bin/sh\necho '{safe_token}'\n")
+            askpass_path = f.name
+        os.chmod(askpass_path, stat.S_IRWXU)  # owner execute only
+        extra_env["GIT_ASKPASS"] = askpass_path
+        extra_env["GIT_TERMINAL_PROMPT"] = "0"  # never hang waiting for input
+
+    try:
+        rc, out, err = await _run(["git", "push"], extra_env=extra_env or None)
+    finally:
+        if askpass_path:
+            try:
+                os.unlink(askpass_path)
+            except OSError:
+                pass
+
     if rc != 0:
         logger.error("git push failed: %s", err)
         return False
