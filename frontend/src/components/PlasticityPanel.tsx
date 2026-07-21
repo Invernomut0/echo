@@ -214,23 +214,21 @@ export default function PlasticityPanel() {
           {sortedAgents.map(([agent, w]) => (
             <div key={agent} className="plast-bar-row">
               <div className="plast-bar-label">
-                <span
-                  className="plast-bar-dot"
-                  style={{ background: AGENT_COLORS[agent] ?? '#888' }}
-                />
-                <span className="plast-bar-name">{AGENT_LABELS[agent] ?? agent}</span>
-                <span className="plast-bar-desc">{AGENT_DESC[agent] ?? ''}</span>
-              </div>
-              <div className="plast-bar-track">
-                {/* Neutral reference line at 50% */}
-                <div className="plast-bar-neutral-line" />
-                <div
-                  className="plast-bar-fill"
-                  style={{
-                    width: `${pct(w)}%`,
-                    background: barColor(w),
-                  }}
-                />
+                <div className="plast-bar-label-top">
+                  <span
+                    className="plast-bar-dot"
+                    style={{ background: AGENT_COLORS[agent] ?? '#888' }}
+                  />
+                  <span className="plast-bar-name">{AGENT_LABELS[agent] ?? agent}</span>
+                </div>
+                <div className="plast-bar-desc">{AGENT_DESC[agent] ?? ''}</div>
+                <div className="plast-bar-track">
+                  <div className="plast-bar-neutral-line" />
+                  <div
+                    className="plast-bar-fill"
+                    style={{ width: `${pct(w)}%`, background: barColor(w) }}
+                  />
+                </div>
               </div>
               <div className="plast-bar-value" style={{ color: barColor(w) }}>
                 {w.toFixed(3)}

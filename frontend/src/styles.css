@@ -2502,12 +2502,41 @@ a.curiosity-finding-title:hover {
 .echo-notes-empty {
   padding: 0.5rem 0.75rem;
   color: rgba(196,181,253,0.4);
-  font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-size:   font-sizrem  font-size:   font-ac  font-size:   font-size:   font-size:   fo.45r  font-size:   fonor: poi  font-size:   fontus: 6px;
-  text-ali  text-ali  text-ali n:  text-ali  te15  text-alo-note  text-ali  te background: rgba(139,  text-ali  text-ali  tot  text-ali  tex{
-                           46,0.14)                     {
-  font-size: 0.72re  font-size: 0.7(196,181,253,0.45);
+  font-size: 0.82rem;
+  font-style: italic;
+}
+
+.echo-note-item {
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.echo-note-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0.45rem 0.75rem;
+  cursor: pointer;
+  border-radius: 6px;
+  text-align: left;
+  transition: background 0.15s;
+}
+.echo-note-row:hover {
+  background: rgba(139,92,246,0.08);
+}
+.echo-note-row.selected {
+  background: rgba(139,92,246,0.14);
+}
+
+.echo-note-date {
+  font-size: 0.72rem;
+  color: rgba(196,181,253,0.45);
   white-space: nowrap;
-  font-f  font-f  font-f  font-f mo  font-f  font-fshrink: 0;
+  font-family: 'JetBrains Mono', monospace;
+  flex-shrink: 0;
 }
 .echo-note-title {
   flex: 1;
@@ -2525,7 +2554,8 @@ a.curiosity-finding-title:hover {
 
 .echo-note-body {
   background: rgba(0,0,0,0.18);
-  border-top: 1px solid rgba(139,92,246,0.  border-top: 1px m-left-radius: 6px;
+  border-top: 1px solid rgba(139,92,246,0.1);
+  border-bottom-left-radius: 6px;
   border-bottom-right-radius: 6px;
   padding: 0.75rem 1rem;
 }
@@ -2601,6 +2631,7 @@ a.curiosity-finding-title:hover {
   padding: 0.6rem 0.9rem;
   font-size: 0.82rem;
 }
+
 .plast-section {
   background: rgba(139,92,246,0.05);
   border: 1px solid rgba(139,92,246,0.14);
@@ -2624,6 +2655,7 @@ a.curiosity-finding-title:hover {
   letter-spacing: 0.07em;
   margin-bottom: 0.85rem;
 }
+
 .plast-bar-legend {
   display: flex;
   gap: 1rem;
@@ -2634,22 +2666,28 @@ a.curiosity-finding-title:hover {
 .plast-legend-boosted { color: #10b981; }
 .plast-legend-neutral  { color: #6b7280; }
 .plast-legend-reduced  { color: #f59e0b; }
+
 .plast-bars {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
+  gap: 0.7rem;
 }
 .plast-bar-row {
   display: grid;
-  grid-template-columns: 200px 1fr 52px;
+  grid-template-columns: 1fr auto;
+  gap: 0.6rem;
   align-items: center;
-  gap: 0.75rem;
 }
 .plast-bar-label {
   display: flex;
-  align-items: center;
-  gap: 0.45rem;
+  flex-direction: column;
+  gap: 0.15rem;
   min-width: 0;
+}
+.plast-bar-label-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 .plast-bar-dot {
   width: 8px;
@@ -2660,43 +2698,56 @@ a.curiosity-finding-title:hover {
 .plast-bar-name {
   font-size: 0.82rem;
   font-weight: 500;
-  color: rgba(196,181,253,0.85);
-  white-space: nowrap;
+  color: rgba(196,181,253,0.9);
 }
 .plast-bar-desc {
-  font-size: 0.68rem;
+  font-size: 0.67rem;
   color: rgba(196,181,253,0.35);
+  padding-left: 1.2rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.plast-bar-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.2rem;
+  min-width: 52px;
+}
+.plast-bar-value {
+  font-size: 0.82rem;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  text-align: right;
+  transition: color 0.4s;
+}
 .plast-bar-track {
   position: relative;
-  height: 10px;
-  background: rgba(255,255,255,0.06);
-  border-radius: 5px;
-  overflow: hidden;
+  height: 8px;
+  background: rgba(255,255,255,0.07);
+  border-radius: 4px;
+  overflow: visible;
+  margin-top: 0.25rem;
 }
 .plast-bar-neutral-line {
   position: absolute;
   left: 47.4%;
-  top: 0; bottom: 0;
-  width: 1px;
-  background: rgba(255,255,255,0.18);
-  z-index: 1;
+  top: -3px;
+  bottom: -3px;
+  width: 2px;
+  background: rgba(255,255,255,0.25);
+  border-radius: 1px;
+  z-index: 2;
 }
 .plast-bar-fill {
   height: 100%;
-  border-radius: 5px;
-  transition: width 0.4s ease, background 0.4s ease;
+  border-radius: 4px;
+  transition: width 0.5s ease, background 0.4s ease;
+  position: relative;
+  z-index: 1;
 }
-.plast-bar-value {
-  font-size: 0.78rem;
-  font-family: 'JetBrains Mono', monospace;
-  font-weight: 600;
-  text-align: right;
-  transition: color 0.4s;
-}
+
 .plast-chart-wrap { margin-top: 0.5rem; }
 .plast-empty {
   color: rgba(196,181,253,0.35);
@@ -2705,6 +2756,7 @@ a.curiosity-finding-title:hover {
   padding: 1rem 0;
   text-align: center;
 }
+
 .plast-agent-toggles {
   display: flex;
   flex-wrap: wrap;
@@ -2726,6 +2778,7 @@ a.curiosity-finding-title:hover {
   opacity: 0.3;
   text-decoration: line-through;
 }
+
 .plast-tooltip {
   background: rgba(15,10,30,0.92);
   border: 1px solid rgba(139,92,246,0.35);
@@ -2756,6 +2809,7 @@ a.curiosity-finding-title:hover {
   color: #c4b5fd;
   font-weight: 600;
 }
+
 .plast-explainer {
   background: rgba(139,92,246,0.05);
   border: 1px solid rgba(139,92,246,0.12);
