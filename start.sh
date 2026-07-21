@@ -151,3 +151,8 @@ if [ -z "$TELEGRAM_CHAT_ID" ]; then
   echo "Warning: TELEGRAM_CHAT_ID is not set. Telegram notifications will be disabled."
 fi
 
+# Ensure TELEGRAM_BOT_TOKEN is set for Telegram integration
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "Warning: TELEGRAM_BOT_TOKEN is not set. Telegram integration will be disabled."
+fi
+
