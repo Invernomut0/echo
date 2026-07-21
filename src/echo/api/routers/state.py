@@ -8,6 +8,7 @@ from echo.api.schemas import HistoryPoint, StateResponse
 from echo.core.pipeline import pipeline
 from echo.core.config import settings
 from echo.core.llm_client import _provider_model
+from echo.plasticity.thermodynamics import thermodynamic_snapshot
 
 router = APIRouter(prefix="/api/state", tags=["state"])
 
@@ -30,8 +31,10 @@ async def get_state() -> StateResponse:
 async def get_history(limit: int = 50) -> list[HistoryPoint]:
     """Drive time-series for Recharts plotting."""
     states = await pipeline.meta_tracker.get_history(limit=limit)
-    return [
-        HistoryPoint(
+    result = []
+    for s in states:
+        thermo = thermodynamic_snapshot(s)
+        result.append(HistoryPoint(
             timestamp=s.timestamp,
             drives={
                 "coherence":   s.drives.coherence,
@@ -45,6 +48,9 @@ async def get_history(limit: int = 50) -> list[HistoryPoint]:
             agent_weights=s.agent_weights,
             drive_weights=s.drives.weights,
             total_motivation=s.drives.total_motivation(),
-        )
-        for s in states
-    ]
+            free_energy=thermo.free_energy,
+            temperature=thermo.temperature,
+            internal_energy=thermo.internal_energy,
+            entropy=thermo.entropy,
+        ))
+    return result

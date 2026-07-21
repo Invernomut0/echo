@@ -1,15 +1,20 @@
-"""Evolutionary weight mutation for the Dream Phase (v0.2.13).
+"""Evolutionary weight mutation for the Dream Phase — Boltzmann edition.
 
 Implements natural-selection-style adaptation of agent routing weights
 during REM sleep.  No LLM calls — pure numeric computation.
 
-Algorithm:
+Algorithm (thermodynamic upgrade)
+-----------------------------------
   1. Generate N_CANDIDATES random variants by perturbing current weights with
      Gaussian noise (σ = SIGMA).
-  2. Score each candidate: F(w) = Σ_m  w[m.source_agent] * m.salience * m.current_strength
-     — this rewards agents whose past outputs produced the most salient memories.
-  3. Keep the elitist winner (highest F).  Return *deltas* so the caller
-     decides if/how to apply them.
+  2. Score each candidate with the fitness function:
+       fitness(w) = Σ_m  w[m.source_agent] * m.salience * m.current_strength
+  3. **Boltzmann selection** — instead of pure-greedy elitist selection, sample
+     from a Boltzmann distribution over the candidates:
+       P(candidate_i) ∝ exp(−energy_i / T)
+     where energy_i = 1 − normalised_fitness_i and T is derived from the
+     meta-state temperature.  This preserves diversity at high T (exploratory
+     dreaming) and converges toward the optimum at low T (consolidation).
 """
 
 from __future__ import annotations
@@ -17,8 +22,13 @@ from __future__ import annotations
 import logging
 import math
 import random
+from typing import TYPE_CHECKING
 
 from echo.core.types import AgentRole, MemoryEntry
+from echo.plasticity.thermodynamics import boltzmann_sample, compute_temperature
+
+if TYPE_CHECKING:
+    from echo.core.types import MetaState
 
 logger = logging.getLogger(__name__)
 
@@ -43,48 +53,43 @@ class WeightEvolution:
         self,
         current_weights: dict[str, float],
         seed_memories: list[MemoryEntry],
+        meta_state: "MetaState | None" = None,
     ) -> dict[str, float]:
-        """Return weight *deltas* — add to current weights to apply evolution.
+        """Return weight *deltas* using Boltzmann-sampled selection.
+
+        At high cognitive temperature (aroused, unstable) the selection is
+        nearly random — preserving diversity during exploratory dreaming.
+        At low temperature (calm, stable) it converges toward the fitness
+        maximum — crystallising the best routing configuration.
 
         Parameters
         ----------
-        current_weights:
-            The ``MetaState.agent_weights`` dict (role.value → weight).
-            May be empty; defaults are filled from AgentRole.
-        seed_memories:
-            The memories selected as dream seeds (the top-N salient ones).
-
-        Returns
-        -------
-        dict[str, float]
-            Mapping ``agent_name → delta`` (positive or negative float).
-            All delta values are clipped so that
-            ``current + delta`` stays within [WEIGHT_MIN, WEIGHT_MAX].
+        current_weights: MetaState.agent_weights (role.value → weight).
+        seed_memories:   Top-N salient memories chosen as dream seeds.
+        meta_state:      Optional — used to compute temperature T.
+                         If None, falls back to elitist selection (T≈0).
         """
         if not seed_memories:
             logger.debug("WeightEvolution: no seed memories → no mutations")
             return {}
 
-        # Ensure we have a baseline for every known role
-        baseline: dict[str, float] = {
-            role.value: 1.0 for role in AgentRole
-        }
+        baseline: dict[str, float] = {role.value: 1.0 for role in AgentRole}
         baseline.update(current_weights or {})
 
-        best_weights = self._elitist_select(baseline, seed_memories)
+        best_weights = self._boltzmann_select(baseline, seed_memories, meta_state)
 
-        # Compute deltas and clip so final values stay in bounds
         deltas: dict[str, float] = {}
         for agent, new_w in best_weights.items():
             old_w = baseline[agent]
-            # Clamp the final weight then recompute delta
             clipped = _clip(old_w + (new_w - old_w))
             delta = clipped - old_w
             if abs(delta) > 1e-6:
                 deltas[agent] = round(delta, 5)
 
+        T = compute_temperature(meta_state) if meta_state is not None else 0.0
         logger.info(
-            "WeightEvolution: winner fitness=%.4f deltas=%s",
+            "WeightEvolution: T=%.3f fitness=%.4f deltas=%s",
+            T,
             self._fitness(best_weights, seed_memories),
             {k: f"{v:+.4f}" for k, v in deltas.items()},
         )
@@ -111,12 +116,32 @@ class WeightEvolution:
             for agent, w in weights.items()
         }
 
+    def _boltzmann_select(
+        self,
+        baseline: dict[str, float],
+        memories: list[MemoryEntry],
+        meta_state: "MetaState | None",
+    ) -> dict[str, float]:
+        """Sample a candidate weight vector using Boltzmann selection.
+
+        Convert fitness scores to free-energy proxies (energy = 1 − norm_fitness)
+        then use boltzmann_sample to pick a candidate probabilistically.
+        """
+        candidates = [baseline] + [self._mutate(baseline) for _ in range(N_CANDIDATES)]
+        fitnesses = [self._fitness(c, memories) for c in candidates]
+
+        max_f = max(fitnesses) or 1.0
+        # energy_i = 1 − (fitness_i / max_fitness): lower is better
+        energies = [1.0 - (f / max_f) for f in fitnesses]
+
+        T = compute_temperature(meta_state) if meta_state is not None else 0.0
+        return boltzmann_sample(candidates, energies, T)
+
     def _elitist_select(
         self,
         baseline: dict[str, float],
         memories: list[MemoryEntry],
     ) -> dict[str, float]:
-        """Return the highest-fitness candidate (including baseline)."""
+        """Return the highest-fitness candidate (greedy fallback, T≈0)."""
         candidates = [baseline] + [self._mutate(baseline) for _ in range(N_CANDIDATES)]
-        best = max(candidates, key=lambda w: self._fitness(w, memories))
-        return best
+        return max(candidates, key=lambda w: self._fitness(w, memories))

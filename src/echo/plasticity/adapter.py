@@ -1,10 +1,22 @@
-"""Plasticity adapter — adjusts routing weights based on performance signals."""
+"""Plasticity adapter — adjusts routing weights based on performance signals.
+
+Uses the Metropolis–Hastings (Boltzmann) acceptance criterion from
+``echo.plasticity.thermodynamics`` so that weight changes are accepted
+probabilistically rather than deterministically.  This prevents the
+system from freezing in local minima and mirrors the thermodynamic
+origin of robustness in physical systems.
+"""
 
 from __future__ import annotations
 
 import logging
 
 from echo.core.types import AgentRole, MetaState
+from echo.plasticity.thermodynamics import (
+    boltzmann_accept,
+    compute_free_energy,
+    compute_temperature,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,24 +82,41 @@ class PlasticityAdapter:
         reflection_insights: list[str],
         prediction_error: float = 0.5,
     ) -> MetaState:
-        """Apply computed deltas directly to meta_state.agent_weights.
+        """Apply weight deltas via Metropolis–Hastings acceptance.
 
-        prediction_error (0.0–1.0): higher surprise → larger plastic changes.
-        Also applies a gentle decay toward neutral weight to prevent unbounded drift.
+        Each proposed change δ for agent i is accepted:
+          - Unconditionally  if ΔF ≤ 0  (free energy improves)
+          - Probabilistically with p = exp(−ΔF / T)  if ΔF > 0
+
+        This prevents the system from freezing in a local minimum at low
+        temperature while still converging toward energy minima over time.
+
+        prediction_error (0.0–1.0): higher surprise → larger deltas.
         """
         deltas = self.adapt(meta_state, reflection_insights)
 
-        # IM-11: Modulate learning magnitude by prediction error
-        # Low error (routine interaction) → small update; high error (surprise) → larger update
+        # Scale learning magnitude by prediction error
         error_scale = 0.5 + prediction_error  # range [0.5, 1.5]
 
-        for agent, delta in deltas.items():
-            current = meta_state.agent_weights.get(agent, 1.0)
-            meta_state.agent_weights[agent] = max(
-                _MIN_WEIGHT, min(_MAX_WEIGHT, current + delta * error_scale)
-            )
+        # Compute current cognitive temperature and free energy
+        T  = compute_temperature(meta_state)
+        F0 = compute_free_energy(meta_state)
 
-        # Decay all agent weights toward _NEUTRAL_WEIGHT — stabilises routing over time
+        for agent, delta in deltas.items():
+            current   = meta_state.agent_weights.get(agent, 1.0)
+            proposed  = max(_MIN_WEIGHT, min(_MAX_WEIGHT, current + delta * error_scale))
+
+            # Tentatively apply the change to evaluate ΔF
+            meta_state.agent_weights[agent] = proposed
+            F1 = compute_free_energy(meta_state)
+            delta_F = F1 - F0
+
+            if boltzmann_accept(delta_F, T):
+                F0 = F1  # accept: update baseline free energy
+            else:
+                meta_state.agent_weights[agent] = current  # reject: revert
+
+        # Decay all agent weights toward _NEUTRAL_WEIGHT
         for agent in list(meta_state.agent_weights.keys()):
             current = meta_state.agent_weights[agent]
             meta_state.agent_weights[agent] = round(

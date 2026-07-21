@@ -1,19 +1,13 @@
 /**
- * PlasticityPanel — visualise how ECHO's agent routing weights evolve over time.
- *
- * Two views:
- *  1. Current weights — horizontal bar chart, one bar per agent.
- *     Neutral = 1.0 (grey baseline), above = green, below = amber.
- *  2. Weight history — line chart showing each agent's weight trajectory.
- *
- * Data source: GET /api/state and GET /api/state/history
- * Both are already available with no new backend code.
+ * PlasticityPanel — visualise how ECHO's agent routing weights evolve over time,
+ * plus the thermodynamic metrics (free energy, temperature, entropy) introduced
+ * by the Boltzmann plasticity framework.
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  ReferenceLine, Legend,
+  ReferenceLine,
 } from 'recharts'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -23,10 +17,19 @@ interface AgentWeights { [agent: string]: number }
 interface HistoryPoint {
   timestamp: string
   agent_weights: AgentWeights
+  free_energy?: number
+  temperature?: number
+  internal_energy?: number
+  entropy?: number
 }
 
 interface StateResponse {
-  meta_state: { agent_weights: AgentWeights }
+  meta_state: {
+    agent_weights: AgentWeights
+    arousal: number
+    drives: { stability: number; coherence: number; curiosity: number; competence: number; compression: number }
+    emotional_valence: number
+  }
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -299,29 +302,104 @@ export default function PlasticityPanel() {
         )}
       </div>
 
+      {/* ── Thermodynamic metrics ───────────────────────────────────────────── */}
+      {history.some(h => h.free_energy !== undefined) && (() => {
+        const thermoData = history.map(h => ({
+          t:  formatTime(h.timestamp),
+          F:  h.free_energy   !== undefined ? +h.free_energy.toFixed(4)   : null,
+          T:  h.temperature   !== undefined ? +h.temperature.toFixed(3)   : null,
+          U:  h.internal_energy !== undefined ? +h.internal_energy.toFixed(4) : null,
+          S:  h.entropy       !== undefined ? +h.entropy.toFixed(3)       : null,
+        }))
+        const latest = history[history.length - 1]
+        return (
+          <div className="plast-section plast-thermo">
+            <div className="plast-section-title">Thermodynamic state</div>
+
+            {/* Scalar badges */}
+            <div className="plast-thermo-badges">
+              <div className="plast-thermo-badge">
+                <span className="plast-thermo-label">Free energy F</span>
+                <span className="plast-thermo-value" style={{ color: '#f43f5e' }}>
+                  {latest?.free_energy?.toFixed(4) ?? '—'}
+                </span>
+                <span className="plast-thermo-unit">F = U − T·S</span>
+              </div>
+              <div className="plast-thermo-badge">
+                <span className="plast-thermo-label">Temperature T</span>
+                <span className="plast-thermo-value" style={{ color: '#f59e0b' }}>
+                  {latest?.temperature?.toFixed(3) ?? '—'}
+                </span>
+                <span className="plast-thermo-unit">arousal · (in)stability</span>
+              </div>
+              <div className="plast-thermo-badge">
+                <span className="plast-thermo-label">Internal energy U</span>
+                <span className="plast-thermo-value" style={{ color: '#ef4444' }}>
+                  {latest?.internal_energy?.toFixed(4) ?? '—'}
+                </span>
+                <span className="plast-thermo-unit">drive dissonance</span>
+              </div>
+              <div className="plast-thermo-badge">
+                <span className="plast-thermo-label">Entropy S</span>
+                <span className="plast-thermo-value" style={{ color: '#10b981' }}>
+                  {latest?.entropy?.toFixed(3) ?? '—'}
+                </span>
+                <span className="plast-thermo-unit">weight diversity</span>
+              </div>
+            </div>
+
+            {/* Free energy + temperature history */}
+            <div className="plast-thermo-chart-label">F, T, U, S history</div>
+            <div className="plast-chart-wrap">
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={thermoData} margin={{ top: 4, right: 12, bottom: 0, left: -10 }}>
+                  <XAxis dataKey="t" tick={{ fill: 'rgba(196,181,253,0.4)', fontSize: 10 }} interval="preserveStartEnd" />
+                  <YAxis tick={{ fill: 'rgba(196,181,253,0.4)', fontSize: 10 }} tickCount={5} />
+                  <Tooltip
+                    contentStyle={{ background: 'rgba(15,10,30,0.92)', border: '1px solid rgba(139,92,246,0.35)', borderRadius: 8, fontSize: 12 }}
+                    labelStyle={{ color: 'rgba(196,181,253,0.5)' }}
+                  />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.12)" strokeDasharray="4 3" />
+                  <Line type="monotone" dataKey="F" stroke="#f43f5e" strokeWidth={2} dot={false} name="F (free energy)" isAnimationActive={false} connectNulls />
+                  <Line type="monotone" dataKey="T" stroke="#f59e0b" strokeWidth={1.5} dot={false} name="T (temperature)" isAnimationActive={false} connectNulls />
+                  <Line type="monotone" dataKey="U" stroke="#ef4444" strokeWidth={1} dot={false} strokeDasharray="3 2" name="U (energy)" isAnimationActive={false} connectNulls />
+                  <Line type="monotone" dataKey="S" stroke="#10b981" strokeWidth={1} dot={false} strokeDasharray="3 2" name="S (entropy)" isAnimationActive={false} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* ── How plasticity works ────────────────────────────────────────────── */}
       <details className="plast-explainer">
-        <summary className="plast-explainer-summary">How plasticity works</summary>
+        <summary className="plast-explainer-summary">How plasticity works — Boltzmann edition</summary>
         <div className="plast-explainer-body">
           <p>
-            ECHO adjusts agent routing weights in two ways:
+            ECHO now uses a <strong>thermodynamic framework</strong> inspired by Boltzmann autoregressive
+            generators and the Free Energy Principle (Friston):
           </p>
           <ul>
             <li>
-              <strong>Reactive (per interaction)</strong> — <code>PlasticityAdapter</code> shifts
-              weights immediately based on drive levels: high curiosity boosts Explorer, low coherence
-              boosts Skeptic and Analyst, low stability boosts Archivist, low competence boosts Planner.
-              Changes are modulated by <em>prediction error</em> — surprises cause larger updates.
+              <strong>Cognitive free energy</strong> F = U − T·S, where U = drive dissonance (MSE from
+              homeostatic setpoints), S = Shannon entropy of agent weights, T = arousal × instability.
+              <em>Minimising F simultaneously reduces cognitive disorder and preserves diversity.</em>
             </li>
             <li>
-              <strong>Evolutionary (dream phase)</strong> — <code>WeightEvolution</code> generates
-              N_CANDIDATES random weight variants during consolidation, scores each by
-              <em>F(w) = Σ w[agent] × salience × strength</em> across seed memories,
-              and keeps the fittest variant. This models sleep-based synaptic consolidation.
+              <strong>Metropolis–Hastings plasticity</strong> — each weight change δ is accepted
+              unconditionally if ΔF ≤ 0; otherwise with probability exp(−ΔF/T).
+              At high T (aroused, unstable) the system accepts surprises freely.
+              At low T (calm, stable) it crystallises into its ground state.
             </li>
             <li>
-              <strong>Decay</strong> — all weights are gently pulled toward 1.0 each cycle
-              (rate = 0.005) to prevent monotonic drift and preserve cognitive diversity.
+              <strong>Boltzmann dream selection</strong> — during consolidation, weight candidates
+              are sampled proportionally to exp(−energy/T) instead of pure greedy selection.
+              High T → diverse dreaming. Low T → convergence.
+            </li>
+            <li>
+              <strong>Thermodynamic consolidation</strong> — memory consolidation is a "cooling"
+              process: at high T diverse memories are accepted; as T falls only the most coherent
+              representations survive (free-energy minima = stable self-model).
             </li>
           </ul>
           <p>Neutral weight = <strong>1.0</strong> · Min = 0.1 · Max = 2.0</p>

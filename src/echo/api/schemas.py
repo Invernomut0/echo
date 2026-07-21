@@ -49,6 +49,11 @@ class HistoryPoint(BaseModel):
     agent_weights: dict[str, float] = Field(default_factory=dict)
     drive_weights: dict[str, float] = Field(default_factory=dict)
     total_motivation: float = 0.5
+    # Thermodynamic metrics (added for Boltzmann plasticity tracking)
+    free_energy: float = 0.0
+    temperature: float = 0.0
+    internal_energy: float = 0.0
+    entropy: float = 0.0
 
 
 # ---------------------------------------------------------------------------
