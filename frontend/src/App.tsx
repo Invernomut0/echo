@@ -19,10 +19,11 @@ import EchoMdPanel from './components/EchoMdPanel'
 import CronPanel from './components/CronPanel'
 import HeartbeatPanel from './components/HeartbeatPanel'
 import SelfGrowthPanel from './components/SelfGrowthPanel'
+import PlasticityPanel from './components/PlasticityPanel'
 import { useEchoState, useHistory, useAnalyticsHistory, useGraph } from './hooks'
 import type { MetaState } from './api'
 
-type Tab = 'chat' | 'pipeline' | 'memory' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'heartbeat' | 'growth' | 'setup'
+type Tab = 'chat' | 'pipeline' | 'memory' | 'consolidation' | 'analytics' | 'vectors' | 'curiosity' | 'wiki' | 'goals' | 'echo' | 'cron' | 'heartbeat' | 'growth' | 'plasticity' | 'setup'
 
 class GraphErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false }
@@ -90,7 +91,7 @@ export default function App() {
       {/* Main panel */}
       <main className="main-panel">
         <div className="tab-bar">
-          {(['chat', 'pipeline', 'memory', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron', 'heartbeat', 'growth'] as Tab[]).map((t) => (
+          {(['chat', 'pipeline', 'memory', 'consolidation', 'analytics', 'vectors', 'curiosity', 'wiki', 'goals', 'echo', 'cron', 'heartbeat', 'growth', 'plasticity'] as Tab[]).map((t) => (
             <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
               {t}
             </button>
@@ -155,6 +156,9 @@ export default function App() {
         </div>
         <div style={{ display: tab === 'growth' ? 'contents' : 'none' }}>
           <SelfGrowthPanel />
+        </div>
+        <div style={{ display: tab === 'plasticity' ? 'contents' : 'none' }}>
+          <PlasticityPanel />
         </div>
         <div style={{ display: tab === 'setup' ? 'contents' : 'none' }}>
           <SetupPanel />
