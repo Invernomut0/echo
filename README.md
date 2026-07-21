@@ -343,3 +343,110 @@ p = 0.2 + 0.3 · arousal
 
 ### 0.1.0
 - Initial architecture: 6 agents, Global Workspace, Episodic/Semantic/Autobiographical memory, Drive System, Identity Belief Graph, Reflection Engine, Consolidation Scheduler
+
+
+## Contributing
+
+Per contribuire a ECHO, consultare il file CONTRIBUTING.md per linee guida, standard di codice e processo di pull request.
+
+
+## Safety Notice
+
+- **Do not modify** `src/echo/self_modification/engine.py` directly. Use the provided configuration and extension mechanisms to customize behavior. Direct edits may break the self‑modification integrity and cause instability.
+
+## Cron Tasks
+
+Per garantire che le funzioni di monitoraggio delle notizie AI e la consolidazione della memoria operino correttamente, è necessario avviare il scheduler cron.
+
+```bash
+python -m src.echo.cron
+```
+
+Assicurati che questo comando sia in esecuzione (ad esempio tramite un servizio di sistema o un processo di background) per mantenere ECHO aggiornato e reattivo.
+
+
+## Esecuzione dei Test
+
+Per eseguire la suite di test, utilizzare il comando:
+```
+python -m unittest discover -s tests
+```
+
+
+## Troubleshooting
+
+- **Consolidazione della memoria alta**: se vedi un avviso di "Memory consolidation urgency high" (valore > 0.7), considera di avviare un ciclo di *light‑sleep* manualmente. Puoi farlo eseguendo:
+  ```bash
+  ./scripts/run_light_sleep.sh
+  ```
+  Questo aiuta a processare i dati recenti senza attendere il ciclo di consolidazione programmato.
+
+
+**Nota di sicurezza:** Non modificare il modulo `src/echo/self_modification/engine.py` a meno che non sia strettamente necessario, poiché può compromettere l'integrità del sistema.
+
+
+## Cron Scheduler
+
+Per attivare il ciclo di consolidazione automatica è necessario avviare il **cron scheduler**. Da terminale, nella directory radice del progetto, eseguire:
+
+```bash
+python -m echo.cron
+```
+
+Il comando avvierà il processo in background che gestisce le attività periodiche (es. sintesi giornaliera di notizie AI, pulizia della memoria, ecc.). È consigliato aggiungere il comando a un servizio di avvio (es. systemd) o a `screen`/`tmux` per mantenerlo attivo anche dopo la chiusura della sessione.
+
+
+## Configurazione MCP
+
+Assicurati di impostare la variabile d'ambiente `MCP_URL` con l'URL del server MCP prima di avviare ECHO. Esempio:
+```bash
+export MCP_URL="http://localhost:8000"
+```
+Se la variabile non è impostata, il sistema terminerà con un errore di connessione.
+
+- **TELEGRAM_BOT_TOKEN**: Token per il bot Telegram usato da ECHO. Deve essere impostata affinché l'integrazione Telegram funzioni correttamente.
+
+
+
+**Nota:** Assicurati che il servizio cron sia attivo (es. `service cron start` o `systemctl enable --now cron`) affinché il ciclo di consolidazione di ECHO venga eseguito regolarmente.
+
+
+## Configurazione Telegram
+
+Assicurati di impostare anche la variabile d'ambiente **TELEGRAM_CHAT_ID** con l'ID della chat dove ECHO invierà i messaggi. Questo valore è necessario per il corretto funzionamento dell'integrazione Telegram.
+
+
+- `ECHO_LOG_LEVEL` (opzionale): Imposta la verbosità dei log (es. INFO, DEBUG). Il valore predefinito è INFO.
+
+
+- **LOG_LEVEL**: Imposta il livello di log dell'applicazione (es. `INFO`, `DEBUG`, `WARN`). Se non specificato, il valore predefinito è `INFO`.
+
+### Nota
+
+Il modulo di auto‑modifica **non** deve modificare il file `src/echo/self_modification/engine.py` per garantire la stabilità del sistema.
+
+### Nota di sicurezza
+
+**Non modificare** il file `src/echo/self_modification/engine.py`. Questo modulo è critico per la stabilità del sistema e le modifiche non autorizzate possono compromettere l'integrità dell'AI.
+
+
+## Quick Start
+
+```bash
+# Clona il repository
+git clone https://github.com/your-org/echo.git
+cd echo
+
+# Installa le dipendenze
+pip install -r requirements.txt
+
+# Configura le variabili d'ambiente (esempio)
+export LOG_LEVEL=info
+export TELEGRAM_BOT_TOKEN=your_bot_token
+export TELEGRAM_CHAT_ID=your_chat_id
+
+# Avvia il server principale
+./start.sh
+```
+
+Questa sequenza avvia ECHO con le impostazioni di base. Assicurati di impostare le variabili d'ambiente richieste prima di eseguire `start.sh`.

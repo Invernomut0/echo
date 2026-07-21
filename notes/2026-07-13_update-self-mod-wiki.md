@@ -1,10 +1,10 @@
 # Aggiornamento della documentazione sulla self-modification
 
-**Date:** 2026-07-13 07:04 UTC
+**Date:** 2026-07-13 23:14 UTC
 **File:** `data/wiki/pages/concepts/autonomous-self-modification.md`
 
 ## Rationale
-Migliora la coerenza della wiki allineando la descrizione del modulo di auto-miglioramento con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di modifica JSON.
+Migliora la coerenza della wiki allineando la descrizione del modulo di auto-modifica con l'attuale implementazione di ECHO, specificando i vincoli di sicurezza e il flusso di lavoro JSON.
 
 ## Change
 **Removed:**
@@ -17,16 +17,15 @@ Migliora la coerenza della wiki allineando la descrizione del modulo di auto-mig
 # Autonomous Self-Modification
 
 ## Overview
-Il modulo di self-modification permette a ECHO di evolvere il proprio codice e la propria configurazione in modo autonomo.
+ECHO possesses a specialized module allowing it to modify its own source code and configuration files. This creates a recursive feedback loop where the system can optimize its own prompts, fix bugs, and implement new features based on internal insights.
 
-## Meccanismo di Funzionamento
-1. **Analisi**: Il modulo analizza i log, i pattern di errore e i feedback dell'utente.
-2. **Proposta**: Genera una modifica specifica (snippet di codice) per risolvere un bug o implementare una feature.
-3. **Validazione**: Ogni modifica deve essere formattata come un oggetto JSON rigoroso per evitare l'esecuzione di codice arbitrario non controllato.
-4. **Applicazione**: Il sistema applica la modifica al file target e verifica l'integrità sintattica (es. `ast.parse` per Python).
+## Constraints & Safety
+- **Protected Files**: Critical system files (e.g., `.env`, core engine logic) are read-only to prevent catastrophic failure.
+- **Atomic Changes**: Modifications are applied as single-file patches to ensure stability.
+- **Validation**: All Python changes must pass `ast.parse` before being committed.
 
-## Vincoli di Sicurezza
-- **File Protetti**: I file `.env` e i database core (`data/sqlite/`, `data/chroma/`) sono rigorosamente off-limits.
-- **Atomicità**: Una sola modifica per ciclo per prevenire regressioni a cascata.
-- **Limitazione Delta**: Le modifiche sono limitate a piccoli delta (< 80 righe) per garantire la revisionabilità.
+## Workflow
+1. **Insight**: The Curiosity Engine or Reflection Engine identifies a need for improvement.
+2. **Proposal**: The Self-Modification module generates a JSON patch containing the `old_snippet` and `new_snippet`.
+3. **Execution**: The system applies the change and logs the modification in the CHANGELOG.
 ```

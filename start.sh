@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 set -euo pipefail
 
 # ── PROJECT ECHO — dev launcher ───────────────────────────────────────────────
@@ -112,3 +113,46 @@ echo ""
 
 # ── attendi che entrambi terminino ───────────────────────────────────────────
 wait "$BACKEND_PID" "$FRONTEND_PID"
+
+if [ -z "$ECHO_MCP_URL" ]; then
+  echo "Warning: ECHO_MCP_URL is not set. Some features may not work."
+fi
+
+# Ensure required environment variables are set
+if [[ -z "$GITHUB_TOKEN" ]]; then
+  echo "Error: GITHUB_TOKEN environment variable is not set."
+  exit 1
+fi
+
+# Verify OpenAI API key
+if [ -z "$OPENAI_API_KEY" ]; then
+  echo "Warning: OPENAI_API_KEY environment variable is not set. Some functionalities may be limited."
+fi
+
+# Verify MCP server URL is set
+if [ -z "$MCP_SERVER_URL" ]; then
+  echo "Warning: MCP_SERVER_URL environment variable is not set. MCP integration may fail."
+fi
+
+# Verify required Telegram bot token
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "Error: TELEGRAM_BOT_TOKEN environment variable is not set."
+  exit 1
+fi
+
+# Set default log level if not provided
+if [ -z "$LOG_LEVEL" ]; then
+  export LOG_LEVEL="INFO"
+fi
+
+
+# Ensure TELEGRAM_CHAT_ID is set for Telegram notifications
+if [ -z "$TELEGRAM_CHAT_ID" ]; then
+  echo "Warning: TELEGRAM_CHAT_ID is not set. Telegram notifications will be disabled."
+fi
+
+# Ensure TELEGRAM_BOT_TOKEN is set for Telegram integration
+if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+  echo "Warning: TELEGRAM_BOT_TOKEN is not set. Telegram integration will be disabled."
+fi
+
