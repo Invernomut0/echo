@@ -502,3 +502,6 @@ ECHO può beneficiare di una routine di riflessione giornaliera per valutare i p
 
 Questa procedura aiuta ECHO a mantenere una crescita autonoma, a ridurre le contraddizioni e a migliorare la qualità delle risposte fornite.
 
+
+- Implementare un meccanismo di valutazione (👍/👎) per i riassunti delle notizie AI giornaliere.
+
