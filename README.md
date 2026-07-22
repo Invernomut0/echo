@@ -479,3 +479,7 @@ Questa sequenza avvia ECHO con le impostazioni di base. Assicurati di impostare 
 
 Feel free to explore the documentation for advanced configuration and customization.
 
+
+## Contributing
+Contributions are welcome via pull requests.
+
