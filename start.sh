@@ -160,3 +160,13 @@ fi
 
 #!/usr/bin/env bash
 
+#!/usr/bin/env bash
+
+# Avviso se il file di configurazione .env non è presente
+if [ ! -f .env ]; then
+  echo "[WARN] File .env non trovato: verranno usati i valori di default o le variabili d'ambiente esistenti."
+fi
+
+# Avvio del server principale di ECHO
+python -m src.echo "$@"
+
