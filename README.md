@@ -513,3 +513,8 @@ Questa procedura aiuta ECHO a mantenere una crescita autonoma, a ridurre le cont
 - **Implementazione**: il cron task `cron/ai_news_summary.py` legge il file di feedback e aggiorna la variabile `feedback_score` che influisce sul peso dei contenuti nella prossima generazione.
 - **Nota**: è possibile disabilitare il meccanismo impostando `ENABLE_NEWS_FEEDBACK=false` nel file `.env`.
 
+
+## Feedback Loop per i Riassunti delle Notizie AI
+
+Per raccogliere il feedback degli utenti sui riassunti giornalieri delle notizie AI, implementare un semplice sistema di valutazione con pulsanti "👍" e "👎". Dopo ogni riassunto, il frontend mostra i due pulsanti. Quando l'utente clicca, inviare la valutazione al backend tramite l'endpoint `/feedback` (da implementare). Salvare il feedback in `data/feedback.json` per analisi successive e per migliorare i modelli di sintesi.
+
