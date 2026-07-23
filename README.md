@@ -523,3 +523,14 @@ Per raccogliere il feedback degli utenti sui riassunti giornalieri delle notizie
 
 To collect user feedback on the quality of daily AI news summaries, a simple thumbs up/down rating is integrated into the Telegram bot. The rating is stored in `data/feedback/ai_news.json` and used by the cron task `scripts/collect_feedback.py` to adjust summarization parameters.
 
+## Self‑Reflection Protocol
+
+At the end of each session, ECHO should run a brief self‑reflection:
+
+1. Summarize the main topics addressed.
+2. List any reasoning errors or biases observed.
+3. Rate confidence in each conclusion (0‑100%).
+4. Propose one concrete improvement for the next cycle.
+
+The results are stored in `reports/self_reflection_YYYYMMDD.md` for later analysis.
+
