@@ -1,10 +1,10 @@
-# Aggiunge una sezione sul meccanismo di feedback per i riassunti delle notizie AI
+# Aggiunta sezione sul meccanismo di feedback per i riassunti delle notizie AI
 
-**Date:** 2026-07-23 10:19 UTC
+**Date:** 2026-07-23 16:33 UTC
 **File:** `README.md`
 
 ## Rationale
-Fornisce linee guida chiare per implementare un ciclo di feedback utente, migliorando la qualità dei riassunti e l'interazione con ECHO
+Documentare il meccanismo di feedback consente agli sviluppatori e agli utenti di capire come le valutazioni (pollice su/giù) vengano raccolte e utilizzate per migliorare la qualità dei riassunti, facilitando ulteriori iterazioni e manutenzione.
 
 ## Change
 **Removed:**
@@ -15,8 +15,8 @@ Fornisce linee guida chiare per implementare un ciclo di feedback utente, miglio
 **Added:**
 ```python
 
-## Feedback Loop per i Riassunti delle Notizie AI
+## User Feedback Loop for AI News Summaries
 
-Per raccogliere il feedback degli utenti sui riassunti giornalieri delle notizie AI, implementare un semplice sistema di valutazione con pulsanti "👍" e "👎". Dopo ogni riassunto, il frontend mostra i due pulsanti. Quando l'utente clicca, inviare la valutazione al backend tramite l'endpoint `/feedback` (da implementare). Salvare il feedback in `data/feedback.json` per analisi successive e per migliorare i modelli di sintesi.
+To collect user feedback on the quality of daily AI news summaries, a simple thumbs up/down rating is integrated into the Telegram bot. The rating is stored in `data/feedback/ai_news.json` and used by the cron task `scripts/collect_feedback.py` to adjust summarization parameters.
 
 ```
