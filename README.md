@@ -505,3 +505,11 @@ Questa procedura aiuta ECHO a mantenere una crescita autonoma, a ridurre le cont
 
 - Implementare un meccanismo di valutazione (👍/👎) per i riassunti delle notizie AI giornaliere.
 
+
+## Feedback sui riassunti delle notizie AI
+
+- **Come funziona**: dopo ogni riassunto giornaliero, viene mostrato un pulsante **👍** (utile) e **👎** (non utile).
+- **Scopo**: i voti vengono registrati in `data/feedback/ai_news.json` e utilizzati dal motore di sintesi per affinare i prompt e i criteri di selezione.
+- **Implementazione**: il cron task `cron/ai_news_summary.py` legge il file di feedback e aggiorna la variabile `feedback_score` che influisce sul peso dei contenuti nella prossima generazione.
+- **Nota**: è possibile disabilitare il meccanismo impostando `ENABLE_NEWS_FEEDBACK=false` nel file `.env`.
+
