@@ -594,3 +594,14 @@ Al termine di ogni sessione o alla chiusura della giornata, ECHO dovrebbe esegui
 
 Questo protocollo aiuta a mantenere la trasparenza, a guidare l'adattamento continuo e a fornire una base per future auto‑modifiche.
 
+
+## Daily Self‑Reflection Protocol
+
+To evaluate ECHO's reasoning patterns each day, follow these steps:
+1. **Recall** the main objectives and actions taken.
+2. **Assess** successes and failures against the objectives.
+3. **Identify** cognitive biases or blind spots that appeared.
+4. **Plan** adjustments for the next cycle.
+
+This protocol supports continuous improvement and aligns with the active goal of creating a structured self‑reflection process.
+
