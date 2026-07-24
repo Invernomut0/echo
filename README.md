@@ -553,3 +553,23 @@ ECHO genera automaticamente un report giornaliero che riepiloga lo stato interno
 - Per abilitare/disabilitare il task, impostare `enabled: true/false`.
 
 Questa funzionalità supporta gli obiettivi attivi di *Daily Internal State Monitoring* e migliora la capacità di ECHO di auto‑regolare i cicli di consolidamento.
+
+
+## Feedback per i Riassunti delle Notizie AI
+
+Per migliorare la qualità dei riassunti giornalieri delle notizie AI, è stato introdotto un semplice meccanismo di valutazione da parte dell'utente.
+
+- **Come funziona**: dopo aver ricevuto il riassunto, l'utente può cliccare su un'icona **👍** (positivo) o **👎** (negativo).
+- **Raccolta dati**: le valutazioni vengono registrate in `data/feedback/ai_news_summary.json` e sono disponibili per l'analisi.
+- **Utilizzo**: i dati di feedback alimentano un processo di *reinforcement learning* che adatta i prompt di sintesi per massimizzare il punteggio medio.
+
+### Esempio di utilizzo
+```bash
+# Dopo aver visualizzato il riassunto
+curl -X POST https://your-echo-instance/api/feedback \
+    -H "Content-Type: application/json" \
+    -d '{"summary_id": "2023-09-15", "rating": "up"}'
+```
+
+Questa semplice interfaccia permette di chiudere il ciclo di feedback, rendendo il sistema più reattivo alle esigenze degli utenti.
+
