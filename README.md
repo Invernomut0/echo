@@ -534,3 +534,22 @@ At the end of each session, ECHO should run a brief self‑reflection:
 
 The results are stored in `reports/self_reflection_YYYYMMDD.md` for later analysis.
 
+## Monitoraggio giornaliero dello stato interno
+
+ECHO genera automaticamente un report giornaliero che riepiloga lo stato interno, le credenze attive e le priorità di consolidamento. Il file viene creato nella cartella `reports/` con nome `internal_state_YYYYMMDD.md`.
+
+### Come funziona
+1. **Cron task**: un task pianificato (`cron`) avvia lo script `scripts/generate_internal_state_report.py` ogni notte alle 02:00.
+2. **Contenuto del report**:
+   - Data e ora di generazione
+   - Stato di memoria episodica e semantica
+   - Credenze ad alta priorità
+   - Valutazione della necessità di consolidamento
+   - Eventuali avvisi o errori recenti
+3. **Accesso**: il report è disponibile sia in formato markdown per la lettura umana, sia in JSON (`reports/internal_state_YYYYMMDD.json`) per l'analisi automatica.
+
+### Configurazione
+- Il percorso di salvataggio e l'orario di esecuzione possono essere modificati nel file `data/mcp.json` sotto la chiave `internal_state_report`.
+- Per abilitare/disabilitare il task, impostare `enabled: true/false`.
+
+Questa funzionalità supporta gli obiettivi attivi di *Daily Internal State Monitoring* e migliora la capacità di ECHO di auto‑regolare i cicli di consolidamento.
