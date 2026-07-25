@@ -610,3 +610,8 @@ This protocol supports continuous improvement and aligns with the active goal of
 
 Il sistema genera un report giornaliero `reports/internal_state_YYYYMMDD.md` che riepiloga lo stato di memoria, le priorità di consolidamento e le metriche di curiosità. Questo file è utile per audit e per valutare l'efficacia delle strategie di auto‑miglioramento.
 
+
+## Log accesso al file system
+
+Il sistema genera un file di log `logs/file_system_access.md` che registra tutte le operazioni di lettura/scrittura sui file. Questo aiuta a monitorare l'attività del modulo di auto-modifica e a facilitare il debugging.
+
