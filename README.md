@@ -605,3 +605,8 @@ To evaluate ECHO's reasoning patterns each day, follow these steps:
 
 This protocol supports continuous improvement and aligns with the active goal of creating a structured self‑reflection process.
 
+
+## Monitoraggio Stato Interno Giornaliero
+
+Il sistema genera un report giornaliero `reports/internal_state_YYYYMMDD.md` che riepiloga lo stato di memoria, le priorità di consolidamento e le metriche di curiosità. Questo file è utile per audit e per valutare l'efficacia delle strategie di auto‑miglioramento.
+
