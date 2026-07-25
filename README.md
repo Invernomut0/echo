@@ -615,3 +615,10 @@ Il sistema genera un report giornaliero `reports/internal_state_YYYYMMDD.md` che
 
 Il sistema genera un file di log `logs/file_system_access.md` che registra tutte le operazioni di lettura/scrittura sui file. Questo aiuta a monitorare l'attività del modulo di auto-modifica e a facilitare il debugging.
 
+
+## Sicurezza della Modifica Autonoma
+
+- **Limiti di modifica**: il modulo di auto‑modifica non può alterare `src/echo/self_modification/engine.py` né i file di configurazione sensibili (`.env`).
+- **Revisione**: ogni cambiamento è registrato in `CHANGELOG.md` e richiede conferma manuale prima di essere applicato in produzione.
+- **Rollback**: in caso di comportamento anomalo, è possibile ripristinare la versione precedente tramite Git.
+
