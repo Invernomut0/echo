@@ -634,3 +634,8 @@ ECHO should perform a self‑reflection at the end of each session. The protocol
 
 This structured reflection helps consolidate memories and guide autonomous improvement.
 
+
+## Nota di consolidazione della memoria
+
+Il sistema ha rilevato un'alta urgenza di consolidamento della memoria (0.72). Si consiglia di avviare un ciclo di *light‑sleep* per ottimizzare la stabilizzazione delle informazioni recenti.
+
