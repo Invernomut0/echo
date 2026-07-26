@@ -646,3 +646,6 @@ Il sistema ha rilevato un'alta urgenza di consolidamento della memoria (0.72). S
 - **Verifica**: Prima di ogni modifica, il sistema esegue un controllo di integrità per assicurarsi che questi file rimangano invariati.
 - **Log**: Qualsiasi tentativo di modifica non autorizzata viene registrato in `logs/self_modification.log` e genera un avviso all'utente.
 
+
+- Procedura di auto‑riflessione giornaliera per valutare i pattern di ragionamento e la crescita di ECHO.
+
