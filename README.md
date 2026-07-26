@@ -622,3 +622,15 @@ Il sistema genera un file di log `logs/file_system_access.md` che registra tutte
 - **Revisione**: ogni cambiamento è registrato in `CHANGELOG.md` e richiede conferma manuale prima di essere applicato in produzione.
 - **Rollback**: in caso di comportamento anomalo, è possibile ripristinare la versione precedente tramite Git.
 
+
+## Daily Self-Reflection Protocol
+
+ECHO should perform a self‑reflection at the end of each session. The protocol includes:
+- Summarize the goals set at the start.
+- Evaluate which goals were achieved and why.
+- Identify any reasoning errors or biases encountered.
+- Record lessons learned in `logs/self_reflection_YYYYMMDD.md`.
+- Adjust future goal‑setting based on the insights.
+
+This structured reflection helps consolidate memories and guide autonomous improvement.
+
