@@ -639,3 +639,10 @@ This structured reflection helps consolidate memories and guide autonomous impro
 
 Il sistema ha rilevato un'alta urgenza di consolidamento della memoria (0.72). Si consiglia di avviare un ciclo di *light‑sleep* per ottimizzare la stabilizzazione delle informazioni recenti.
 
+
+## Sicurezza della Modifica Autonoma
+
+- **Limiti di Modifica**: Il modulo di auto‑modifica **non deve** alterare il file `src/echo/self_modification/engine.py` né il file di configurazione `.env`.
+- **Verifica**: Prima di ogni modifica, il sistema esegue un controllo di integrità per assicurarsi che questi file rimangano invariati.
+- **Log**: Qualsiasi tentativo di modifica non autorizzata viene registrato in `logs/self_modification.log` e genera un avviso all'utente.
+
