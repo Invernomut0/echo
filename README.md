@@ -518,3 +518,149 @@ Questa procedura aiuta ECHO a mantenere una crescita autonoma, a ridurre le cont
 
 Per raccogliere il feedback degli utenti sui riassunti giornalieri delle notizie AI, implementare un semplice sistema di valutazione con pulsanti "👍" e "👎". Dopo ogni riassunto, il frontend mostra i due pulsanti. Quando l'utente clicca, inviare la valutazione al backend tramite l'endpoint `/feedback` (da implementare). Salvare il feedback in `data/feedback.json` per analisi successive e per migliorare i modelli di sintesi.
 
+
+## User Feedback Loop for AI News Summaries
+
+To collect user feedback on the quality of daily AI news summaries, a simple thumbs up/down rating is integrated into the Telegram bot. The rating is stored in `data/feedback/ai_news.json` and used by the cron task `scripts/collect_feedback.py` to adjust summarization parameters.
+
+## Self‑Reflection Protocol
+
+At the end of each session, ECHO should run a brief self‑reflection:
+
+1. Summarize the main topics addressed.
+2. List any reasoning errors or biases observed.
+3. Rate confidence in each conclusion (0‑100%).
+4. Propose one concrete improvement for the next cycle.
+
+The results are stored in `reports/self_reflection_YYYYMMDD.md` for later analysis.
+
+## Monitoraggio giornaliero dello stato interno
+
+ECHO genera automaticamente un report giornaliero che riepiloga lo stato interno, le credenze attive e le priorità di consolidamento. Il file viene creato nella cartella `reports/` con nome `internal_state_YYYYMMDD.md`.
+
+### Come funziona
+1. **Cron task**: un task pianificato (`cron`) avvia lo script `scripts/generate_internal_state_report.py` ogni notte alle 02:00.
+2. **Contenuto del report**:
+   - Data e ora di generazione
+   - Stato di memoria episodica e semantica
+   - Credenze ad alta priorità
+   - Valutazione della necessità di consolidamento
+   - Eventuali avvisi o errori recenti
+3. **Accesso**: il report è disponibile sia in formato markdown per la lettura umana, sia in JSON (`reports/internal_state_YYYYMMDD.json`) per l'analisi automatica.
+
+### Configurazione
+- Il percorso di salvataggio e l'orario di esecuzione possono essere modificati nel file `data/mcp.json` sotto la chiave `internal_state_report`.
+- Per abilitare/disabilitare il task, impostare `enabled: true/false`.
+
+Questa funzionalità supporta gli obiettivi attivi di *Daily Internal State Monitoring* e migliora la capacità di ECHO di auto‑regolare i cicli di consolidamento.
+
+
+## Feedback per i Riassunti delle Notizie AI
+
+Per migliorare la qualità dei riassunti giornalieri delle notizie AI, è stato introdotto un semplice meccanismo di valutazione da parte dell'utente.
+
+- **Come funziona**: dopo aver ricevuto il riassunto, l'utente può cliccare su un'icona **👍** (positivo) o **👎** (negativo).
+- **Raccolta dati**: le valutazioni vengono registrate in `data/feedback/ai_news_summary.json` e sono disponibili per l'analisi.
+- **Utilizzo**: i dati di feedback alimentano un processo di *reinforcement learning* che adatta i prompt di sintesi per massimizzare il punteggio medio.
+
+### Esempio di utilizzo
+```bash
+# Dopo aver visualizzato il riassunto
+curl -X POST https://your-echo-instance/api/feedback \
+    -H "Content-Type: application/json" \
+    -d '{"summary_id": "2023-09-15", "rating": "up"}'
+```
+
+Questa semplice interfaccia permette di chiudere il ciclo di feedback, rendendo il sistema più reattivo alle esigenze degli utenti.
+
+## Protocollo di Auto‑Riflessione Giornaliera
+
+Al termine di ogni sessione o alla chiusura della giornata, ECHO dovrebbe eseguire il seguente protocollo per valutare le proprie prestazioni cognitive:
+
+1. **Raccolta dei Log**
+   - Recupera i log di consolidazione, cron e attività recenti da `logs/`.
+   - Aggrega gli insight di curiosità generati durante la sessione.
+2. **Valutazione dei Drive**
+   - Rivedi i valori dei drive (curiosità, coerenza, competenza, ecc.) e annota eventuali deviazioni significative.
+3. **Analisi degli Errori**
+   - Identifica errori o eccezioni incontrate.
+   - Classifica la gravità e suggerisci possibili correzioni.
+4. **Riflessione sui Risultati**
+   - Riassumi i risultati chiave, le decisioni prese e le azioni future.
+   - Valuta se gli obiettivi attivi sono stati avanzati.
+5. **Generazione del Report**
+   - Crea un file markdown in `reports/internal_state_YYYYMMDD.md` con la struttura sopra.
+   - Includi un riepilogo delle metriche di performance e un piano d'azione per il prossimo ciclo.
+
+Questo protocollo aiuta a mantenere la trasparenza, a guidare l'adattamento continuo e a fornire una base per future auto‑modifiche.
+
+
+## Daily Self‑Reflection Protocol
+
+To evaluate ECHO's reasoning patterns each day, follow these steps:
+1. **Recall** the main objectives and actions taken.
+2. **Assess** successes and failures against the objectives.
+3. **Identify** cognitive biases or blind spots that appeared.
+4. **Plan** adjustments for the next cycle.
+
+This protocol supports continuous improvement and aligns with the active goal of creating a structured self‑reflection process.
+
+
+## Monitoraggio Stato Interno Giornaliero
+
+Il sistema genera un report giornaliero `reports/internal_state_YYYYMMDD.md` che riepiloga lo stato di memoria, le priorità di consolidamento e le metriche di curiosità. Questo file è utile per audit e per valutare l'efficacia delle strategie di auto‑miglioramento.
+
+
+## Log accesso al file system
+
+Il sistema genera un file di log `logs/file_system_access.md` che registra tutte le operazioni di lettura/scrittura sui file. Questo aiuta a monitorare l'attività del modulo di auto-modifica e a facilitare il debugging.
+
+
+## Sicurezza della Modifica Autonoma
+
+- **Limiti di modifica**: il modulo di auto‑modifica non può alterare `src/echo/self_modification/engine.py` né i file di configurazione sensibili (`.env`).
+- **Revisione**: ogni cambiamento è registrato in `CHANGELOG.md` e richiede conferma manuale prima di essere applicato in produzione.
+- **Rollback**: in caso di comportamento anomalo, è possibile ripristinare la versione precedente tramite Git.
+
+
+## Daily Self-Reflection Protocol
+
+ECHO should perform a self‑reflection at the end of each session. The protocol includes:
+- Summarize the goals set at the start.
+- Evaluate which goals were achieved and why.
+- Identify any reasoning errors or biases encountered.
+- Record lessons learned in `logs/self_reflection_YYYYMMDD.md`.
+- Adjust future goal‑setting based on the insights.
+
+This structured reflection helps consolidate memories and guide autonomous improvement.
+
+
+## Nota di consolidazione della memoria
+
+Il sistema ha rilevato un'alta urgenza di consolidamento della memoria (0.72). Si consiglia di avviare un ciclo di *light‑sleep* per ottimizzare la stabilizzazione delle informazioni recenti.
+
+
+## Sicurezza della Modifica Autonoma
+
+- **Limiti di Modifica**: Il modulo di auto‑modifica **non deve** alterare il file `src/echo/self_modification/engine.py` né il file di configurazione `.env`.
+- **Verifica**: Prima di ogni modifica, il sistema esegue un controllo di integrità per assicurarsi che questi file rimangano invariati.
+- **Log**: Qualsiasi tentativo di modifica non autorizzata viene registrato in `logs/self_modification.log` e genera un avviso all'utente.
+
+
+- Procedura di auto‑riflessione giornaliera per valutare i pattern di ragionamento e la crescita di ECHO.
+
+
+## Sicurezza della Modifica Autonoma
+
+Per garantire che le modifiche automatiche non compromettano l'integrità del sistema, ECHO rispetta le seguenti regole:
+
+- **Nessuna modifica** ai file `.env` o alle directory `data/sqlite/` e `data/chroma/`.
+- **Validazione** di ogni cambiamento tramite analisi sintattica prima dell'applicazione.
+- **Log** dettagliato di ogni modifica con timestamp e autore.
+- **Revisione** umana obbligatoria per modifiche critiche.
+
+Queste linee guida aiutano a mantenere la stabilità e la sicurezza del sistema.
+
+
+- Daily self‑reflection protocol for evaluating reasoning patterns and growth.
+
