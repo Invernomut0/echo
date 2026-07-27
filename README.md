@@ -649,3 +649,15 @@ Il sistema ha rilevato un'alta urgenza di consolidamento della memoria (0.72). S
 
 - Procedura di auto‑riflessione giornaliera per valutare i pattern di ragionamento e la crescita di ECHO.
 
+
+## Sicurezza della Modifica Autonoma
+
+Per garantire che le modifiche automatiche non compromettano l'integrità del sistema, ECHO rispetta le seguenti regole:
+
+- **Nessuna modifica** ai file `.env` o alle directory `data/sqlite/` e `data/chroma/`.
+- **Validazione** di ogni cambiamento tramite analisi sintattica prima dell'applicazione.
+- **Log** dettagliato di ogni modifica con timestamp e autore.
+- **Revisione** umana obbligatoria per modifiche critiche.
+
+Queste linee guida aiutano a mantenere la stabilità e la sicurezza del sistema.
+
