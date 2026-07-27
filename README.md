@@ -661,3 +661,6 @@ Per garantire che le modifiche automatiche non compromettano l'integrità del si
 
 Queste linee guida aiutano a mantenere la stabilità e la sicurezza del sistema.
 
+
+- Daily self‑reflection protocol for evaluating reasoning patterns and growth.
+
