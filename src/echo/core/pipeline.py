@@ -397,6 +397,7 @@ Respond ONLY with valid JSON:
             "history": history or [],
             "self_prediction": self_pred,
             "wiki": _wiki_context,
+            "beliefs": self.identity_graph.all_beliefs(),
         }
         meta_state = self.meta_tracker.current
 
@@ -611,6 +612,7 @@ Respond ONLY with valid JSON:
             "history": history or [],
             "self_prediction": self_pred,
             "wiki": _wiki_context,
+            "beliefs": self.identity_graph.all_beliefs(),
         }
         meta_state_before = self.meta_tracker.current.model_copy(deep=True)
         meta_state = self.meta_tracker.current

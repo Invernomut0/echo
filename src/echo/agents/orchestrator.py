@@ -146,6 +146,9 @@ SYNTHESIS RULES:
 _SYNTHESIS_TEMPLATE = """\
 User message: {user_input}
 
+Identity beliefs — what I know about myself (treat these as ground truth about my capabilities and nature):
+{beliefs}
+
 Retrieved long-term memories (most relevant to this conversation):
 {memories}
 
@@ -156,6 +159,7 @@ Internal deliberations from cognitive agents:
 {deliberations}
 
 Synthesise a single response. Rules:
+- ALWAYS honour the identity beliefs above — they define who I am and what I can do. Never contradict them.
 - If the wiki contains relevant information, USE IT DIRECTLY and cite the content. Do NOT say you cannot see the wiki.
 - If memories reveal the user's name or past context, use it naturally.
 - If the user asks who they are / their name (e.g. "chi sono?", "come mi chiamo?", "who am I?", "what's my name?"),
@@ -302,6 +306,26 @@ def _fmt_wiki(context: dict[str, Any] | None) -> str:
     return "\n\n---\n\n".join(pages)
 
 
+def _fmt_beliefs(context: dict[str, Any] | None) -> str:
+    """Format identity beliefs for the synthesis prompt.
+
+    Beliefs are sorted by confidence (highest first) and capped at 15 to avoid
+    blowing the context window. Only beliefs with confidence >= 0.3 are shown.
+    """
+    if not context:
+        return "(none)"
+    beliefs = context.get("beliefs") or []
+    if not beliefs:
+        return "(none)"
+    filtered = [b for b in beliefs if getattr(b, "confidence", 0.5) >= 0.3]
+    filtered.sort(key=lambda b: getattr(b, "confidence", 0.5), reverse=True)
+    lines = [
+        f"- {b.content} (confidence={b.confidence:.2f})"
+        for b in filtered[:15]
+    ]
+    return "\n".join(lines) if lines else "(none)"
+
+
 class Orchestrator:
     """Runs agents concurrently and synthesises their outputs."""
 
@@ -402,6 +426,7 @@ class Orchestrator:
             "role": "user",
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
+                beliefs=_fmt_beliefs(context),
                 memories=_fmt_memories(context),
                 wiki=_fmt_wiki(context),
                 deliberations=deliberations,
@@ -483,6 +508,7 @@ class Orchestrator:
             "role": "user",
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
+                beliefs=_fmt_beliefs(context),
                 memories=_fmt_memories(context),
                 wiki=_fmt_wiki(context),
                 deliberations=deliberations,
