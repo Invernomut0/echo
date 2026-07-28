@@ -264,19 +264,34 @@ def _trim_history(
 ) -> list[dict[str, str]]:
     """Trim conversation history to fit within context window.
 
-    - Keeps last ``max_turns`` messages
-    - Truncates each message content to ``max_content_chars``
-    - Replaces error responses with a short placeholder (they inflate tokens
-      and confuse the model context)
+    - Drops failed assistant turns entirely. Keeping a ``[previous response
+      failed]`` placeholder wasted a turn *and* showed the model a transcript
+      in which its own last few answers were failures — which it then imitates.
+    - Collapses consecutive identical user messages (a user retrying the same
+      question after a failure) down to one.
+    - Keeps the last ``max_turns`` messages and truncates each to
+      ``max_content_chars``.
     """
-    recent = history[-max_turns:] if len(history) > max_turns else history
+    cleaned: list[dict[str, str]] = []
+    for msg in history:
+        content = msg.get("content", "")
+        role = msg.get("role", "")
+        if role == "assistant" and (not content.strip() or content.startswith("[Error:")):
+            continue
+        if (
+            role == "user"
+            and cleaned
+            and cleaned[-1]["role"] == "user"
+            and cleaned[-1]["content"] == content
+        ):
+            continue
+        cleaned.append({"role": role, "content": content})
+
+    recent = cleaned[-max_turns:] if len(cleaned) > max_turns else cleaned
     trimmed: list[dict[str, str]] = []
     for msg in recent:
-        content = msg.get("content", "")
-        # Replace error blobs with a terse placeholder
-        if content.startswith("[Error:"):
-            content = "[previous response failed]"
-        elif len(content) > max_content_chars:
+        content = msg["content"]
+        if len(content) > max_content_chars:
             content = content[:max_content_chars] + "…"
         trimmed.append({"role": msg["role"], "content": content})
     return trimmed

@@ -5,6 +5,56 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.11] — 2026-07-28
+
+### Request Payload — Prompt Size & Timeouts
+
+A single chat turn was shipping a **19,765-token prompt** to the local backend.
+LM Studio logs show prompt processing crawling from 270 to 160 tok/s, stalling at
+41 % after two minutes, and the request dying with `httpx.ReadTimeout` before a
+single token was generated. Three compounding causes.
+
+#### Tool payload no longer unbounded
+
+`list_tools_openai()` returned **every** connected tool — 112 schemas across eight
+MCP servers, 80 of them from `opencode-mcp` alone (TUI controls, OAuth flows,
+provider and session management), none of which help answer a user's question.
+The synthesis system prompt already capped tool *descriptions* at five, but the
+`tools=` array sent to the API was never filtered, so the cap saved nothing.
+
+New `MCPClientManager.select_tools_openai()` ranks tools against the current
+message and caps the result at `LLM_MAX_TOOLS` (default 24). ECHO's own `echo__*`
+tools and the small, broadly useful servers (`brave_search`, `fetch`, `datetime`)
+are always kept, so no capability is lost. Remaining slots go to the tools whose
+name and description overlap the message, smaller schemas winning ties.
+Measured on the captured 112-tool setup: **80.9 % smaller tool payload**.
+
+#### Read timeout now covers prompt processing
+
+The shared HTTP client used a flat 120 s timeout. A backend sends nothing while it
+ingests the prompt, so that budget was exhausted by prompt processing alone — the
+observed failure mode. Replaced with `httpx.Timeout(connect=10, read=…, write=60,
+pool=10)` where read is `LLM_READ_TIMEOUT_S` (default 300). An unreachable backend
+still fails in 10 s.
+
+#### Failed turns no longer replayed
+
+`_trim_history()` rewrote error responses to `[previous response failed]` and kept
+them. Each retry therefore consumed a slot in the six-turn window *and* showed the
+model a transcript in which its own last three answers were failures — a pattern it
+imitates. Failed and empty assistant turns are now dropped outright, and a question
+the user retried verbatim is collapsed to one turn. The trim window is applied
+after cleaning, so errors no longer displace real context.
+
+### Added
+
+- `LLM_MAX_TOOLS` (default 24, `0` disables) — ceiling on tool schemas per request.
+- `LLM_READ_TIMEOUT_S` (default 300) — read timeout for LLM HTTP calls.
+- `tests/test_prompt_payload.py` — 17 tests covering tool selection, history
+  hygiene and the timeout floor, built on a reconstruction of the captured payload.
+
+---
+
 ## [0.5.10] — 2026-07-28
 
 ### Cognitive Subsystem Audit — Correctness & Throughput
