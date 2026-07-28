@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,15 @@ logger = logging.getLogger(__name__)
 
 # Default config path (relative to project root, i.e. where the server is run from)
 _DEFAULT_CONFIG = Path("data/mcp.json")
+
+# Word tokeniser used by tool relevance scoring.
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+# Servers whose tools are always worth offering: they are few, small and
+# generically useful for answering a user message.
+_ALWAYS_RELEVANT_SERVERS: frozenset[str] = frozenset({
+    "brave_search", "fetch", "datetime",
+})
 
 
 # ---------------------------------------------------------------------------
@@ -417,6 +427,64 @@ class MCPClientManager:
         # Internal tools: use the original OpenAI defs exactly as registered
         result.extend(openai_def for openai_def, _ in self._internal_tools.values())
         return result
+
+    def select_tools_openai(
+        self,
+        query: str,
+        *,
+        max_tools: int,
+    ) -> list[dict[str, Any]]:
+        """Return a relevance-ranked subset of the OpenAI tool schemas.
+
+        Sending every connected tool on every request is the single largest
+        contributor to prompt size: a rich MCP setup exceeds 100 schemas
+        (~20k tokens), which on a local backend costs minutes of prompt
+        processing and frequently trips the HTTP read timeout.
+
+        Selection rules, in order:
+
+        1. ECHO's own ``echo__*`` tools are always kept — they are few and they
+           are the model's only handle on its own cognitive scheduling.
+        2. Tools from :data:`_ALWAYS_RELEVANT_SERVERS` (web search, fetch,
+           datetime) are kept — they are cheap and broadly useful.
+        3. The remaining slots go to the tools whose name and description
+           overlap the most with ``query``; ties are broken by schema size so
+           that cheaper tools win.
+
+        ``max_tools <= 0`` disables the cap and returns everything.
+        """
+        all_defs = self.list_tools_openai()
+        if max_tools <= 0 or len(all_defs) <= max_tools:
+            return all_defs
+
+        keywords = {w for w in _WORD_RE.findall(query.lower()) if len(w) >= 4}
+
+        always: list[dict[str, Any]] = []
+        candidates: list[dict[str, Any]] = []
+        for defn in all_defs:
+            name = defn.get("function", {}).get("name", "")
+            server = name.split("__", 1)[0] if "__" in name else "echo"
+            if server == "echo" or server in _ALWAYS_RELEVANT_SERVERS:
+                always.append(defn)
+            else:
+                candidates.append(defn)
+
+        # Rule 1+2 alone may already exceed the budget — keep them anyway,
+        # they are the functional floor below which the model loses capability.
+        remaining = max_tools - len(always)
+        if remaining <= 0:
+            return always
+
+        def _score(defn: dict[str, Any]) -> tuple[int, int]:
+            fn = defn.get("function", {})
+            text = f"{fn.get('name', '')} {fn.get('description', '')}".lower()
+            words = set(_WORD_RE.findall(text))
+            overlap = len(keywords & words)
+            # Negative size → smaller schemas rank higher on ties.
+            return (overlap, -len(json.dumps(fn, ensure_ascii=False)))
+
+        candidates.sort(key=_score, reverse=True)
+        return always + candidates[:remaining]
 
     # ------------------------------------------------------------------
     # Tool invocation

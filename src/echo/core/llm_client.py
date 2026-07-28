@@ -90,8 +90,42 @@ class _EmbedCache:
         }
 
 
-# Shared async HTTP client (reused across requests)
-_http_client = httpx.AsyncClient(timeout=120.0)
+# Shared async HTTP client (reused across requests).
+# The read timeout must cover *prompt processing*, which happens before the
+# first byte reaches us: a local backend chewing through a 10k-token prompt at
+# 150 tok/s stays silent for over a minute. Connect stays short so a genuinely
+# unreachable backend still fails fast.
+_http_client = httpx.AsyncClient(
+    timeout=httpx.Timeout(
+        connect=10.0,
+        read=settings.llm_read_timeout_s,
+        write=60.0,
+        pool=10.0,
+    )
+)
+
+
+def _select_request_tools(mcp_manager: Any, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Pick the tool schemas to attach to a chat request.
+
+    Ranks the connected MCP tools against the last user message and caps the
+    result at ``settings.llm_max_tools``. Without this cap a rich MCP setup
+    ships 100+ JSON schemas (~20k tokens) on *every* turn, which dwarfs the
+    conversation itself and dominates latency on local backends.
+    """
+    query = ""
+    for msg in reversed(messages):
+        if msg.get("role") == "user":
+            content = msg.get("content")
+            if isinstance(content, str):
+                query = content
+            break
+
+    tools = mcp_manager.select_tools_openai(query, max_tools=settings.llm_max_tools)
+    if tools:
+        logger.debug("Tool payload: %d schema(s) selected for this request", len(tools))
+    return tools
+
 
 # Headers required by the GitHub Copilot completions API
 _COPILOT_HEADERS: dict[str, str] = {
@@ -789,7 +823,7 @@ class LLMClient:
         # Late import to avoid circular deps at module load time
         from echo.mcp import mcp_manager  # noqa: PLC0415
 
-        tools = mcp_manager.list_tools_openai()
+        tools = _select_request_tools(mcp_manager, messages)
         if not tools:
             # No tools available — plain chat
             return await self.chat(messages, temperature=temperature, max_tokens=max_tokens, model=model)
@@ -937,7 +971,7 @@ class LLMClient:
         """
         from echo.mcp import mcp_manager  # noqa: PLC0415
 
-        tools = mcp_manager.list_tools_openai()
+        tools = _select_request_tools(mcp_manager, messages)
         if not tools:
             async for delta in self.stream_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model

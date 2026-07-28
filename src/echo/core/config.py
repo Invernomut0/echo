@@ -178,6 +178,20 @@ class Settings(BaseSettings):
     # Set to 0 for fast/paid providers (OpenAI, Groq, etc.).
     llm_rate_limit_min_interval_s: float = 1.1
 
+    # Maximum number of MCP tool schemas attached to a single chat request.
+    # Every connected MCP server contributes its full JSON schema, and a rich
+    # setup easily exceeds 100 tools (~20k tokens) — which on a local backend
+    # costs minutes of prompt processing before a single token is generated.
+    # Tools are ranked by relevance to the current message; ECHO's own
+    # ``echo__*`` tools are always kept. Set to 0 to disable the cap.
+    llm_max_tools: int = 24
+
+    # Read timeout (seconds) for streaming/non-streaming LLM HTTP calls.
+    # Local backends need a long read timeout: prompt processing happens before
+    # the first byte is sent, so a 10k-token prompt at 150 tok/s already needs
+    # ~70 s of silence. Too low a value surfaces as ``httpx.ReadTimeout``.
+    llm_read_timeout_s: float = 300.0
+
     # Drive scoring via LLM runs every N interactions (1 = every turn).
     # Increase to 3+ on slow local backends to reduce LM Studio contention.
     # Between scored turns the previous drive values are reused with slight decay.

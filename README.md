@@ -330,6 +330,32 @@ heartbeat (no LLM cost). The LLM-based `deep_review()` runs at most every 4 hour
 only when the background budget allows — previously it happened solely in the 12 h REM
 cycle, leaving ECHO reasoning about itself from day-old figures.
 
+**Tool payload budget.** Every connected MCP server contributes a full JSON schema per
+tool, and a rich setup passes 100 tools easily. Attaching all of them to every request
+costs more prompt tokens than the entire conversation, and on a local backend that is
+paid in minutes of prompt processing before the first token is generated. ECHO ranks
+tools against the current message and keeps at most `LLM_MAX_TOOLS` (default 24):
+
+| Rule | Kept |
+|---|---|
+| ECHO's own `echo__*` tools | always — they are its only handle on its own scheduler |
+| `brave_search`, `fetch`, `datetime` | always — small and broadly useful |
+| Everything else | ranked by name/description overlap with the message; ties go to the smaller schema |
+
+Set `LLM_MAX_TOOLS=0` to disable the cap. On a 112-tool setup the default cuts the tool
+payload by roughly 80 %.
+
+**Read timeout.** `LLM_READ_TIMEOUT_S` (default 300) must cover *prompt processing*, not
+just generation: the backend sends nothing at all while it ingests the prompt, so a
+10k-token prompt at 150 tok/s stays silent for over a minute. Too low a value surfaces
+as `httpx.ReadTimeout` mid-request. The connect timeout stays short (10 s) so an
+unreachable backend still fails fast.
+
+**Clean history.** Failed turns are dropped from the replayed conversation rather than
+kept as a placeholder, and a question the user retried is collapsed to a single turn.
+Replaying failures both wasted context slots and showed the model a transcript in which
+its own recent answers were failures — which it went on to imitate.
+
 ### Variable naming
 
 Every setting is accepted under **both** spellings — the bare field name and an
