@@ -5,6 +5,83 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.8] — 2026-07-13
+
+### Cognitive Load Optimisation — Latency & Background Throughput
+
+ECHO's autonomous loops were consuming most of the inference backend's capacity,
+leaving little for the user. This release reworks how foreground and background
+work share the model.
+
+#### Critical path (perceived latency)
+- `max_concurrent_agent_calls` **1 → 3**: specialist agents now deliberate in
+  parallel instead of one at a time. Serial execution multiplied the user's wait
+  by the number of active agents; with 3 agents this is the single largest
+  latency reduction. Routing weights and the plasticity architecture are
+  unchanged — agents stay separate, they simply run concurrently.
+- `_RateLimiter` is now **bypassed for local providers** (`lm_studio`, `ollama`).
+  It held a lock while sleeping, so the 1.1 s inter-call spacing meant for the
+  Cerebras free tier was serialising every local call and cancelling out the
+  parallelism above.
+- `_post_interact()` now awaits `wait_if_generating()` before spending any
+  tokens. It runs fire-and-forget after the response streams, so it could still
+  be working when the user sent a follow-up.
+
+#### Background token load
+- **Batched wiki updates**: `WikiStore.queue_interaction()` /
+  `drain_pending()` replace the per-interaction `update_from_interaction()` call.
+  Fact extraction was a full LLM call after *every* message — the largest single
+  consumer of background capacity. Exchanges are now buffered (bounded at 20) and
+  folded into the wiki in one call by the consolidation heartbeat, which also
+  improves fact quality since the model sees more context at once.
+- **Batched interest inference**: same treatment for
+  `UserInterestProfile.queue_interaction()` / `drain_pending()`.
+- **Global background token budget** (`echo.core.background_budget`): a sliding
+  hourly ceiling shared by every autonomous subsystem, with priority-based
+  shedding — `PROACTIVE` stops below 50 % remaining, `CURIOSITY` below 30 %,
+  `CONSOLIDATION` below 10 %, and `REFLECTION` is never starved. Spend is charged
+  automatically in `llm.chat()` whenever no user-facing generation is in flight.
+  Configurable via `ECHO_BACKGROUND_TOKEN_BUDGET_PER_HOUR` (0 disables).
+- `consolidation_light_interval_s` **300 → 900**: the light heartbeat fired 12×
+  per hour, each time triggering curiosity, initiative and proactive checks.
+
+#### Self-model growth
+- Workspace→belief promotion threshold **0.6 → 0.8**, and at most **one** belief
+  per interaction instead of three.
+- New `_is_similar_belief()` Jaccard check rejects candidates that restate an
+  existing belief, so the same recurring thought is no longer promoted every turn.
+- New `IdentityGraph.prune()`, run in the deep/REM cycle: deletes isolated
+  beliefs below 0.15 confidence and enforces a 300-belief cap. Connected beliefs
+  are never pruned regardless of confidence. `coherence_score()` and `to_dict()`
+  are O(n²), so an unbounded graph degraded the whole self-model.
+
+#### Goal engine correctness
+- **Fixed iteration deadlock**: pursuit stopped at `MAX_GOAL_ITERATIONS - 1` (9)
+  but force-consolidation only fired at `MAX_GOAL_ITERATIONS` (10), so goals
+  stalled at 9 actions permanently. Both thresholds are now aligned.
+- **Unified consolidation**: the three duplicated consolidate-and-store blocks
+  are replaced by `_consolidate_goal_knowledge(goal, reason=…)`. Since
+  `consolidate_goal()` returns `None` for a non-active goal, the operation is
+  idempotent and can no longer write duplicate semantic memories.
+- **Abandoned goals are consolidated too** (at 0.7× salience) instead of having
+  their research silently discarded.
+- **Goal reflection now sees action history**: the prompt lists the last 3
+  completed actions and the iteration count per goal, so the LLM stops
+  re-proposing searches it has already run.
+- Pursuits per cycle **1 → 2**: at 1, five active goals each advanced once every
+  ~5 hours and never converged.
+
+#### Plasticity
+- `_LR` **0.05 → 0.10**: moving a routing weight by 0.5 took ~20 reflection
+  cycles (60 interactions), which made adaptation effectively unobservable.
+
+#### Tests
+- `tests/test_background_optimizations.py`: 24 tests covering budget priority
+  shedding, queue bounds and eviction order, belief deduplication, and pruning
+  selection rules.
+
+---
+
 ## [0.5.7] — 2026-07-13
 
 ### REM Wiki Consolidation

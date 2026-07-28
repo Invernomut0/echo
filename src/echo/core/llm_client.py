@@ -115,14 +115,23 @@ class _RateLimiter:
     """Simple async token-bucket rate limiter.
 
     Used to stay under provider RPM limits (e.g. Cerebras free: 60 RPM = 1/sec).
-    Configured per-provider via settings.llm_rate_limit_rps (0 = disabled).
+    Configured per-provider via settings.llm_rate_limit_min_interval_s (0 = disabled).
+
+    Local providers (LM Studio, Ollama) have no RPM quota, so the limiter is
+    bypassed for them: holding the lock while sleeping would serialise every
+    call and defeat ``max_concurrent_agent_calls``.
     """
+
+    # Providers that run locally and therefore have no request-rate quota.
+    _LOCAL_PROVIDERS: frozenset[str] = frozenset({"lm_studio", "ollama"})
 
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._last_call: float = 0.0
 
     async def acquire(self) -> None:
+        if settings.llm_provider in self._LOCAL_PROVIDERS:
+            return
         min_interval = settings.llm_rate_limit_min_interval_s
         if min_interval <= 0:
             return
@@ -458,6 +467,24 @@ class LLMClient:
 
     # ── Chat completions ───────────────────────────────────────────────────────
 
+    @staticmethod
+    def _record_background_usage(text: str) -> None:
+        """Charge a completed call to the background budget, if it was one.
+
+        A call counts as *background* when no user-facing generation is in
+        flight. Token count is estimated from the completion length (~4 chars
+        per token) since not every provider returns a usage block.
+        """
+        try:
+            from echo.core.background_budget import background_budget  # noqa: PLC0415
+            from echo.core.user_activity import is_generating  # noqa: PLC0415
+
+            if is_generating():
+                return  # foreground work is never charged
+            background_budget.record(len(text) // 4)
+        except Exception:  # noqa: BLE001
+            pass  # accounting must never break a completion
+
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
     async def chat(
         self,
@@ -467,6 +494,25 @@ class LLMClient:
         max_tokens: int = 1024,
         model: str | None = None,
         extra: dict[str, Any] | None = None,
+    ) -> str:
+        result = await self._chat_impl(
+            messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            model=model,
+            extra=extra,
+        )
+        self._record_background_usage(result)
+        return result
+
+    async def _chat_impl(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: int,
+        model: str | None,
+        extra: dict[str, Any] | None,
     ) -> str:
         await _rate_limiter.acquire()  # enforce per-provider RPM limit
         p = settings.llm_provider

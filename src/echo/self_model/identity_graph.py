@@ -12,12 +12,18 @@ import uuid
 from datetime import datetime, timezone
 
 import networkx as nx
-from sqlalchemy import Column, Float, String, Text, select
+from sqlalchemy import Column, Float, String, Text, delete, select
 
 from echo.core.db import Base, get_session_factory
 from echo.core.types import BeliefEdge, BeliefRelation, IdentityBelief
 
 logger = logging.getLogger(__name__)
+
+# Hard ceiling on graph size. coherence_score() and to_dict() are O(n²) in the
+# number of beliefs, so the graph must stay bounded to keep the self-model fast.
+_MAX_BELIEFS: int = 300
+# Isolated beliefs below this confidence are considered noise and removed.
+_PRUNE_CONFIDENCE_FLOOR: float = 0.15
 
 
 # ---------------------------------------------------------------------------
@@ -146,6 +152,67 @@ class IdentityGraph:
 
     def all_beliefs(self) -> list[IdentityBelief]:
         return [data["belief"] for _, data in self.graph.nodes(data=True) if "belief" in data]
+
+    async def prune(self) -> int:
+        """Drop weak, isolated beliefs and enforce the graph size cap.
+
+        Beliefs accumulate faster than they are ever retired: low-confidence
+        candidates promoted from the workspace are never removed, and both
+        ``coherence_score()`` and ``to_dict()`` compare every pair of beliefs,
+        so growth degrades the whole self-model quadratically.
+
+        Two passes, in order:
+
+        1. Delete beliefs below ``_PRUNE_CONFIDENCE_FLOOR`` that are isolated
+           (no incoming or outgoing edges) — nothing depends on them.
+        2. If still above ``_MAX_BELIEFS``, delete the lowest-confidence
+           isolated beliefs until the cap is met.
+
+        Connected beliefs are never pruned regardless of confidence: they carry
+        structural meaning even when weakly held.
+
+        Returns:
+            Number of beliefs removed.
+        """
+        doomed: list[str] = []
+        for node_id, data in self.graph.nodes(data=True):
+            belief = data.get("belief")
+            if belief is None:
+                continue
+            if self.graph.degree(node_id) > 0:
+                continue  # structurally connected — keep
+            if belief.confidence < _PRUNE_CONFIDENCE_FLOOR:
+                doomed.append(node_id)
+
+        if self.graph.number_of_nodes() - len(doomed) > _MAX_BELIEFS:
+            surplus = self.graph.number_of_nodes() - len(doomed) - _MAX_BELIEFS
+            remaining = [
+                (data["belief"].confidence, node_id)
+                for node_id, data in self.graph.nodes(data=True)
+                if "belief" in data
+                and node_id not in doomed
+                and self.graph.degree(node_id) == 0
+            ]
+            remaining.sort()
+            doomed.extend(node_id for _, node_id in remaining[:surplus])
+
+        if not doomed:
+            return 0
+
+        for node_id in doomed:
+            self.graph.remove_node(node_id)
+
+        factory = get_session_factory()
+        async with factory() as session:
+            await session.execute(delete(BeliefRow).where(BeliefRow.id.in_(doomed)))
+            await session.commit()
+
+        logger.info(
+            "IdentityGraph pruned %d belief(s); %d remain",
+            len(doomed),
+            self.graph.number_of_nodes(),
+        )
+        return len(doomed)
 
     # ------------------------------------------------------------------
     # Edges
