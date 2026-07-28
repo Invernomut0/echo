@@ -5,6 +5,60 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.12] — 2026-07-28
+
+### Identity Beliefs Reach the Prompt Again
+
+ECHO was denying it could read or write files and forgetting the user's name.
+Both are beliefs it holds — they simply never reached the model.
+
+#### Belief selection was a pure confidence sort
+
+`_fmt_beliefs()` filtered at confidence 0.3, sorted descending and took the top
+15. But beliefs enter the graph at *fixed* confidences: the bootstrap
+self-description at 0.6, reflection output at 0.5, and facts auto-promoted from
+episodic memory — where the user's name lands — at `min(0.6, salience)`.
+Reflection then keeps nudging abstract self-narrative upward. Once more than
+fifteen beliefs sit above 0.6, every concrete fact is ranked below them and is
+never rendered. Verified on a saturated graph: the old selection returned
+fifteen variations of "I am a reflective cognitive system" and neither "The
+user's name is Lorenzo" nor "I can read and write files".
+
+Selection now runs in three tiers — pinned (beliefs about the user, and beliefs
+describing ECHO's own capabilities), then beliefs relevant to the current
+message, then a highest-confidence fill. Pinned beliefs take the first 8 of 20
+slots and are admitted from confidence 0.15, since being about the user or about
+ECHO's own capabilities is itself evidence the belief matters. They are rendered
+first because LLMs weight earlier context more heavily.
+
+#### Workspace tools could be filtered out of a request
+
+`LLM_MAX_TOOLS` (added in 0.5.11) could drop `echo-workspace__*` — ECHO's own
+file surface — whenever the message did not mention files, making "I cannot
+write files" briefly true. `echo-workspace` joins the always-kept set and the
+default cap rises 24 → 32 to keep room for relevance-ranked tools. Payload
+reduction on the captured 112-tool setup is now 74.5 %.
+
+#### The system prompt described the wrong tools
+
+The tool addendum described the first five external tools *in connection order*
+— whichever server happened to connect first — then dumped the remaining 100+ as
+a comma-separated blob of bare names. That blob was pure noise crowding out the
+entries that mattered. It now describes up to 12 tools, prioritising the ones
+ECHO actually relies on, states plainly that ECHO does have file access, and
+reports the remainder as a count rather than naming them.
+
+### Added
+
+- `tests/test_belief_selection.py` — 16 tests, including a guard that asserts
+  the previous implementation loses the very beliefs at issue.
+
+### Changed
+
+- `LLM_MAX_TOOLS` default 24 → 32.
+
+---
+
 ## [0.5.11] — 2026-07-28
 
 ### Request Payload — Prompt Size & Timeouts
