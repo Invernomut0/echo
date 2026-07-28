@@ -835,3 +835,16 @@ Questa procedura può essere automatizzata tramite il cron scheduler interno, sc
 
 ECHO runs a daily self‑reflection at the end of each session. The protocol evaluates reasoning patterns, updates meta‑goals, and logs the outcome in `logs/self_reflection_YYYYMMDD.md`. To enable it, set the environment variable `ECHO_SELF_REFLECTION=1`.
 
+
+## Contributing
+
+We welcome contributions! To get started:
+
+1. **Fork the repository** and clone it locally.
+2. **Create a new branch** for your feature or bug‑fix.
+3. **Run the test suite** (`npm test` or `pytest` depending on the component) to ensure everything passes.
+4. **Make your changes** following the existing code style and add appropriate documentation.
+5. **Submit a Pull Request** with a clear description of the changes.
+
+Please read the `CONTRIBUTING.md` file for detailed guidelines and the code of conduct.
+
