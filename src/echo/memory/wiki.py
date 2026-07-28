@@ -22,8 +22,10 @@ Key operations:
 from __future__ import annotations
 
 import logging
+import os
 import re
 import textwrap
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -45,6 +47,9 @@ PAGES_ROOT: Path = WIKI_ROOT / "pages"
 PageCategory = Literal["entities", "concepts", "sources", "syntheses"]
 
 _CATEGORIES: tuple[PageCategory, ...] = ("entities", "concepts", "sources", "syntheses")
+
+# How much of the tail of log.md to read when serving recent entries.
+_LOG_TAIL_BYTES = 64 * 1024
 
 # Upper bound on exchanges buffered between two consolidation cycles.
 # Beyond this the oldest are dropped: a batch that large would overflow the
@@ -114,7 +119,7 @@ class WikiStore:
         self._log = self._root / "log.md"
         self._pages = self._root / "pages"
         # Exchanges buffered by queue_interaction(), drained by drain_pending()
-        self._pending_interactions: list[str] = []
+        self._pending_interactions: deque[str] = deque(maxlen=_MAX_PENDING_INTERACTIONS)
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -184,12 +189,19 @@ class WikiStore:
         title: str,
         details: str = "",
     ) -> None:
+        """Append one entry to log.md.
+
+        Opened in append mode: reading the whole file back just to rewrite it
+        made every wiki operation cost O(size of log), which grows without
+        bound. Appending is O(entry) and leaves the file untouched on disk.
+        """
         entry = f"## [{_now_ts()}] {op} | {title}\n"
         if details:
             entry += f"{details.strip()}\n"
         entry += "\n"
-        log_content = self._log.read_text(encoding="utf-8") if self._log.exists() else ""
-        self._log.write_text(log_content + entry, encoding="utf-8")
+        self._log.parent.mkdir(parents=True, exist_ok=True)
+        with self._log.open("a", encoding="utf-8") as fh:
+            fh.write(entry)
 
     # ------------------------------------------------------------------
     # Page I/O
@@ -248,14 +260,28 @@ class WikiStore:
         return ""
 
     def get_log(self, last_n: int = 20) -> str:
+        """Return the last ``last_n`` log entries.
+
+        Only the tail of the file is read: log.md is append-only and unbounded,
+        so loading all of it to show 20 entries gets slower for the lifetime of
+        the instance.
+        """
         if not self._log.exists():
             return ""
-        lines = self._log.read_text(encoding="utf-8").splitlines()
-        # Find last n entries (sections starting with ##)
+        with self._log.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            size = fh.tell()
+            fh.seek(max(0, size - _LOG_TAIL_BYTES))
+            raw = fh.read()
+        text = raw.decode("utf-8", errors="ignore")
+        if size > _LOG_TAIL_BYTES:
+            # Drop the first, possibly truncated, line.
+            text = text.split("\n", 1)[-1]
+        lines = text.splitlines()
         section_starts = [i for i, l in enumerate(lines) if l.startswith("## [")]
         if not section_starts:
             return "\n".join(lines)
-        start_idx = section_starts[-last_n] if len(section_starts) >= last_n else 0
+        start_idx = section_starts[-last_n] if len(section_starts) >= last_n else section_starts[0]
         return "\n".join(lines[start_idx:])
 
     # ------------------------------------------------------------------
@@ -670,8 +696,6 @@ class WikiStore:
         if len(combined) < 40:
             return
         self._pending_interactions.append(combined)
-        while len(self._pending_interactions) > _MAX_PENDING_INTERACTIONS:
-            self._pending_interactions.pop(0)
 
     def pending_interaction_count(self) -> int:
         """Number of exchanges waiting to be folded into the wiki."""
@@ -686,8 +710,8 @@ class WikiStore:
         if not self._pending_interactions:
             return {"pages_updated": 0, "interactions_processed": 0}
 
-        batch = self._pending_interactions
-        self._pending_interactions = []
+        batch = list(self._pending_interactions)
+        self._pending_interactions.clear()
 
         transcript = "\n\n---\n\n".join(
             f"[Exchange {i + 1}]\n{c}" for i, c in enumerate(batch)
@@ -696,7 +720,7 @@ class WikiStore:
             result = await self._ingest_transcript(transcript)
         except Exception:
             # Put the batch back so nothing is lost on a transient failure.
-            self._pending_interactions = batch + self._pending_interactions
+            self._pending_interactions.extendleft(reversed(batch))
             raise
         result["interactions_processed"] = len(batch)
         return result

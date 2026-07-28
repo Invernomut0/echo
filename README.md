@@ -312,6 +312,24 @@ per interaction. Exchanges are buffered (bounded at 20) and folded in with a sin
 LLM call by the consolidation heartbeat — cheaper, and the model sees more context
 at once, which improves the extracted facts.
 
+**Concurrent curiosity.** A curiosity cycle is dominated by network latency, so all
+topics are searched together. Findings are still *stored* one at a time: novelty is
+checked against what is already in the store, so concurrent writes would let two
+topics each insert the same result.
+
+**Bounded self-model.** Beliefs are retired, not just accumulated:
+
+| Mechanism | Effect |
+|---|---|
+| `IdentityGraph.prune()` | drops weak, isolated beliefs; enforces the 300-belief cap |
+| `resolve_contradictions()` | retires a belief driven below 0.15 confidence when only contradictions attach to it |
+| Semantic-edge cache | the O(n²) similarity pass reruns only when a belief actually changes |
+
+**Metacognition cadence.** Learning data is folded into the self-model on every light
+heartbeat (no LLM cost). The LLM-based `deep_review()` runs at most every 4 hours, and
+only when the background budget allows — previously it happened solely in the 12 h REM
+cycle, leaving ECHO reasoning about itself from day-old figures.
+
 ### Variable naming
 
 Every setting is accepted under **both** spellings — the bare field name and an

@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any
 
@@ -135,13 +136,66 @@ def _format_finding(result: SearchResult, topic: str) -> str:
     return "\n".join(lines)
 
 
+_DUPLICATE_JACCARD: float = 0.45
+"""Overlap above which two curiosity findings are considered the same fact."""
+
+_NOVELTY_CANDIDATES: int = 12
+"""How many neighbours to compare against when checking novelty."""
+
+_SOURCE_URL_RE = re.compile(r"^Source:\s*(\S+)", re.MULTILINE)
+
+_DEDUP_PREFIX_RE = re.compile(r"^\[[^\]]*\]\s*")
+
+_DEDUP_NOISE_RE = re.compile(
+    r"^(?:Source|Published|Age):.*$|^(?:Title|Summary):", re.MULTILINE
+)
+
+_DEDUP_TOKEN_RE = re.compile(r"[a-z0-9]{4,}")
+
+
+def _dedup_tokens(text: str) -> set[str]:
+    """Return the significant words of a stored finding.
+
+    Three kinds of noise are removed first, because every finding produced by
+    :func:`_format_result` contains them and they otherwise make unrelated
+    findings look alike: the ``[Curiosity: …]`` prefix, the ``Title:``/
+    ``Summary:`` field labels, and the whole ``Source:`` line (URLs are
+    compared separately and exactly). Tokens shorter than four characters are
+    dropped so filler words carry no weight.
+    """
+    body = _DEDUP_PREFIX_RE.sub("", text.strip())
+    body = _DEDUP_NOISE_RE.sub("", body)
+    return set(_DEDUP_TOKEN_RE.findall(body.lower()))
+
+
+def _source_url(text: str) -> str | None:
+    """Return the ``Source:`` URL of a stored finding, if it has one."""
+    match = _SOURCE_URL_RE.search(text)
+    return match.group(1).rstrip("/") if match else None
+
+
 def _is_duplicate_text(new_content: str, existing: list[MemoryEntry]) -> bool:
-    """Heuristic: new_content is a duplicate if it shares ≥ 5 words with
-    the first 10 title-words of any existing memory."""
-    new_words = set(new_content.lower().split()[2:12])   # skip "[Curiosity …]" prefix
+    """Return True when *new_content* restates something already stored.
+
+    Compares the whole finding, not a ten-word window: the previous version
+    looked only at words 2–12, so two findings that differed in their opening
+    words but repeated the same fact were both stored, while two unrelated
+    findings that happened to share a boilerplate opening were treated as
+    duplicates. An identical source URL is decisive on its own.
+    """
+    new_tokens = _dedup_tokens(new_content)
+    if not new_tokens:
+        return False
+
+    new_url = _source_url(new_content)
     for mem in existing:
-        stored_words = set(mem.content.lower().split()[2:12])
-        if len(new_words & stored_words) >= 5:
+        if new_url and _source_url(mem.content) == new_url:
+            return True
+        stored = _dedup_tokens(mem.content)
+        if not stored:
+            continue
+        union = len(new_tokens | stored)
+        if union and len(new_tokens & stored) / union >= _DUPLICATE_JACCARD:
             return True
     return False
 
@@ -245,7 +299,7 @@ class CuriosityEngine:
 
     async def _is_novel(self, content: str) -> bool:
         """Return True when *content* is not already in semantic memory."""
-        similar = await self._semantic.retrieve_similar(content, n_results=3)
+        similar = await self._semantic.retrieve_similar(content, n_results=_NOVELTY_CANDIDATES)
         return not _is_duplicate_text(content, similar)
 
     # ------------------------------------------------------------------
@@ -814,15 +868,10 @@ Respond ONLY with valid JSON:
             logger.info("Curiosity cycle: searching topics %s", fresh_topics)
 
             # 4. Search every topic concurrently (standard + MCP sources)
-            stored = 0
-            for topic in fresh_topics:
-                # Abort mid-cycle if user becomes active
-                from echo.core.user_activity import is_active as _ua3  # noqa: PLC0415
-                if _ua3():
-                    logger.debug("Curiosity search aborted — user became active")
-                    break
-                _recently_searched[topic] = _time.monotonic()
+            from echo.core.user_activity import is_active as _ua3  # noqa: PLC0415
 
+            async def _search_topic(topic: str) -> tuple[str, list, list, list, list, list, list]:
+                """Run every source for one topic."""
                 (
                     arxiv_results,
                     hn_results,
@@ -842,6 +891,46 @@ Respond ONLY with valid JSON:
                     r.url for r in [*brave_results[:2], *hn_results[:2]] if r.url
                 ]
                 fetch_results = await mcp_fetch_results(urls_to_fetch, topic)
+                return (
+                    topic, arxiv_results, hn_results, wiki_results,
+                    ddg_results, brave_results, fetch_results,
+                )
+
+            if _ua3():
+                logger.debug("Curiosity search aborted — user became active")
+                fresh_topics = []
+            for _topic in fresh_topics:
+                _recently_searched[_topic] = _time.monotonic()
+
+            # Topics run together: a cycle is dominated by network latency, and
+            # waiting for each topic in turn multiplied that by the topic count
+            # for no benefit — the searches are independent.
+            searched = await asyncio.gather(
+                *(_search_topic(t) for t in fresh_topics), return_exceptions=True
+            )
+
+            # Findings are *stored* sequentially on purpose: novelty is checked
+            # against what is already in the store, so concurrent writes would
+            # let two topics each insert the same finding.
+            stored = 0
+            for outcome in searched:
+                if isinstance(outcome, BaseException):
+                    logger.warning("Curiosity topic search failed: %s", outcome)
+                    continue
+                (
+                    topic,
+                    arxiv_results,
+                    hn_results,
+                    wiki_results,
+                    ddg_results,
+                    brave_results,
+                    fetch_results,
+                ) = outcome
+
+                # Abort remaining work if the user became active meanwhile
+                if _ua3():
+                    logger.debug("Curiosity storing aborted — user became active")
+                    break
 
                 # Track per-source result counts
                 for src, res in [
