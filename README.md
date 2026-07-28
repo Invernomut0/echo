@@ -334,16 +334,33 @@ cycle, leaving ECHO reasoning about itself from day-old figures.
 tool, and a rich setup passes 100 tools easily. Attaching all of them to every request
 costs more prompt tokens than the entire conversation, and on a local backend that is
 paid in minutes of prompt processing before the first token is generated. ECHO ranks
-tools against the current message and keeps at most `LLM_MAX_TOOLS` (default 24):
+tools against the current message and keeps at most `LLM_MAX_TOOLS` (default 32):
 
 | Rule | Kept |
 |---|---|
-| ECHO's own `echo__*` tools | always — they are its only handle on its own scheduler |
+| ECHO's own `echo__*` tools | always — its only handle on its own scheduler |
+| `echo-workspace__*` | always — its own file surface; dropping it makes ECHO deny it can write files |
 | `brave_search`, `fetch`, `datetime` | always — small and broadly useful |
 | Everything else | ranked by name/description overlap with the message; ties go to the smaller schema |
 
 Set `LLM_MAX_TOOLS=0` to disable the cap. On a 112-tool setup the default cuts the tool
-payload by roughly 80 %.
+payload by roughly 75 %.
+
+**Identity beliefs in the prompt.** Beliefs enter the graph at fixed confidences — the
+bootstrap self-description at 0.6, reflection output at 0.5, facts promoted from episodic
+memory at `min(0.6, salience)`. Ranking the prompt's belief block purely by confidence
+therefore let abstract self-narrative, which reflection keeps reinforcing, crowd out the
+concrete facts: ECHO would deny it could write files and forget the user's name. Selection
+now runs in three tiers:
+
+| Tier | Contents | Slots |
+|---|---|---|
+| Pinned | beliefs about the user, and beliefs describing ECHO's own capabilities | first 8, admitted from confidence 0.15 |
+| Relevant | beliefs whose wording overlaps the current message | fills next |
+| Fill | highest-confidence remainder, floor 0.3 | fills last |
+
+Total is capped at 20. Pinned beliefs come first because LLMs weight earlier context more
+heavily.
 
 **Read timeout.** `LLM_READ_TIMEOUT_S` (default 300) must cover *prompt processing*, not
 just generation: the backend sends nothing at all while it ingests the prompt, so a

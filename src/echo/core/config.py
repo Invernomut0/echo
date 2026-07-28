@@ -183,8 +183,9 @@ class Settings(BaseSettings):
     # setup easily exceeds 100 tools (~20k tokens) — which on a local backend
     # costs minutes of prompt processing before a single token is generated.
     # Tools are ranked by relevance to the current message; ECHO's own
-    # ``echo__*`` tools are always kept. Set to 0 to disable the cap.
-    llm_max_tools: int = 24
+    # ``echo__*`` and ``echo-workspace__*`` tools are always kept.
+    # Set to 0 to disable the cap.
+    llm_max_tools: int = 32
 
     # Read timeout (seconds) for streaming/non-streaming LLM HTTP calls.
     # Local backends need a long read timeout: prompt processing happens before

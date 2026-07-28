@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any
 
 from echo.agents.analyst import AnalystAgent
@@ -20,6 +21,46 @@ from echo.core.types import AgentRole, MetaState, WorkspaceSnapshot
 logger = logging.getLogger(__name__)
 
 _AGENT_TIMEOUT_S: float = 60.0  # per-agent LLM call timeout — must survive provider 429 retries
+
+# ---------------------------------------------------------------------------
+# Identity belief selection for the synthesis prompt
+# ---------------------------------------------------------------------------
+
+_WORD_RE = re.compile(r"[a-zà-ÿ0-9']+")
+
+# Beliefs recording something about the person ECHO is talking to. Losing these
+# is what makes it forget the user's name between sessions.
+_USER_FACT_RE = re.compile(
+    r"\b(user|user's|utente|dell'utente|interlocutore|human|lorenzo)\b",
+    re.IGNORECASE,
+)
+
+# Beliefs describing what ECHO can actually do. Losing these is what makes it
+# deny capabilities it has — reading and writing files, searching the web.
+_CAPABILITY_RE = re.compile(
+    r"(\bi can\b|\bi am able\b|\bi'm able\b|\bi have access\b|\bcapable of\b"
+    r"|\bmy tools?\b|\bi use\b|\bposso\b|\bsono in grado\b|\briesco a\b"
+    r"|\bho accesso\b)",
+    re.IGNORECASE,
+)
+
+# Total beliefs rendered into the prompt, and how many of those slots pinned
+# beliefs may claim. The pinned sub-cap stops a graph full of user facts from
+# squeezing out everything else.
+_MAX_BELIEFS_IN_PROMPT: int = 20
+_MAX_PINNED_BELIEFS: int = 8
+
+# Pinned beliefs are admitted at a lower floor: being about the user or about
+# ECHO's own capabilities is itself evidence that the belief matters.
+_PINNED_CONFIDENCE_FLOOR: float = 0.15
+_BELIEF_CONFIDENCE_FLOOR: float = 0.3
+
+# External MCP servers whose tools are described in full in the system prompt.
+# Mirrors the always-kept set in ``echo.mcp.client`` so the prompt describes
+# tools that are actually attached to the request.
+_CORE_TOOL_SERVERS: frozenset[str] = frozenset({
+    "echo-workspace", "brave_search", "fetch", "datetime",
+})
 
 # ---------------------------------------------------------------------------
 # Dynamic agent routing — select only relevant agents per query
@@ -215,8 +256,14 @@ def _build_synthesis_system() -> str:
     if not external_tools and not internal_tools:
         return base
 
-    # Cap external tool definitions to avoid blowing the context window.
-    MAX_FULL_TOOLS = 5
+    # Which external tools get a full description. Picking the first five in
+    # connection order described whatever server happened to connect first —
+    # usually not the ones ECHO needs — and the remainder was dumped as a
+    # comma-separated blob of 100+ bare names, pure noise that pushed the
+    # useful entries out of the model's attention. Describe the tools ECHO
+    # relies on, and count the rest instead of naming them.
+    MAX_FULL_TOOLS = 12
+    external_tools.sort(key=lambda t: (t.server_name not in _CORE_TOOL_SERVERS, t.qualified_name))
     full_external = external_tools[:MAX_FULL_TOOLS]
     extra_external = external_tools[MAX_FULL_TOOLS:]
 
@@ -228,12 +275,15 @@ def _build_synthesis_system() -> str:
             for t in full_external
         )
         if extra_external:
-            extra_names = ", ".join(t.qualified_name for t in extra_external)
-            ext_lines += f"\n  (also available: {extra_names})"
+            ext_lines += (
+                f"\n  (+{len(extra_external)} more tools are attached to this request "
+                "and callable by name)"
+            )
         addendum_parts.append(
             f"EXTERNAL TOOLS (callable via function-calling):\n{ext_lines}\n"
-            "Rules: brave_search__* for web; fetch__fetch for URLs; "
-            "filesystem__* for /tmp files."
+            "Rules: echo-workspace__* to read and write files in your own repository — "
+            "you DO have file access, never claim otherwise; brave_search__* for web; "
+            "fetch__fetch for URLs; filesystem__* for /tmp files."
         )
 
     if internal_tools:
@@ -321,23 +371,62 @@ def _fmt_wiki(context: dict[str, Any] | None) -> str:
     return "\n\n---\n\n".join(pages)
 
 
-def _fmt_beliefs(context: dict[str, Any] | None) -> str:
+def _fmt_beliefs(context: dict[str, Any] | None, user_input: str = "") -> str:
     """Format identity beliefs for the synthesis prompt.
 
-    Beliefs are sorted by confidence (highest first) and capped at 15 to avoid
-    blowing the context window. Only beliefs with confidence >= 0.3 are shown.
+    Selecting purely by confidence — as this did — silently starves the prompt
+    of the beliefs that matter most in conversation. Beliefs enter the graph at
+    fixed confidences: the bootstrap self-description at 0.6, reflection output
+    at 0.5, and facts auto-promoted from episodic memory at ``min(0.6,
+    salience)``. Once the graph holds more than a handful of beliefs above 0.6,
+    concrete facts — the user's name, what ECHO can actually *do* — are ranked
+    below abstract self-narrative and never reach the model. That is why ECHO
+    forgets it can read and write files, and forgets who it is talking to.
+
+    Selection therefore runs in three tiers, highest priority first:
+
+    1. **Pinned** — beliefs about the user, and beliefs describing ECHO's own
+       capabilities. These are the ones the model must never lose, so they are
+       admitted at a lower confidence floor and always occupy the first slots
+       (LLMs weight earlier context more heavily).
+    2. **Relevant** — beliefs whose wording overlaps the current message.
+    3. **Fill** — the highest-confidence remainder.
     """
     if not context:
         return "(none)"
     beliefs = context.get("beliefs") or []
     if not beliefs:
         return "(none)"
-    filtered = [b for b in beliefs if getattr(b, "confidence", 0.5) >= 0.3]
-    filtered.sort(key=lambda b: getattr(b, "confidence", 0.5), reverse=True)
-    lines = [
-        f"- {b.content} (confidence={b.confidence:.2f})"
-        for b in filtered[:15]
-    ]
+
+    def _conf(b: Any) -> float:
+        return getattr(b, "confidence", 0.5)
+
+    keywords = {w for w in _WORD_RE.findall(user_input.lower()) if len(w) >= 4}
+
+    pinned: list[Any] = []
+    relevant: list[Any] = []
+    fill: list[Any] = []
+    for b in beliefs:
+        content = getattr(b, "content", "")
+        if _USER_FACT_RE.search(content) or _CAPABILITY_RE.search(content):
+            if _conf(b) >= _PINNED_CONFIDENCE_FLOOR:
+                pinned.append(b)
+        elif _conf(b) >= _BELIEF_CONFIDENCE_FLOOR:
+            if keywords & set(_WORD_RE.findall(content.lower())):
+                relevant.append(b)
+            else:
+                fill.append(b)
+
+    for bucket in (pinned, relevant, fill):
+        bucket.sort(key=_conf, reverse=True)
+
+    selected = pinned[:_MAX_PINNED_BELIEFS]
+    for bucket in (relevant, fill):
+        if len(selected) >= _MAX_BELIEFS_IN_PROMPT:
+            break
+        selected.extend(bucket[: _MAX_BELIEFS_IN_PROMPT - len(selected)])
+
+    lines = [f"- {b.content} (confidence={_conf(b):.2f})" for b in selected]
     return "\n".join(lines) if lines else "(none)"
 
 
@@ -441,7 +530,7 @@ class Orchestrator:
             "role": "user",
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
-                beliefs=_fmt_beliefs(context),
+                beliefs=_fmt_beliefs(context, user_input),
                 memories=_fmt_memories(context),
                 wiki=_fmt_wiki(context),
                 deliberations=deliberations,
@@ -523,7 +612,7 @@ class Orchestrator:
             "role": "user",
             "content": _SYNTHESIS_TEMPLATE.format(
                 user_input=user_input,
-                beliefs=_fmt_beliefs(context),
+                beliefs=_fmt_beliefs(context, user_input),
                 memories=_fmt_memories(context),
                 wiki=_fmt_wiki(context),
                 deliberations=deliberations,

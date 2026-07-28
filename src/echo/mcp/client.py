@@ -32,9 +32,11 @@ _DEFAULT_CONFIG = Path("data/mcp.json")
 _WORD_RE = re.compile(r"[a-z0-9]+")
 
 # Servers whose tools are always worth offering: they are few, small and
-# generically useful for answering a user message.
+# generically useful for answering a user message. ``echo-workspace`` is ECHO's
+# own file surface — dropping it makes ECHO deny that it can read or write
+# files, which is both false and corrosive to its self-model.
 _ALWAYS_RELEVANT_SERVERS: frozenset[str] = frozenset({
-    "brave_search", "fetch", "datetime",
+    "echo-workspace", "brave_search", "fetch", "datetime",
 })
 
 
