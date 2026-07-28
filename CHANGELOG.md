@@ -5,6 +5,44 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.9] — 2026-07-13
+
+### Security
+
+- **Fixed arbitrary code execution in `validate_python()`**
+  ([`self_modification/git_ops.py`](src/echo/self_modification/git_ops.py)). The
+  file path was interpolated into a source string run via `python3 -c`, so a
+  path containing a quote escaped the literal and executed. Because ECHO derives
+  these paths from LLM output while rewriting its own source, the model could
+  reach it. The path is now passed through `argv`, and the interpreter is
+  `sys.executable` rather than whatever `python3` resolves to. Regression test
+  reproduces the original exploit.
+- **Widened `.gitignore` to `.env.*`** so ad-hoc copies (`.env.backup`, `.env.bak`)
+  can no longer be committed; `.env.example` stays tracked via a negation.
+
+### Fixed
+
+- **Every `ECHO_*` variable in `.env` was silently ignored.** `Settings` declared
+  no `env_prefix`, so ~34 tuned values were dead and the process ran on defaults —
+  including `LLM_MAX_TOKENS_AGENT` at 256 instead of 1024 and
+  `LLM_MAX_TOKENS_SYNTHESIS` at 1024 instead of 3072, which truncated thinking
+  models mid-reasoning. An `AliasGenerator` now accepts **both** the bare and the
+  `ECHO_`-prefixed spelling (bare wins if both are set), so no existing
+  configuration breaks.
+
+### Added
+
+- **Startup diagnostic for dead configuration.** `find_unmapped_env_vars()` reports
+  any `.env` variable matching no setting, logged as a warning by the API lifespan.
+  `extra="ignore"` is what let the bug above go unnoticed; this makes it loud.
+
+### Notes
+
+- OS environment variables take precedence over `.env`. If a value refuses to
+  change, check for stale exports with `env | grep ECHO_`.
+
+---
+
 ## [0.5.8] — 2026-07-13
 
 ### Cognitive Load Optimisation — Latency & Background Throughput
