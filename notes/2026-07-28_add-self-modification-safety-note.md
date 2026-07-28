@@ -1,10 +1,10 @@
-# aggiungere nota su sicurezza della self-modification
+# Aggiungi sezione di sicurezza per l'auto-modifica al README
 
-**Date:** 2026-07-28 12:03 UTC
-**File:** `data/wiki/pages/concepts/bug-fixes.md`
+**Date:** 2026-07-28 20:28 UTC
+**File:** `README.md`
 
 ## Rationale
-ricorda agli sviluppatori di escludere il motore di self-modification dalle modifiche automatiche, prevenendo potenziali corruzioni del codice
+Fornisce un promemoria chiaro su quali file non devono essere modificati, riducendo il rischio di errori critici e migliorando la manutenzione del progetto
 
 ## Change
 **Removed:**
@@ -15,6 +15,9 @@ ricorda agli sviluppatori di escludere il motore di self-modification dalle modi
 **Added:**
 ```python
 
-- **Nota di sicurezza**: il modulo `src/echo/self_modification/engine.py` è deliberatamente escluso dalle modifiche automatiche per preservare l'integrità del meccanismo di auto-modifica.
+## Self‑Modification Safety
+
+- **Non modificare** `src/echo/self_modification/engine.py` né alcun file sotto `data/` che contiene stato persistente.
+- Tutte le modifiche devono rispettare l'integrità del repository e superare i test esistenti.
 
 ```

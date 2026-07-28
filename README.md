@@ -848,3 +848,9 @@ We welcome contributions! To get started:
 
 Please read the `CONTRIBUTING.md` file for detailed guidelines and the code of conduct.
 
+
+## Self‑Modification Safety
+
+- **Non modificare** `src/echo/self_modification/engine.py` né alcun file sotto `data/` che contiene stato persistente.
+- Tutte le modifiche devono rispettare l'integrità del repository e superare i test esistenti.
+
