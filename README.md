@@ -689,3 +689,8 @@ Per garantire una crescita continua e una valutazione trasparente delle proprie 
 
 Questa procedura può essere automatizzata tramite il cron scheduler interno, scrivendo un task in `scripts/auto_reflection.sh` che chiama la funzione `run_self_reflection()` del modulo di auto‑modifica. In questo modo ECHO mantiene una traccia sistematica del proprio progresso e può intervenire proattivamente su eventuali regressioni.
 
+
+## Daily Self-Reflection Protocol
+
+ECHO runs a daily self‑reflection at the end of each session. The protocol evaluates reasoning patterns, updates meta‑goals, and logs the outcome in `logs/self_reflection_YYYYMMDD.md`. To enable it, set the environment variable `ECHO_SELF_REFLECTION=1`.
+
