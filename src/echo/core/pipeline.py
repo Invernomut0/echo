@@ -90,6 +90,36 @@ def _compute_prediction_error(prediction: str, response: str) -> float:
     return round(1.0 - overlap, 4)
 
 
+# Minimum workspace competition score for an item to become an identity belief.
+_BELIEF_PROMOTION_THRESHOLD: float = 0.8
+# Jaccard token overlap above which a candidate belief is considered a duplicate.
+_BELIEF_DUPLICATE_SIMILARITY: float = 0.6
+
+
+def _is_similar_belief(content: str, existing: list[IdentityBelief]) -> bool:
+    """True if *content* substantially restates an already-held belief.
+
+    Uses Jaccard overlap on lowercased word sets — cheap enough to run on every
+    interaction and sufficient to stop the workspace from re-promoting the same
+    thought turn after turn.
+
+    Args:
+        content: candidate belief text.
+        existing: beliefs currently held in the identity graph.
+    """
+    tokens = set(content.lower().split())
+    if not tokens:
+        return True  # nothing to add
+    for belief in existing:
+        other = set(belief.content.lower().split())
+        if not other:
+            continue
+        union = tokens | other
+        if len(tokens & other) / len(union) >= _BELIEF_DUPLICATE_SIMILARITY:
+            return True
+    return False
+
+
 async def _predict_with_timeout(user_input: str, meta_state: MetaState) -> str:
     """Run predict_response with a configurable timeout.
 
@@ -468,14 +498,19 @@ Respond ONLY with valid JSON:
 
         full_response = []
         _t_generation = time.monotonic()
-        async for delta in self.orchestrator.stream(
-            user_input, self.workspace.snapshot, meta_state, context
-        ):
-            if isinstance(delta, dict):
-                yield delta   # status message — pass through, don't buffer
-                continue
-            full_response.append(delta)
-            yield delta
+        from echo.core.user_activity import mark_generating as _mark_gen, mark_idle as _mark_idle  # noqa: PLC0415
+        _mark_gen()
+        try:
+            async for delta in self.orchestrator.stream(
+                user_input, self.workspace.snapshot, meta_state, context
+            ):
+                if isinstance(delta, dict):
+                    yield delta   # status message — pass through, don't buffer
+                    continue
+                full_response.append(delta)
+                yield delta
+        finally:
+            _mark_idle()
 
         # Safety metadata filter — some providers (e.g. OpenRouter moderation) return
         # safety classification text instead of the actual response. Detect and discard.
@@ -623,9 +658,14 @@ Respond ONLY with valid JSON:
         )
 
         # Run orchestrator
-        response, agent_outputs = await self.orchestrator.run(
-            user_input, self.workspace.snapshot, meta_state, context
-        )
+        from echo.core.user_activity import mark_generating as _mark_gen2, mark_idle as _mark_idle2  # noqa: PLC0415
+        _mark_gen2()
+        try:
+            response, agent_outputs = await self.orchestrator.run(
+                user_input, self.workspace.snapshot, meta_state, context
+            )
+        finally:
+            _mark_idle2()
 
         # Post-interaction (blocking in this code path)
         await self._post_interact(
@@ -662,6 +702,12 @@ Respond ONLY with valid JSON:
         """
         try:
             meta_state = self.meta_tracker.current
+
+            # _post_interact runs fire-and-forget after the response is streamed,
+            # so it can still be running when the user sends a follow-up. Yield
+            # the backend to the foreground turn before spending any tokens here.
+            from echo.core.user_activity import wait_if_generating  # noqa: PLC0415
+            await wait_if_generating()
 
             # IM-11: Compute prediction error — 0 = perfect prediction, 1 = max surprise
             prediction_error = _compute_prediction_error(self_prediction, response)
@@ -816,13 +862,15 @@ Respond ONLY with valid JSON:
             except Exception as _tge:  # noqa: BLE001
                 logger.debug("Telegram mirror failed: %s", _tge)
 
-            # CO-EVOLUTION: interest profile inference — only for substantive exchanges
+            # CO-EVOLUTION: interest profile inference — queued, not inferred now.
+            # Drained in one batched LLM call by the consolidation heartbeat so it
+            # never competes with the user's next message.
             if len(user_input) >= settings.wiki_update_min_chars:
                 try:
                     from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
-                    await _ip.infer_from_memories(user_input=user_input, response=response)
+                    _ip.queue_interaction(user_input, response)
                 except Exception as _ipe:  # noqa: BLE001
-                    logger.debug("Interest profile inference failed: %s", _ipe)
+                    logger.debug("Interest profile queueing failed: %s", _ipe)
 
             if injected_stimulus_id:
                 # Implicit positive feedback when memory is self-relevant
@@ -845,22 +893,33 @@ Respond ONLY with valid JSON:
                 logger.debug("Causal linking failed: %s", exc)
 
             # NEW-4: Promote highly competitive workspace items to weak identity beliefs.
-            # Items with competition_score > 0.6 that aren't already from identity agents
-            # are turned into low-confidence beliefs so ECHO can learn from "what was conscious".
+            # The bar is deliberately high: at competition_score > 0.6 and 3 items per
+            # turn the graph grew by thousands of near-duplicate beliefs, which slows
+            # coherence scoring (O(n²)) and dilutes real identity signal. Only the
+            # single most competitive item is considered, and only if it is not already
+            # represented in the graph.
             try:
-                for item in self.workspace.snapshot.items[:3]:
-                    if (
-                        item.competition_score > 0.6
-                        and item.source_agent not in ("archivist", "self_model")
-                        and len(item.content.strip()) > 20
-                    ):
-                        belief = IdentityBelief(
-                            content=item.content[:200],
-                            confidence=0.25,
-                            source_agent="workspace",
+                _candidates = [
+                    item for item in self.workspace.snapshot.items[:3]
+                    if item.competition_score > _BELIEF_PROMOTION_THRESHOLD
+                    and item.source_agent not in ("archivist", "self_model")
+                    and len(item.content.strip()) > 20
+                ]
+                if _candidates:
+                    item = max(_candidates, key=lambda i: i.competition_score)
+                    content = item.content[:200]
+                    existing = self.identity_graph.all_beliefs()
+                    if not _is_similar_belief(content, existing):
+                        await self.identity_graph.add_belief(
+                            IdentityBelief(
+                                content=content,
+                                confidence=0.25,
+                                source_agent="workspace",
+                            )
                         )
-                        await self.identity_graph.add_belief(belief)
-                        logger.debug("Workspace→belief: %.30s…", item.content)
+                        logger.debug("Workspace→belief: %.30s…", content)
+                    else:
+                        logger.debug("Workspace→belief skipped — near-duplicate")
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Workspace→belief promotion failed: %s", exc)
 
@@ -896,15 +955,21 @@ Respond ONLY with valid JSON:
                 )
                 logger.info("Stored user identity: name=%s", user_name)
 
-            # LLM Wiki — skip for short/conversational messages (no new facts to store)
+            # LLM Wiki — queue the exchange instead of extracting facts now.
+            # Fact extraction is a full LLM call; running it on every interaction
+            # starved the backend right when the user was most likely to send a
+            # follow-up. The consolidation heartbeat drains the queue in one
+            # batched call while ECHO is idle.
             if len(user_input) >= settings.wiki_update_min_chars:
                 try:
                     from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
-                    result = await _wiki.update_from_interaction(user_input, response)
-                    if result.get("pages_updated", 0):
-                        logger.debug("Wiki: updated %d page(s) from interaction", result["pages_updated"])
+                    _wiki.queue_interaction(user_input, response)
+                    logger.debug(
+                        "Wiki: queued interaction (%d pending)",
+                        _wiki.pending_interaction_count(),
+                    )
                 except Exception as exc:  # noqa: BLE001
-                    logger.debug("Wiki update skipped: %s", exc)
+                    logger.debug("Wiki queueing skipped: %s", exc)
             else:
                 logger.debug("Wiki update skipped — message too short (%d chars)", len(user_input))
 

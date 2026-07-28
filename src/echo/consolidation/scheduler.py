@@ -158,6 +158,10 @@ class ConsolidationScheduler:
 
     async def _run_light(self) -> ConsolidationReport:
         from echo.consolidation.sleep_phase import ConsolidationPhase
+        from echo.core.user_activity import wait_if_generating as _wait_gen  # noqa: PLC0415
+
+        # Pause if ECHO is generating a response — avoid LLM slot competition
+        await _wait_gen()
 
         phase = ConsolidationPhase()
         # Light cycle: apply decay + mark dormant — do NOT delete memories
@@ -168,6 +172,42 @@ class ConsolidationScheduler:
             report.memories_promoted,
             report.memories_pruned,
         )
+
+        # Drain the batched wiki queue: fact extraction for every exchange
+        # buffered since the last cycle, folded into a single LLM call.
+        try:
+            from echo.core.background_budget import (  # noqa: PLC0415
+                background_budget,
+                Priority,
+            )
+            from echo.core.config import settings as _s  # noqa: PLC0415
+            from echo.memory.wiki import wiki as _wiki  # noqa: PLC0415
+
+            if _wiki.pending_interaction_count():
+                if background_budget.can_spend(
+                    _s.llm_max_tokens_wiki_interaction, Priority.CONSOLIDATION
+                ):
+                    _wres = await _wiki.drain_pending()
+                    logger.info(
+                        "Wiki batch: %d interaction(s) → %d page(s) updated",
+                        _wres.get("interactions_processed", 0),
+                        _wres.get("pages_updated", 0),
+                    )
+                else:
+                    logger.debug("Wiki batch deferred — background token budget low")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Wiki batch update failed: %s", exc)
+
+        # Drain the batched interest-profile queue (same rationale as the wiki).
+        try:
+            from echo.curiosity.interest_profile import interest_profile as _ip  # noqa: PLC0415
+
+            if _ip.pending_count():
+                _topics = await _ip.drain_pending()
+                if _topics:
+                    logger.info("Interest batch: inferred %d topic(s)", len(_topics))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Interest batch inference failed: %s", exc)
 
         # Idle-time curiosity: search for new knowledge when no user is active
         try:
@@ -429,7 +469,11 @@ class ConsolidationScheduler:
     async def _run_deep(self) -> ConsolidationReport:
         from echo.consolidation.dream_phase import DreamPhase
         from echo.consolidation.sleep_phase import ConsolidationPhase
+        from echo.core.user_activity import wait_if_generating as _wait_gen2  # noqa: PLC0415
         from echo.memory.dream_store import DreamStore
+
+        # Pause if ECHO is generating a response — avoid LLM slot competition
+        await _wait_gen2()
 
         # Deep/REM cycle: elapsed_seconds=0 (light already applied decay)
         # prune=True → permanently delete sub-threshold memories
@@ -442,6 +486,18 @@ class ConsolidationScheduler:
             report.memories_pruned,
             len(report.patterns_found),
         )
+
+        # Retire weak, isolated beliefs so the identity graph stays bounded.
+        # Runs in the deep cycle only: pruning is destructive and the O(n²)
+        # cost it protects against only matters over long horizons.
+        try:
+            from echo.core.pipeline import pipeline as _pl3  # noqa: PLC0415
+            if _pl3._ready:
+                removed = await _pl3.identity_graph.prune()
+                if removed:
+                    logger.info("Identity graph pruned: %d belief(s) removed", removed)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Identity graph pruning failed: %s", exc)
 
         # BUG-8: Persist consolidated patterns as semantic memories
         # (previously logged but immediately discarded)

@@ -20,8 +20,11 @@ from echo.plasticity.thermodynamics import (
 
 logger = logging.getLogger(__name__)
 
-# Learning rate for weight adjustment
-_LR = 0.05
+# Learning rate for weight adjustment.
+# 0.05 was too slow to be observable: moving a weight by 0.5 took ~20 reflection
+# cycles (= 60 interactions at reflection_trigger_interval=3). 0.10 halves that
+# while the [_MIN_WEIGHT, _MAX_WEIGHT] clamp + decay still prevent runaway drift.
+_LR = 0.10
 _MIN_WEIGHT = 0.3  # floor raised from 0.1 — ensures cognitive diversity, no agent goes dormant
 _MAX_WEIGHT = 2.0
 # Gentle pull toward neutral weight each cycle (prevents monotonic drift)

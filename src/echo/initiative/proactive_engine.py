@@ -27,6 +27,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _PROACTIVE_COOLDOWN_S: float = 5400.0   # 90 minutes between outreach messages
+_PROACTIVE_MAX_TOKENS: int = 1500        # matches the max_tokens of the outreach call
 _SNIPPET_CHARS = 200
 _SILENT_MARKER = "SILENT"
 _DEDUP_OVERLAP_THRESHOLD: float = 0.40   # lowered from 0.60
@@ -158,6 +159,18 @@ class ProactiveEchoEngine:
             return None
 
         if _ua():
+            return None
+
+        # Outreach is the most discretionary background activity: it only runs
+        # while at least half the hourly token budget is still available.
+        from echo.core.background_budget import (  # noqa: PLC0415
+            background_budget,
+            Priority,
+        )
+        if not background_budget.can_spend(
+            _PROACTIVE_MAX_TOKENS, Priority.PROACTIVE
+        ):
+            logger.debug("ProactiveEcho: skipped — background token budget low")
             return None
 
         try:

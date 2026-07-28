@@ -63,6 +63,10 @@ _MAX_LOG: int = 200
 _is_running: bool = False
 _last_goal_cycle_at: float = 0.0  # monotonic timestamp of last goal cycle
 _GOAL_CYCLE_COOLDOWN: float = 3600.0  # 1 hour between goal cycles
+# Goals pursued per cycle. At 1, five active goals each advanced once every
+# ~5 hours and never finished; 2 keeps the token cost bounded while letting
+# goals actually converge.
+_MAX_PURSUITS_PER_CYCLE: int = 2
 
 # Global minimum interval between any two curiosity cycles.
 import time as _time_init
@@ -186,6 +190,8 @@ class CuriosityEngine:
             f"- {m.content[:_MEMORY_SNIPPET_CHARS]}" for m in memories[:12]
         )
         try:
+            from echo.core.user_activity import wait_if_generating as _wait_gen  # noqa: PLC0415
+            await _wait_gen()
             async with _llm_semaphore:
                 raw = await llm.chat(
                     messages=[
@@ -322,6 +328,56 @@ Respond ONLY with valid JSON:
             text = text[start : end + 1]
         return json.loads(text)
 
+    async def _consolidate_goal_knowledge(
+        self,
+        goal: dict[str, Any],
+        *,
+        reason: str,
+    ) -> bool:
+        """Close a goal and fold its research into one semantic memory.
+
+        This is the single place goals are consolidated. ``consolidate_goal``
+        returns ``None`` for a goal that is no longer active, which makes the
+        operation idempotent: a goal closed earlier in the same cycle cannot be
+        stored twice.
+
+        Args:
+            goal: the goal dict as returned by ``goal_store.list_active()``.
+            reason: how the goal ended — ``completed``, ``achieved`` or
+                ``abandoned``. Used as the memory headline.
+
+        Returns:
+            True if a consolidated memory was written.
+        """
+        consolidated = await goal_store.consolidate_goal(goal["id"])
+        if not consolidated or not consolidated["results"]:
+            return False
+
+        knowledge_text = (
+            f"[Goal {reason}: {goal['title']}]\n"
+            f"Description: {goal['description']}\n\n"
+            "Key findings:\n"
+            + "\n".join(f"• {r[:300]}" for r in consolidated["results"][:10])
+        )
+        if not await self._is_novel(knowledge_text):
+            return False
+
+        # Abandoned research is still worth keeping, but ranks below work that
+        # actually reached its objective.
+        salience = 0.70 + 0.25 * goal["priority"]
+        if reason == "abandoned":
+            salience *= 0.7
+        await self._semantic.store(
+            content=knowledge_text[:2000],
+            tags=["goals", "consolidated", f"goal:{goal['id'][:8]}"],
+            salience=min(salience, 0.95),
+        )
+        logger.info(
+            "[Goals] Knowledge consolidated (%s) for: %s (salience=%.2f)",
+            reason, goal["title"], salience,
+        )
+        return True
+
     async def _run_goal_cycle(self, recent_memories: list[Any]) -> None:
         """Review state, update goals, and pursue active goals with searches.
 
@@ -335,34 +391,18 @@ Respond ONLY with valid JSON:
             return
         try:
             # ── Step 0: Force-consolidate goals that exceeded max iterations ──
+            # Threshold must match the pursuit guard below (MAX_GOAL_ITERATIONS - 1),
+            # otherwise a goal that stops being pursued at 9 actions never reaches
+            # 10 and stalls in 'active' forever.
             active_goals = await goal_store.list_active()
             for g in active_goals:
                 action_count = len(g["actions"])
-                if action_count >= MAX_GOAL_ITERATIONS:
+                if action_count >= MAX_GOAL_ITERATIONS - 1:
                     logger.info(
                         "[Goals] Goal '%s' reached %d iterations — force-consolidating",
                         g["title"], action_count,
                     )
-                    consolidated = await goal_store.consolidate_goal(g["id"])
-                    if consolidated and consolidated["results"]:
-                        # Synthesise all results into a knowledge entry
-                        knowledge_text = (
-                            f"[Goal completed: {g['title']}]\n"
-                            f"Description: {g['description']}\n\n"
-                            "Key findings:\n"
-                            + "\n".join(f"• {r[:300]}" for r in consolidated["results"][:10])
-                        )
-                        if await self._is_novel(knowledge_text):
-                            salience = 0.70 + 0.25 * g["priority"]
-                            await self._semantic.store(
-                                content=knowledge_text[:2000],
-                                tags=["goals", "consolidated", f"goal:{g['id'][:8]}"],
-                                salience=min(salience, 0.95),
-                            )
-                            logger.info(
-                                "[Goals] Knowledge consolidated for: %s (salience=%.2f)",
-                                g["title"], salience,
-                            )
+                    await self._consolidate_goal_knowledge(g, reason="completed")
 
             # Build context
             conversations = "\n".join(
@@ -382,16 +422,33 @@ Respond ONLY with valid JSON:
             except Exception:  # noqa: BLE001
                 meta_state_text = "State unavailable"
 
-            # Format active goals for prompt
+            # Format active goals for prompt, including what has already been
+            # tried. Without the action history the LLM keeps re-proposing
+            # searches it has already run.
             if active_goals:
-                goals_text = "\n".join(
-                    f"  [{g['id'][:8]}] {g['title']} — {g['description'][:100]}"
-                    for g in active_goals
-                )
+                _goal_blocks: list[str] = []
+                for g in active_goals:
+                    _block = (
+                        f"  [{g['id'][:8]}] {g['title']} — {g['description'][:100]}"
+                    )
+                    _recent = [
+                        a for a in g["actions"]
+                        if a.get("description") and a["status"] == "done"
+                    ][-3:]
+                    if _recent:
+                        _block += "\n" + "\n".join(
+                            f"      ✓ already done: {a['description'][:110]}"
+                            for a in _recent
+                        )
+                    _block += f"\n      ({len(g['actions'])}/{MAX_GOAL_ITERATIONS} iterations used)"
+                    _goal_blocks.append(_block)
+                goals_text = "\n".join(_goal_blocks)
             else:
                 goals_text = "  (none)"
 
             # Step 1: Reflect and plan
+            from echo.core.user_activity import wait_if_generating as _wait_gen2  # noqa: PLC0415
+            await _wait_gen2()
             async with _llm_semaphore:
                 reflect_raw = await llm.chat(
                     messages=[{
@@ -437,10 +494,12 @@ Respond ONLY with valid JSON:
                     await goal_store.update_status(matched["id"], "achieved")
                     logger.info("[Goals] Achieved: %s", matched["title"])
 
-            # Step 3: Abandon goals
+            # Step 3: Abandon goals — salvage the research first so the tokens
+            # already spent on them are not thrown away.
             for gid in plan.get("abandoned_ids", []):
                 matched = next((g for g in active_goals if g["id"].startswith(gid)), None)
                 if matched:
+                    await self._consolidate_goal_knowledge(matched, reason="abandoned")
                     await goal_store.update_status(matched["id"], "abandoned")
                     logger.info("[Goals] Abandoned: %s", matched["title"])
 
@@ -468,15 +527,16 @@ Respond ONLY with valid JSON:
 
             # Step 5: Pursue active goals with search
             active_goals = await goal_store.list_active()  # refresh after updates
-            for action_plan in plan.get("next_actions", [])[:1]:  # max 1 pursuit per cycle (save LLM budget)
+            for action_plan in plan.get("next_actions", [])[:_MAX_PURSUITS_PER_CYCLE]:
                 gid = action_plan.get("goal_id", "")
                 goal = next((g for g in active_goals if g["id"].startswith(gid)), None)
                 if not goal:
                     continue
 
-                # Check iteration limit before pursuing
+                # Iteration limit: leave one slot so the consolidation pass in
+                # Step 0 can record its closing action.
                 if len(goal["actions"]) >= MAX_GOAL_ITERATIONS - 1:
-                    logger.info("[Goals] Goal '%s' near max iterations — skipping pursuit", goal["title"])
+                    logger.info("[Goals] Goal '%s' at max iterations — skipping pursuit", goal["title"])
                     continue
 
                 # File-action: if the plan specifies a file_path + content, use echo_workspace
@@ -530,6 +590,8 @@ Respond ONLY with valid JSON:
 
                 # Ask LLM to interpret results
                 try:
+                    from echo.core.user_activity import wait_if_generating as _wait_gen3  # noqa: PLC0415
+                    await _wait_gen3()
                     async with _llm_semaphore:
                         pursue_raw = await llm.chat(
                             messages=[{
@@ -569,23 +631,7 @@ Respond ONLY with valid JSON:
 
                 if achieved:
                     # Consolidate all research into knowledge before marking achieved
-                    consolidated = await goal_store.consolidate_goal(goal["id"])
-                    if consolidated and consolidated["results"]:
-                        knowledge_text = (
-                            f"[Goal achieved: {goal['title']}]\n"
-                            f"Description: {goal['description']}\n\n"
-                            "Key findings:\n"
-                            + "\n".join(f"• {r[:300]}" for r in consolidated["results"][:10])
-                        )
-                        if await self._is_novel(knowledge_text):
-                            salience = 0.70 + 0.25 * goal["priority"]
-                            await self._semantic.store(
-                                content=knowledge_text[:2000],
-                                tags=["goals", "consolidated", f"goal:{goal['id'][:8]}"],
-                                salience=min(salience, 0.95),
-                            )
-                    else:
-                        await goal_store.update_status(goal["id"], "achieved")
+                    await self._consolidate_goal_knowledge(goal, reason="achieved")
                     logger.info("[Goals] Goal achieved via research: %s", goal["title"])
 
         except Exception as exc:  # noqa: BLE001
@@ -658,6 +704,18 @@ Respond ONLY with valid JSON:
             if not settings.curiosity_enabled:
                 return _done("skipped", "disabled")
 
+            # Guard: global background token budget (bypassed by force=True).
+            # A full cycle costs roughly topic extraction + goal reflect + pursue.
+            if not force:
+                from echo.core.background_budget import (  # noqa: PLC0415
+                    background_budget,
+                    Priority,
+                )
+                _est = settings.llm_max_tokens_topic_extraction
+                if not background_budget.can_spend(_est, Priority.CURIOSITY):
+                    logger.debug("Curiosity skipped — background token budget exhausted")
+                    return _done("skipped", "background_budget_exhausted")
+
             # 1. Load recent episodic memories
             recent_memories = await self._episodic.get_all(limit=20)
             if not recent_memories:
@@ -720,6 +778,8 @@ Respond ONLY with valid JSON:
                     else:
                         primaries = await _ip.primary_interests(n=3)
                         if primaries:
+                            from echo.core.user_activity import wait_if_generating as _wait_gen4  # noqa: PLC0415
+                            await _wait_gen4()
                             async with _llm_semaphore:
                                 zpd = await _ip.zpd_topics(n=3)
                             if zpd:

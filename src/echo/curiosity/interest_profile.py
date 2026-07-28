@@ -46,6 +46,8 @@ _DB_PATH: Path = settings.sqlite_path
 _EMA_ALPHA: float = 0.10          # slow drift — don't over-react to single interactions
 _PREFERRED_BOOST: float = 0.25    # boost when user explicitly marks as preferred
 _MAX_TOPICS: int = 100            # cap the table size
+# Upper bound on exchanges buffered between two consolidation cycles.
+_MAX_PENDING_INTERACTIONS: int = 20
 
 # TTL caches — prevent repeated LLM calls from API polling
 _ZPD_CACHE_TTL: float = 600.0    # 10 min — ZPD topics change slowly
@@ -66,6 +68,10 @@ If no clear user interests are discernible, return [].
 
 class UserInterestProfile:
     """Persistent, incrementally-updated model of the user's topic interests."""
+
+    def __init__(self) -> None:
+        # Exchanges buffered by queue_interaction(), drained by drain_pending()
+        self._pending: list[str] = []
 
     # ------------------------------------------------------------------
     # DB init
@@ -338,8 +344,8 @@ class UserInterestProfile:
         if len(conversation_text.strip()) < 20:
             return []
 
-        # Trim to keep prompt size reasonable
-        conversation_text = conversation_text[:1500]
+        # Trim to keep prompt size reasonable (batched drains carry many exchanges)
+        conversation_text = conversation_text[:6000]
 
         try:
             raw = await llm.chat(
@@ -383,6 +389,44 @@ class UserInterestProfile:
 
         logger.debug("Interest profile updated: %s", topics)
         return topics
+
+    # ------------------------------------------------------------------
+    # Batched inference
+    # ------------------------------------------------------------------
+
+    def queue_interaction(self, user_input: str, response: str) -> None:
+        """Buffer an exchange for the next batched interest inference.
+
+        Topic extraction is a full LLM call. Running it after every message
+        competed with the user's next turn for backend capacity, so exchanges
+        are buffered here and drained by the consolidation heartbeat instead.
+        """
+        combined = f"User: {user_input}"
+        if response:
+            combined += f"\nECHO: {response}"
+        if len(combined.strip()) < 20:
+            return
+        self._pending.append(combined)
+        while len(self._pending) > _MAX_PENDING_INTERACTIONS:
+            self._pending.pop(0)
+
+    def pending_count(self) -> int:
+        """Number of exchanges waiting for interest inference."""
+        return len(self._pending)
+
+    async def drain_pending(self) -> list[str]:
+        """Infer interests from every queued exchange in a single LLM call."""
+        if not self._pending:
+            return []
+        batch = self._pending
+        self._pending = []
+        try:
+            return await self.infer_from_memories(
+                conversation_text="\n\n".join(batch)
+            )
+        except Exception:
+            self._pending = batch + self._pending
+            raise
 
 
 # Module-level singleton

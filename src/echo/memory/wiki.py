@@ -46,6 +46,11 @@ PageCategory = Literal["entities", "concepts", "sources", "syntheses"]
 
 _CATEGORIES: tuple[PageCategory, ...] = ("entities", "concepts", "sources", "syntheses")
 
+# Upper bound on exchanges buffered between two consolidation cycles.
+# Beyond this the oldest are dropped: a batch that large would overflow the
+# extraction prompt anyway.
+_MAX_PENDING_INTERACTIONS = 20
+
 # ---------------------------------------------------------------------------
 # LLM system prompt — the wiki "schema"
 # ---------------------------------------------------------------------------
@@ -108,6 +113,8 @@ class WikiStore:
         self._index = self._root / "index.md"
         self._log = self._root / "log.md"
         self._pages = self._root / "pages"
+        # Exchanges buffered by queue_interaction(), drained by drain_pending()
+        self._pending_interactions: list[str] = []
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -647,34 +654,88 @@ class WikiStore:
             "synthesis_page": f"pages/syntheses/{synthesis_slug}.md" if synthesis_slug else None,
         }
 
+    def queue_interaction(self, user_msg: str, assistant_msg: str) -> None:
+        """Queue an exchange for the next batched wiki update.
+
+        Extracting facts costs a full LLM call. Doing it once per interaction
+        was the single largest consumer of background inference capacity, and
+        it competed with the user's next message. Instead we buffer exchanges
+        here and let the consolidation heartbeat drain them in one call — the
+        LLM sees more context at once, which also improves fact quality.
+
+        The queue is bounded: under a burst of messages the oldest exchanges
+        are dropped rather than growing memory without limit.
+        """
+        combined = f"User: {user_msg}\nAssistant: {assistant_msg}"
+        if len(combined) < 40:
+            return
+        self._pending_interactions.append(combined)
+        while len(self._pending_interactions) > _MAX_PENDING_INTERACTIONS:
+            self._pending_interactions.pop(0)
+
+    def pending_interaction_count(self) -> int:
+        """Number of exchanges waiting to be folded into the wiki."""
+        return len(self._pending_interactions)
+
+    async def drain_pending(self) -> dict[str, Any]:
+        """Fold every queued exchange into the wiki with a single LLM call.
+
+        Called by the light consolidation cycle. Returns the same shape as
+        :meth:`update_from_interaction`.
+        """
+        if not self._pending_interactions:
+            return {"pages_updated": 0, "interactions_processed": 0}
+
+        batch = self._pending_interactions
+        self._pending_interactions = []
+
+        transcript = "\n\n---\n\n".join(
+            f"[Exchange {i + 1}]\n{c}" for i, c in enumerate(batch)
+        )
+        try:
+            result = await self._ingest_transcript(transcript)
+        except Exception:
+            # Put the batch back so nothing is lost on a transient failure.
+            self._pending_interactions = batch + self._pending_interactions
+            raise
+        result["interactions_processed"] = len(batch)
+        return result
+
     async def update_from_interaction(
         self,
         user_msg: str,
         assistant_msg: str,
     ) -> dict[str, Any]:
-        """Lightweight post-interaction wiki update.
+        """Immediately fold a single exchange into the wiki.
 
-        Asks the LLM to identify any new entities or facts worth adding and
-        creates/updates the relevant pages.  This is deliberately lightweight
-        (capped tokens) to run as a fire-and-forget background task.
+        Prefer :meth:`queue_interaction` on the interaction hot path; this
+        method is kept for explicit/manual ingestion where the caller wants
+        the result synchronously.
         """
         combined = f"User: {user_msg}\nAssistant: {assistant_msg}"
         if len(combined) < 40:
             return {"pages_updated": 0}
+        return await self._ingest_transcript(combined)
 
+    async def _ingest_transcript(self, combined: str) -> dict[str, Any]:
+        """Extract durable facts from a transcript and write them to pages.
+
+        Args:
+            combined: one or more exchanges, already formatted for the prompt.
+        """
         extract_resp = await llm.chat(
             messages=[
                 {"role": "system", "content": _WIKI_SCHEMA},
                 {
                     "role": "user",
                     "content": (
-                        "Given this short conversation, identify any NEW facts "
+                        "Given this conversation, identify any NEW facts "
                         "worth adding to a personal knowledge wiki.\n\n"
                         "Return JSON: {\"updates\": [{\"category\": \"entities|concepts\", "
                         "\"name\": \"...\", \"slug\": \"...\", \"fact\": \"...\"}]}\n"
                         "Only include genuinely new, durable facts (not greetings, "
                         "chat niceties, etc.). Return [] if nothing notable.\n\n"
-                        f"CONVERSATION:\n{combined[:3000]}"
+                        f"CONVERSATION:\n{combined[:8000]}"
                     ),
                 },
             ],
@@ -693,7 +754,7 @@ class WikiStore:
             return {"pages_updated": 0}
 
         pages_updated = 0
-        for upd in updates[:5]:  # cap
+        for upd in updates[:12]:  # cap — batches carry more facts than one exchange
             cat: PageCategory = upd.get("category", "entities")
             if cat not in _CATEGORIES:
                 cat = "entities"
