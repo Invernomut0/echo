@@ -58,7 +58,7 @@ ECHO researches topics autonomously during idle time. Every 4 cycles a **ZPD (Zo
 ### 🤝 Co-Evolutionary Cognitive Partner *(new in 0.4.0)*
 ECHO builds a **user interest profile** via EMA-weighted topic affinity and injects relevant findings proactively during conversation:
 
-- `UserInterestProfile` — EMA (α=0.10) per-topic affinity, up to 100 topics, ZPD expansion via LLM
+- `UserInterestProfile` — EMA (α=0.10) per-topic affinity, up to 100 topics, ZPD expansion via LLM. ZPD generation runs only on the curiosity engine's own cycle, serialised behind a lock and TTL-cached (10 min on success, 5 min after a failure). `GET /api/curiosity/profile` reads that cache and never generates: the panel polls it every 8 s, and caching only successes previously turned a single failing generation into one LLM request per poll.
 - `StimulusQueue` — ranked findings queue; top stimuli are injected into the workspace with probability `p = 0.2 + 0.3 · arousal`
 - Implicit feedback loop: when a stimulus-prompted memory has `self_relevance > 0.7`, positive feedback is recorded automatically
 - Frontend panel: **Interest Profile** (affinity bars, exclude), **ZPD Zone** (explore→), **Pending Findings** (star rating)
