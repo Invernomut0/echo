@@ -362,6 +362,12 @@ now runs in three tiers:
 Total is capped at 20. Pinned beliefs come first because LLMs weight earlier context more
 heavily.
 
+Because that block is a *selection*, ECHO cannot enumerate its own beliefs from it. The
+internal tool `echo__list_beliefs` reads the identity graph directly — supporting `limit`,
+`min_confidence` and `query` filters — and the synthesis prompt instructs the model to call
+it whenever asked what it believes. Tools in the `echo__*` namespace are exempt from the
+tool-payload cap, so it is always available.
+
 **Read timeout.** `LLM_READ_TIMEOUT_S` (default 300) must cover *prompt processing*, not
 just generation: the backend sends nothing at all while it ingests the prompt, so a
 10k-token prompt at 150 tok/s stays silent for over a minute. Too low a value surfaces
@@ -410,7 +416,7 @@ WARNING  2 variable(s) in .env match no setting and are IGNORED: ECHO_LLM_MAX_TO
 
 ### 0.5.6 — 2026-07-12
 - **Proactive engine acts**: uses tools to actually write files, commit, search wiki/memory during idle — reports what it did, not what it plans
-- **Self-code-modification**: ECHO can improve its own source code (auto-validated with ast.parse + rollback on syntax error)
+- **Self-code-modification**: ECHO can improve its own source code. Every edit is validated before it is committed — `.py` files with `ast.parse`, `.json`/`.yaml` files by parsing them — and rolled back if validation fails. Config validation matters as much as syntax: an unparseable `data/mcp.json` prevents *every* MCP server from loading, silently stripping ECHO of file access and web search.
 - **echo-workspace + bash MCP servers**: full repo file access and sandboxed shell for ECHO
 - **Goal loop fix**: file-creation goals auto-achieved when file exists; goal pursuit writes files instead of web-searching
 

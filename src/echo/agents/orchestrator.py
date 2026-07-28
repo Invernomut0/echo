@@ -293,6 +293,11 @@ def _build_synthesis_system() -> str:
         )
         addendum_parts.append(
             f"ECHO INTERNAL TOOLS (your own cognitive scheduling system):\n{int_lines}\n"
+            "Rules for echo__list_beliefs:\n"
+            "- The IDENTITY BELIEFS block below is only a selection. If the user asks "
+            "what you believe, what you know about yourself, or for a list of your "
+            "beliefs, call echo__list_beliefs and answer from its result — never "
+            "guess or answer from the partial block alone.\n"
             "Rules for echo__cron_* tools:\n"
             "- Use echo__cron_create_task when the user asks you to schedule a "
             "recurring activity, or when you decide to autonomously repeat a "
@@ -430,6 +435,29 @@ def _fmt_beliefs(context: dict[str, Any] | None, user_input: str = "") -> str:
     return "\n".join(lines) if lines else "(none)"
 
 
+def _render_synthesis(
+    user_input: str,
+    context: dict[str, Any] | None,
+    deliberations: str,
+) -> str:
+    """Render the synthesis prompt.
+
+    The single place :data:`_SYNTHESIS_TEMPLATE` is formatted. Filling the
+    template at each call site meant a new placeholder had to be added to every
+    one of them by hand, and ``str.format`` only complains at runtime: when
+    ``{beliefs}`` was introduced, the greeting fast path was missed and every
+    "ciao" raised ``KeyError: 'beliefs'``. Routing all call sites through one
+    function makes that failure impossible.
+    """
+    return _SYNTHESIS_TEMPLATE.format(
+        user_input=user_input,
+        beliefs=_fmt_beliefs(context, user_input),
+        memories=_fmt_memories(context),
+        wiki=_fmt_wiki(context),
+        deliberations=deliberations,
+    )
+
+
 class Orchestrator:
     """Runs agents concurrently and synthesises their outputs."""
 
@@ -528,13 +556,7 @@ class Orchestrator:
             messages.append({"role": msg["role"], "content": msg["content"]})
         messages.append({
             "role": "user",
-            "content": _SYNTHESIS_TEMPLATE.format(
-                user_input=user_input,
-                beliefs=_fmt_beliefs(context, user_input),
-                memories=_fmt_memories(context),
-                wiki=_fmt_wiki(context),
-                deliberations=deliberations,
-            ),
+            "content": _render_synthesis(user_input, context, deliberations),
         })
         # Use chat_with_tools so the LLM can invoke MCP tools (web search, fetch, fs)
         response = await llm.chat_with_tools(messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis)
@@ -565,12 +587,7 @@ class Orchestrator:
             yield {"_status": "Formulating response…"}
             messages.append({
                 "role": "user",
-                "content": _SYNTHESIS_TEMPLATE.format(
-                    user_input=user_input,
-                    memories=_fmt_memories(context),
-                    wiki=_fmt_wiki(context),
-                    deliberations="",
-                ),
+                "content": _render_synthesis(user_input, context, ""),
             })
             async for delta in llm.stream_chat_with_tools(
                 messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis
@@ -610,13 +627,7 @@ class Orchestrator:
         )
         messages.append({
             "role": "user",
-            "content": _SYNTHESIS_TEMPLATE.format(
-                user_input=user_input,
-                beliefs=_fmt_beliefs(context, user_input),
-                memories=_fmt_memories(context),
-                wiki=_fmt_wiki(context),
-                deliberations=deliberations,
-            ),
+            "content": _render_synthesis(user_input, context, deliberations),
         })
         async for delta in llm.stream_chat_with_tools(
             messages, temperature=0.7, max_tokens=settings.llm_max_tokens_synthesis

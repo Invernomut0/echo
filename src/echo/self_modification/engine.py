@@ -121,6 +121,7 @@ class SelfModificationEngine:
         from echo.integrations.telegram_send import broadcast  # noqa: PLC0415
         from echo.self_modification.git_ops import (  # noqa: PLC0415
             git_add, git_commit, git_push, git_status, repo_root, validate_python,
+            validate_structured,
         )
 
         # Cooldown
@@ -223,10 +224,12 @@ class SelfModificationEngine:
             abs_path.write_text(modified, encoding="utf-8")
             if file_path.endswith(".py"):
                 ok, err = await validate_python(str(abs_path))
-                if not ok:
-                    abs_path.write_text(original, encoding="utf-8")  # rollback
-                    logger.error("SelfMod: syntax validation failed for %s: %s", file_path, err)
-                    return None
+            else:
+                ok, err = await validate_structured(str(abs_path))
+            if not ok:
+                abs_path.write_text(original, encoding="utf-8")  # rollback
+                logger.error("SelfMod: validation failed for %s: %s", file_path, err)
+                return None
         except Exception as exc:  # noqa: BLE001
             logger.error("SelfMod: write/validate failed: %s", exc)
             try:

@@ -11,9 +11,7 @@
         "python3",
         "scripts/mcp_echo_workspace.py"
       ],
-      "env": {,
-  "feedback_enabled": false
-}
+      "env": {}
     },
     {
       "name": "bash",

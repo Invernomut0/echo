@@ -178,6 +178,7 @@ class CognitivePipeline:
         from echo.cron.tools import register_cron_tools
         from echo.mcp import mcp_manager
         from echo.self_model.metacognition import metacognitive_model
+        from echo.self_model.tools import register_self_model_tools
 
         await db_startup()
         await self.identity_graph.load()
@@ -192,6 +193,7 @@ class CognitivePipeline:
         self.cron.attach_pipeline(self)
         await self.cron.startup()
         register_cron_tools(mcp_manager, self.cron)
+        register_self_model_tools(mcp_manager, self.identity_graph)
         self._ready = True
 
         # Warn if the configured model is not yet loaded in LM Studio.
