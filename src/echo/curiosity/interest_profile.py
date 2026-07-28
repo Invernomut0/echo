@@ -32,6 +32,7 @@ from contextlib import asynccontextmanager
 import json
 import logging
 import time as _time
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -71,7 +72,7 @@ class UserInterestProfile:
 
     def __init__(self) -> None:
         # Exchanges buffered by queue_interaction(), drained by drain_pending()
-        self._pending: list[str] = []
+        self._pending: deque[str] = deque(maxlen=_MAX_PENDING_INTERACTIONS)
 
     # ------------------------------------------------------------------
     # DB init
@@ -407,8 +408,6 @@ class UserInterestProfile:
         if len(combined.strip()) < 20:
             return
         self._pending.append(combined)
-        while len(self._pending) > _MAX_PENDING_INTERACTIONS:
-            self._pending.pop(0)
 
     def pending_count(self) -> int:
         """Number of exchanges waiting for interest inference."""
@@ -418,14 +417,14 @@ class UserInterestProfile:
         """Infer interests from every queued exchange in a single LLM call."""
         if not self._pending:
             return []
-        batch = self._pending
-        self._pending = []
+        batch = list(self._pending)
+        self._pending.clear()
         try:
             return await self.infer_from_memories(
                 conversation_text="\n\n".join(batch)
             )
         except Exception:
-            self._pending = batch + self._pending
+            self._pending.extendleft(reversed(batch))
             raise
 
 

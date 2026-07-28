@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time as _time
 import uuid
 from collections import deque
 from datetime import datetime, timedelta, timezone
@@ -28,6 +29,10 @@ logger = logging.getLogger(__name__)
 # Default intervals — overridable via CONSOLIDATION_LIGHT_INTERVAL_S / CONSOLIDATION_DEEP_INTERVAL_S
 LIGHT_INTERVAL = 300     # 5 minutes
 DEEP_INTERVAL = 43_200   # 12 hours
+
+# How often the LLM-based metacognitive review may run outside the REM cycle.
+METACOG_REVIEW_INTERVAL = 4 * 3600  # 4 hours
+_METACOG_REVIEW_TOKENS = 1500
 
 
 class ConsolidationScheduler:
@@ -47,6 +52,8 @@ class ConsolidationScheduler:
         self._running = False
         self._light_running = False  # guard: prevent overlapping light cycles
         self._deep_running = False   # guard: prevent overlapping deep cycles
+        # Monotonic timestamp of the last LLM-based metacognitive review.
+        self._last_metacog_review = _time.monotonic()
 
         # Pipeline reference (set by CognitivePipeline.startup via attach())
         self._pipeline: Any | None = None
@@ -208,6 +215,44 @@ class ConsolidationScheduler:
                     logger.info("Interest batch: inferred %d topic(s)", len(_topics))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Interest batch inference failed: %s", exc)
+
+        # Keep the metacognitive self-model current. Feeding in learning data is
+        # cheap (no LLM), yet it used to happen only in the 12h REM cycle, so for
+        # almost the entire day ECHO reasoned about itself from stale competence
+        # and engagement figures. The LLM-based deep_review() stays on its own,
+        # much slower cadence and is budget-gated.
+        try:
+            from echo.core.background_budget import (  # noqa: PLC0415
+                background_budget,
+                Priority,
+            )
+            from echo.learning.growth_tracker import growth_tracker as _gt  # noqa: PLC0415
+            from echo.learning.meta_learning import meta_learning as _ml  # noqa: PLC0415
+            from echo.learning.self_evaluation import self_evaluation as _se  # noqa: PLC0415
+            from echo.self_model.metacognition import metacognitive_model  # noqa: PLC0415
+
+            await metacognitive_model.update_from_learning(
+                growth_trajectory=(
+                    "improving" if _gt.metrics.is_growing
+                    else "stagnant" if _gt.metrics.is_stagnant
+                    else "stable"
+                ),
+                best_conditions=_ml.quality.best_conditions,
+                competence_map=_se.competence_map,
+                engagement_score=_se.engagement_score,
+            )
+            await metacognitive_model.save_if_dirty()
+
+            now_mono = _time.monotonic()
+            due = now_mono - self._last_metacog_review >= METACOG_REVIEW_INTERVAL
+            if due and background_budget.can_spend(
+                _METACOG_REVIEW_TOKENS, Priority.REFLECTION
+            ):
+                self._last_metacog_review = now_mono
+                if await metacognitive_model.deep_review():
+                    logger.info("Metacognitive model updated (interim review)")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Metacognitive refresh failed: %s", exc)
 
         # Idle-time curiosity: search for new knowledge when no user is active
         try:
@@ -684,6 +729,7 @@ class ConsolidationScheduler:
             )
             # Run full LLM-based deep review
             updated = await metacognitive_model.deep_review()
+            self._last_metacog_review = _time.monotonic()
             if updated:
                 logger.info("Metacognitive model updated during REM cycle")
         except Exception as exc:  # noqa: BLE001

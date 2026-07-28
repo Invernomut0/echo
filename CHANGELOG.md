@@ -5,6 +5,105 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.10] — 2026-07-28
+
+### Cognitive Subsystem Audit — Correctness & Throughput
+
+A follow-up audit of the memory, curiosity, reflection and self-model modules.
+Eight defects, ordered by what they cost ECHO.
+
+#### Correctness
+
+- **Curiosity deduplication rewritten.** The check compared only words 2–12 of a
+  finding. Every finding begins with `Title:` and ends that window with
+  `Summary:`, so two matches were free and three shared title words were enough
+  to discard a genuinely new result — while a page re-found under another topic
+  slipped through. It now compares the whole finding (field labels and the
+  `Source:` line excluded) by Jaccard overlap, treats an identical source URL as
+  decisive, and inspects 12 neighbours instead of 3. Measured on realistic
+  findings, the old heuristic was wrong on 2 of 4 cases, the new one on none.
+- **Contradicted beliefs are now retired.** `resolve_contradictions()` attenuated
+  a losing belief and merely logged it below 0.15 confidence. `prune()` spares
+  connected beliefs, so such a belief was unreachable by every cleanup path and
+  its `CONTRADICTS` edge depressed `coherence_score()` permanently. A belief
+  driven below the floor is deleted when only contradictions attach to it;
+  one that still supports another belief is kept as structure.
+- **Reflection no longer stores paraphrases.** Duplicate detection divided the
+  overlap by the *new* belief's length at a >0.8 threshold, so a reworded belief
+  scored ~0.6 and was added again. Overlap is now measured against the shorter
+  of the two beliefs at 0.7.
+
+#### Throughput
+
+- **Curiosity topics are searched concurrently.** Topic searches are independent
+  and network-bound; running them in sequence multiplied cycle latency by the
+  topic count. Storing stays sequential so novelty checks remain correct.
+- **Semantic edges are cached.** `to_dict()` recomputed an O(n²) Jaccard matrix
+  (~45k comparisons at the 300-belief cap) on every frontend graph poll. It now
+  reruns only when a belief is added, removed, reworded or re-scored.
+- **Metacognitive model refreshed on the light heartbeat.** Feeding learning data
+  into the self-model costs no LLM call, yet ran only in the 12 h REM cycle, so
+  ECHO spent nearly the whole day reasoning from stale competence and engagement
+  figures. The LLM-based `deep_review()` now also runs at most every 4 h, gated
+  by the background token budget.
+
+#### I/O
+
+- **`log.md` is appended, not rewritten.** Every wiki operation read the entire
+  log back just to write it out again — cost grew without bound. `get_log()`
+  likewise now reads only the tail of the file.
+- **Blocking file I/O moved off the event loop.** `GET /api/consolidation/notes`
+  opened every file in `notes/` (hundreds) inline; that scan and the `echo.md` /
+  `self_growth.md` reads now run in a worker thread.
+- **Pending queues use `deque(maxlen=…)`.** Overflow was handled with `pop(0)`,
+  which is O(n) per append once full.
+
+### Tests
+
+18 new tests in `tests/test_cognitive_fixes.py`. The deduplication and
+contradiction tests assert against the *previous* implementation as well, so they
+fail if they stop discriminating between old and new behaviour.
+
+---
+
+## [0.5.9] — 2026-07-13
+
+### Security
+
+- **Fixed arbitrary code execution in `validate_python()`**
+  ([`self_modification/git_ops.py`](src/echo/self_modification/git_ops.py)). The
+  file path was interpolated into a source string run via `python3 -c`, so a
+  path containing a quote escaped the literal and executed. Because ECHO derives
+  these paths from LLM output while rewriting its own source, the model could
+  reach it. The path is now passed through `argv`, and the interpreter is
+  `sys.executable` rather than whatever `python3` resolves to. Regression test
+  reproduces the original exploit.
+- **Widened `.gitignore` to `.env.*`** so ad-hoc copies (`.env.backup`, `.env.bak`)
+  can no longer be committed; `.env.example` stays tracked via a negation.
+
+### Fixed
+
+- **Every `ECHO_*` variable in `.env` was silently ignored.** `Settings` declared
+  no `env_prefix`, so ~34 tuned values were dead and the process ran on defaults —
+  including `LLM_MAX_TOKENS_AGENT` at 256 instead of 1024 and
+  `LLM_MAX_TOKENS_SYNTHESIS` at 1024 instead of 3072, which truncated thinking
+  models mid-reasoning. An `AliasGenerator` now accepts **both** the bare and the
+  `ECHO_`-prefixed spelling (bare wins if both are set), so no existing
+  configuration breaks.
+
+### Added
+
+- **Startup diagnostic for dead configuration.** `find_unmapped_env_vars()` reports
+  any `.env` variable matching no setting, logged as a warning by the API lifespan.
+  `extra="ignore"` is what let the bug above go unnoticed; this makes it loud.
+
+### Notes
+
+- OS environment variables take precedence over `.env`. If a value refuses to
+  change, check for stale exports with `env | grep ECHO_`.
+
+---
+
 ## [0.5.8] — 2026-07-13
 
 ### Cognitive Load Optimisation — Latency & Background Throughput

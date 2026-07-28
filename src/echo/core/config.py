@@ -6,8 +6,24 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, AliasGenerator, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _env_alias(field_name: str) -> AliasChoices:
+    """Accept a setting under both ``FIELD_NAME`` and ``ECHO_FIELD_NAME``.
+
+    Historically ``Settings`` declared no ``env_prefix``, so every
+    ``ECHO_*``-prefixed variable in ``.env`` was silently ignored — including
+    the whole ``ECHO_LLM_MAX_TOKENS_*`` block, which meant token budgets could
+    not actually be tuned from configuration.
+
+    Switching to ``env_prefix="ECHO_"`` would have broken the ~30 variables
+    that are correctly spelled without a prefix. Accepting both spellings fixes
+    the prefixed ones without invalidating anyone's existing ``.env``. The bare
+    name is listed first, so it wins if a setting is defined twice.
+    """
+    return AliasChoices(field_name, f"echo_{field_name}")
 
 
 class Settings(BaseSettings):
@@ -15,6 +31,8 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        alias_generator=AliasGenerator(validation_alias=_env_alias),
+        populate_by_name=True,
     )
 
     # LM Studio
@@ -292,3 +310,46 @@ class Settings(BaseSettings):
 
 # Singleton instance — import this everywhere
 settings = Settings()
+
+# Variables that are legitimately read by subsystems other than ``Settings``
+# (MCP servers receive them through the process environment), so they must not
+# be reported as dead configuration.
+_EXTERNAL_ENV_VARS: frozenset[str] = frozenset({"BRAVE_API_KEY"})
+
+
+def find_unmapped_env_vars(env_path: Path | None = None) -> list[str]:
+    """Return variable names in ``.env`` that match no ``Settings`` field.
+
+    ``extra="ignore"`` makes pydantic drop unknown variables without a word,
+    which is how an entire block of ``ECHO_LLM_MAX_TOKENS_*`` settings stayed
+    dead for months. Surfacing them at startup turns a silent misconfiguration
+    into a visible warning.
+
+    Args:
+        env_path: file to inspect. Defaults to the ``.env`` next to the CWD.
+
+    Returns:
+        Sorted variable names that will be ignored at runtime.
+    """
+    path = env_path or Path(".env")
+    if not path.exists():
+        return []
+
+    known: set[str] = set(_EXTERNAL_ENV_VARS)
+    for field_name in Settings.model_fields:
+        known.add(field_name.upper())
+        known.add(f"ECHO_{field_name.upper()}")
+
+    unmapped: set[str] = set()
+    try:
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            name = line.split("=", 1)[0].strip()
+            if name and name.upper() == name and name not in known:
+                unmapped.add(name)
+    except OSError:
+        return []
+
+    return sorted(unmapped)

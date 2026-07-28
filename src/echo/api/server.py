@@ -22,7 +22,7 @@ from echo.api.routers import goals as goals_router
 from echo.api.routers import cron as cron_router
 from echo.api.schemas import HealthResponse
 from echo import __version__
-from echo.core.config import settings
+from echo.core.config import find_unmapped_env_vars, settings
 from echo.core.llm_client import llm
 from echo.core.pipeline import pipeline
 
@@ -40,6 +40,15 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting PROJECT ECHO cognitive pipeline…")
+
+    unmapped = find_unmapped_env_vars()
+    if unmapped:
+        logger.warning(
+            "%d variable(s) in .env match no setting and are IGNORED: %s",
+            len(unmapped),
+            ", ".join(unmapped),
+        )
+
     await pipeline.startup()
     from echo.memory.wiki import wiki
 

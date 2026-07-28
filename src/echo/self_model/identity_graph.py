@@ -63,6 +63,8 @@ class IdentityGraph:
     def __init__(self) -> None:
         self.graph: nx.DiGraph = nx.DiGraph()
         self._loaded = False
+        # (fingerprint, edges) memo for compute_semantic_edges()
+        self._edge_cache: tuple[int, list[dict]] | None = None
 
     # ------------------------------------------------------------------
     # Load / Save
@@ -259,17 +261,39 @@ class IdentityGraph:
     # Graph metrics
     # ------------------------------------------------------------------
 
+    async def _retire_beliefs(self, belief_ids: list[str]) -> None:
+        """Remove beliefs (and their edges) from the graph and the database."""
+        if not belief_ids:
+            return
+        for belief_id in belief_ids:
+            if self.graph.has_node(belief_id):
+                self.graph.remove_node(belief_id)
+        factory = get_session_factory()
+        async with factory() as session:
+            await session.execute(delete(BeliefRow).where(BeliefRow.id.in_(belief_ids)))
+            await session.commit()
+
     async def resolve_contradictions(self) -> list[str]:
         """Attenuate confidence of older beliefs involved in CONTRADICTS edges.
 
         For each A→B CONTRADICTS pair, reduces confidence of the *older* belief
-        by −0.05 (newer evidence takes precedence).  Returns the list of belief
-        IDs whose confidence was updated.  When confidence falls below 0.15 the
-        belief is logged as near-obsolete (not auto-deleted).
+        by −0.05 (newer evidence takes precedence). Returns the list of belief
+        IDs whose confidence was updated.
+
+        A belief driven below ``_PRUNE_CONFIDENCE_FLOOR`` is retired outright,
+        provided nothing but CONTRADICTS edges attach to it. Previously it was
+        only logged: :meth:`prune` spares connected beliefs, so a losing belief
+        was unreachable by every cleanup path and its contradiction edge kept
+        depressing :meth:`coherence_score` forever. A belief that still supports
+        or is supported by others is left in place — it carries structure — and
+        is logged instead.
         """
         resolved: list[str] = []
+        retired: list[str] = []
         for source_id, target_id, data in list(self.graph.edges(data=True)):
             if data.get("relation") != BeliefRelation.CONTRADICTS.value:
+                continue
+            if source_id in retired or target_id in retired:
                 continue
             b_source = self.get_belief(source_id)
             b_target = self.get_belief(target_id)
@@ -281,14 +305,32 @@ class IdentityGraph:
             if updated:
                 resolved.append(older.id)
                 belief = self.get_belief(older.id)
-                if belief and belief.confidence < 0.15:
-                    logger.info(
-                        "Belief near-obsolete (conf=%.2f): %.80s",
-                        belief.confidence, belief.content,
-                    )
+                if belief and belief.confidence < _PRUNE_CONFIDENCE_FLOOR:
+                    if self._only_contradicted(older.id):
+                        retired.append(older.id)
+                    else:
+                        logger.info(
+                            "Belief near-obsolete but structurally load-bearing "
+                            "(conf=%.2f): %.80s",
+                            belief.confidence, belief.content,
+                        )
+
+        if retired:
+            await self._retire_beliefs(retired)
+            logger.info("Retired %d belief(s) lost to contradiction", len(retired))
         if resolved:
             logger.info("Resolved %d contradiction(s) in identity graph", len(resolved))
         return resolved
+
+    def _only_contradicted(self, belief_id: str) -> bool:
+        """True when every edge touching *belief_id* is a CONTRADICTS edge."""
+        edges = [
+            *self.graph.in_edges(belief_id, data=True),
+            *self.graph.out_edges(belief_id, data=True),
+        ]
+        return all(
+            d.get("relation") == BeliefRelation.CONTRADICTS.value for *_, d in edges
+        )
 
     def coherence_score(self) -> float:
         """Returns ratio of SUPPORTS to (SUPPORTS + CONTRADICTS) edges."""
@@ -307,7 +349,38 @@ class IdentityGraph:
             return 1.0
         return round(supports / total, 4)
 
+    def _belief_fingerprint(self) -> int:
+        """Cheap O(n log n) signature of the belief set.
+
+        Changes whenever a belief is added, removed, reworded or re-scored,
+        which is exactly when the semantic edges stop being valid.
+        """
+        return hash(
+            tuple(
+                sorted(
+                    (nid, round(data["belief"].confidence, 3), len(data["belief"].content))
+                    for nid, data in self.graph.nodes(data=True)
+                    if "belief" in data
+                )
+            )
+        )
+
     def compute_semantic_edges(self) -> list[dict]:
+        """Keyword-based semantic edges for visualisation (not persisted).
+
+        Memoised against :meth:`_belief_fingerprint`: the underlying comparison
+        is O(n²) — ~45k Jaccard computations at the 300-belief cap — and it ran
+        again on every ``to_dict()``, i.e. on every graph poll from the frontend
+        even when nothing had changed.
+        """
+        fingerprint = self._belief_fingerprint()
+        if self._edge_cache is not None and self._edge_cache[0] == fingerprint:
+            return self._edge_cache[1]
+        edges = self._compute_semantic_edges_uncached()
+        self._edge_cache = (fingerprint, edges)
+        return edges
+
+    def _compute_semantic_edges_uncached(self) -> list[dict]:
         """Compute keyword-based semantic edges for visualization (not persisted).
 
         Uses Jaccard similarity on content tokens to infer relationships between

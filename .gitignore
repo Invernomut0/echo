@@ -21,6 +21,10 @@ uv.lock
 .env
 .env.local
 .env.*.local
+# Catch-all for ad-hoc copies (.env.backup, .env.bak, .env.old, ...)
+.env.*
+# ...but the committed template must stay tracked
+!.env.example
 
 # macOS
 .DS_Store

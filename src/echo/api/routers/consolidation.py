@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 
 from echo.api.schemas import ConsolidationTriggerResponse
@@ -61,7 +63,7 @@ async def get_dreams(limit: int = Query(default=20, ge=1, le=100)):
 async def get_echo_md():
     """Return the current content of ECHO's personality file (echo.md)."""
     from echo.self_model.echo_md import EchoMdManager  # noqa: PLC0415
-    content = EchoMdManager().read()
+    content = await asyncio.to_thread(EchoMdManager().read)
     return {"content": content}
 
 
@@ -82,7 +84,7 @@ async def review_echo_md():
     patterns = last_report.patterns_found if last_report else []
 
     updated = await manager.review_and_update(meta_state=_meta_state, patterns=patterns)
-    content = manager.read()
+    content = await asyncio.to_thread(manager.read)
     return {"updated": updated, "content": content}
 
 
@@ -99,7 +101,8 @@ async def get_self_growth():
     path = repo_root / "notes" / "self_growth.md"
     if not path.exists():
         return {"content": "*(no entries yet)*"}
-    return {"content": path.read_text(encoding="utf-8")}
+    content = await asyncio.to_thread(path.read_text, encoding="utf-8")
+    return {"content": content}
 
 
 # ---------------------------------------------------------------------------
@@ -112,6 +115,10 @@ async def list_notes():
 
     Excludes self_growth.md which is served separately.
     Each entry: {"name": str, "date": str, "title": str}
+
+    The scan opens every note to recover its title, so it runs in a worker
+    thread: with hundreds of notes, doing it inline stalls the event loop for
+    every other request.
     """
     from pathlib import Path  # noqa: PLC0415
 
@@ -120,25 +127,27 @@ async def list_notes():
     if not notes_dir.exists():
         return {"notes": []}
 
-    items = []
-    for p in sorted(notes_dir.glob("*.md"), reverse=True):
-        if p.name == "self_growth.md":
-            continue
-        # Try to extract the title from the first non-empty line
-        title = p.stem
-        try:
-            for line in p.read_text(encoding="utf-8").splitlines():
-                stripped = line.strip().lstrip("#").strip()
-                if stripped:
-                    title = stripped
-                    break
-        except OSError:
-            pass
-        # Extract date prefix (YYYY-MM-DD) from filename if present
-        date = p.stem[:10] if len(p.stem) >= 10 and p.stem[4] == "-" else ""
-        items.append({"name": p.name, "date": date, "title": title})
+    def _scan() -> list[dict[str, str]]:
+        items: list[dict[str, str]] = []
+        for p in sorted(notes_dir.glob("*.md"), reverse=True):
+            if p.name == "self_growth.md":
+                continue
+            # Try to extract the title from the first non-empty line
+            title = p.stem
+            try:
+                for line in p.read_text(encoding="utf-8").splitlines():
+                    stripped = line.strip().lstrip("#").strip()
+                    if stripped:
+                        title = stripped
+                        break
+            except OSError:
+                pass
+            # Extract date prefix (YYYY-MM-DD) from filename if present
+            date = p.stem[:10] if len(p.stem) >= 10 and p.stem[4] == "-" else ""
+            items.append({"name": p.name, "date": date, "title": title})
+        return items
 
-    return {"notes": items}
+    return {"notes": await asyncio.to_thread(_scan)}
 
 
 @router.get("/notes/{note_name}")

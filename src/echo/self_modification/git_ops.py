@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import stat
+import sys
 import tempfile
 from pathlib import Path
 
@@ -116,8 +117,20 @@ async def git_push() -> bool:
 
 
 async def validate_python(path: str) -> tuple[bool, str]:
-    """Validate a Python file parses correctly. Returns (ok, error_message)."""
-    rc, out, err = await _run(["python3", "-c", f"import ast; ast.parse(open('{path}').read()); print('OK')"])
+    """Validate a Python file parses correctly. Returns (ok, error_message).
+
+    The path is passed through ``argv`` rather than interpolated into the
+    source string: ECHO derives these paths from LLM output, so a filename
+    containing a quote would otherwise break out and execute arbitrary code.
+    """
+    rc, out, err = await _run(
+        [
+            sys.executable,
+            "-c",
+            "import ast, sys; ast.parse(open(sys.argv[1]).read()); print('OK')",
+            path,
+        ]
+    )
     if rc == 0 and "OK" in out:
         return True, ""
     return False, (err or out).strip()

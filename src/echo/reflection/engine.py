@@ -19,6 +19,9 @@ from echo.self_model.identity_graph import IdentityGraph
 
 logger = logging.getLogger(__name__)
 
+_BELIEF_DUPLICATE_OVERLAP: float = 0.7
+"""Word overlap (against the shorter belief) above which a belief is a restatement."""
+
 _REFLECTION_PROMPT = """\
 You are ECHO's introspective reflection engine.
 
@@ -128,14 +131,20 @@ class ReflectionEngine:
                 for k, v in data.get("drive_adjustments", {}).items()
             }
 
-            # Process new beliefs — skip near-duplicates (>80% word overlap with existing)
+            # Process new beliefs — skip restatements of beliefs already held.
+            # The overlap is measured against the *shorter* of the two beliefs
+            # and at a lower threshold: dividing by the new belief's length at
+            # >0.8 meant a reworded belief ("ECHO learns through interaction"
+            # vs "ECHO learns from each interaction") scored 0.6 and was stored
+            # again, so the identity graph slowly filled with paraphrases.
             existing_word_sets = [set(b.content.lower().split()) for b in beliefs]
             for nb in data.get("new_beliefs", []):
                 if isinstance(nb, dict) and nb.get("content"):
                     content = nb["content"]
                     new_words = set(content.lower().split())
                     is_dup = any(
-                        len(new_words & ew) / max(len(new_words), 1) > 0.8
+                        len(new_words & ew) / max(min(len(new_words), len(ew)), 1)
+                        >= _BELIEF_DUPLICATE_OVERLAP
                         for ew in existing_word_sets
                     )
                     if not is_dup:
