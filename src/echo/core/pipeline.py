@@ -468,14 +468,19 @@ Respond ONLY with valid JSON:
 
         full_response = []
         _t_generation = time.monotonic()
-        async for delta in self.orchestrator.stream(
-            user_input, self.workspace.snapshot, meta_state, context
-        ):
-            if isinstance(delta, dict):
-                yield delta   # status message — pass through, don't buffer
-                continue
-            full_response.append(delta)
-            yield delta
+        from echo.core.user_activity import mark_generating as _mark_gen, mark_idle as _mark_idle  # noqa: PLC0415
+        _mark_gen()
+        try:
+            async for delta in self.orchestrator.stream(
+                user_input, self.workspace.snapshot, meta_state, context
+            ):
+                if isinstance(delta, dict):
+                    yield delta   # status message — pass through, don't buffer
+                    continue
+                full_response.append(delta)
+                yield delta
+        finally:
+            _mark_idle()
 
         # Safety metadata filter — some providers (e.g. OpenRouter moderation) return
         # safety classification text instead of the actual response. Detect and discard.
@@ -623,9 +628,14 @@ Respond ONLY with valid JSON:
         )
 
         # Run orchestrator
-        response, agent_outputs = await self.orchestrator.run(
-            user_input, self.workspace.snapshot, meta_state, context
-        )
+        from echo.core.user_activity import mark_generating as _mark_gen2, mark_idle as _mark_idle2  # noqa: PLC0415
+        _mark_gen2()
+        try:
+            response, agent_outputs = await self.orchestrator.run(
+                user_input, self.workspace.snapshot, meta_state, context
+            )
+        finally:
+            _mark_idle2()
 
         # Post-interaction (blocking in this code path)
         await self._post_interact(

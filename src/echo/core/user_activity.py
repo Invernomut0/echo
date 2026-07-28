@@ -35,11 +35,43 @@ _last_interaction_at: float = 0.0
 # Background tasks will skip LLM calls during this window.
 _ACTIVE_WINDOW_SECONDS: float = 300.0  # 5 minutes
 
+# True while ECHO is actively generating a response for the user.
+# Distinct from is_active(): this flag lasts only seconds (the actual generation),
+# not 5 minutes.  Background LLM calls yield to this immediately.
+_generating: bool = False
+
 
 def mark_active() -> None:
     """Signal that a user interaction just started."""
     global _last_interaction_at  # noqa: PLW0603
     _last_interaction_at = time.monotonic()
+
+
+def mark_generating() -> None:
+    """Signal that ECHO has started generating a response.
+
+    Called in the pipeline just before the orchestrator LLM call.
+    Background tasks calling wait_if_generating() will block until
+    mark_idle() is called.  Also calls mark_active() so the 5-minute
+    guard is refreshed.
+    """
+    global _generating  # noqa: PLW0603
+    _generating = True
+    mark_active()
+
+
+def mark_idle() -> None:
+    """Signal that ECHO has finished generating a response.
+
+    Must be called in a ``finally`` block so it always fires even on error.
+    """
+    global _generating  # noqa: PLW0603
+    _generating = False
+
+
+def is_generating() -> bool:
+    """Return True if ECHO is currently generating a response to the user."""
+    return _generating
 
 
 def is_active() -> bool:
@@ -71,3 +103,28 @@ async def wait_for_idle(
             return True
         await asyncio.sleep(poll_interval)
     return False
+
+
+async def wait_if_generating(
+    timeout: float = 60.0,
+    poll_interval: float = 0.25,
+) -> None:
+    """Block until ECHO is no longer generating a response.
+
+    Background tasks (curiosity, consolidation, self-modification) call this
+    before making LLM calls so they don't compete for the GPU/CPU slots that
+    the user's response needs.
+
+    Args:
+        timeout: maximum seconds to wait before proceeding anyway.
+        poll_interval: how often to re-check the flag (seconds).
+    """
+    if not _generating:
+        return
+    deadline = time.monotonic() + timeout
+    while _generating and time.monotonic() < deadline:
+        await asyncio.sleep(poll_interval)
+    if _generating:
+        logger.debug(
+            "wait_if_generating: timeout after %.0fs — proceeding anyway", timeout
+        )

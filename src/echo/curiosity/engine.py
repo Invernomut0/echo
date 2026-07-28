@@ -186,6 +186,8 @@ class CuriosityEngine:
             f"- {m.content[:_MEMORY_SNIPPET_CHARS]}" for m in memories[:12]
         )
         try:
+            from echo.core.user_activity import wait_if_generating as _wait_gen  # noqa: PLC0415
+            await _wait_gen()
             async with _llm_semaphore:
                 raw = await llm.chat(
                     messages=[
@@ -392,6 +394,8 @@ Respond ONLY with valid JSON:
                 goals_text = "  (none)"
 
             # Step 1: Reflect and plan
+            from echo.core.user_activity import wait_if_generating as _wait_gen2  # noqa: PLC0415
+            await _wait_gen2()
             async with _llm_semaphore:
                 reflect_raw = await llm.chat(
                     messages=[{
@@ -530,6 +534,8 @@ Respond ONLY with valid JSON:
 
                 # Ask LLM to interpret results
                 try:
+                    from echo.core.user_activity import wait_if_generating as _wait_gen3  # noqa: PLC0415
+                    await _wait_gen3()
                     async with _llm_semaphore:
                         pursue_raw = await llm.chat(
                             messages=[{
@@ -720,6 +726,8 @@ Respond ONLY with valid JSON:
                     else:
                         primaries = await _ip.primary_interests(n=3)
                         if primaries:
+                            from echo.core.user_activity import wait_if_generating as _wait_gen4  # noqa: PLC0415
+                            await _wait_gen4()
                             async with _llm_semaphore:
                                 zpd = await _ip.zpd_topics(n=3)
                             if zpd:

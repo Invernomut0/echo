@@ -158,6 +158,10 @@ class ConsolidationScheduler:
 
     async def _run_light(self) -> ConsolidationReport:
         from echo.consolidation.sleep_phase import ConsolidationPhase
+        from echo.core.user_activity import wait_if_generating as _wait_gen  # noqa: PLC0415
+
+        # Pause if ECHO is generating a response — avoid LLM slot competition
+        await _wait_gen()
 
         phase = ConsolidationPhase()
         # Light cycle: apply decay + mark dormant — do NOT delete memories
@@ -429,7 +433,11 @@ class ConsolidationScheduler:
     async def _run_deep(self) -> ConsolidationReport:
         from echo.consolidation.dream_phase import DreamPhase
         from echo.consolidation.sleep_phase import ConsolidationPhase
+        from echo.core.user_activity import wait_if_generating as _wait_gen2  # noqa: PLC0415
         from echo.memory.dream_store import DreamStore
+
+        # Pause if ECHO is generating a response — avoid LLM slot competition
+        await _wait_gen2()
 
         # Deep/REM cycle: elapsed_seconds=0 (light already applied decay)
         # prune=True → permanently delete sub-threshold memories
