@@ -58,7 +58,9 @@ async def get_interest_profile():
     from echo.curiosity.interest_profile import interest_profile  # noqa: PLC0415
 
     primary = await interest_profile.primary_interests(n=10)
-    zpd = await interest_profile.zpd_topics(n=4)
+    # Read-only: the UI polls this endpoint on a timer, so it must never trigger
+    # ZPD generation. The curiosity engine refreshes that cache on its own cycle.
+    zpd = interest_profile.zpd_topics_cached(n=4)
     excluded = await interest_profile.excluded_topics()
     all_topics = await interest_profile.all_topics()
     return {

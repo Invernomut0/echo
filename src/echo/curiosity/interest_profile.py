@@ -29,6 +29,7 @@ Ollama embedding endpoint already used by the memory stores.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import asyncio
 import json
 import logging
 import time as _time
@@ -52,6 +53,8 @@ _MAX_PENDING_INTERACTIONS: int = 20
 
 # TTL caches — prevent repeated LLM calls from API polling
 _ZPD_CACHE_TTL: float = 600.0    # 10 min — ZPD topics change slowly
+_ZPD_FAILURE_TTL: float = 300.0  # 5 min — back off after an empty/failed generation
+_ZPD_SKIP_TTL: float = 60.0      # 1 min — re-check quickly when skipped for user activity
 _PRIMARY_CACHE_TTL: float = 300.0  # 5 min — profile updates after interactions
 
 _TOPIC_EXTRACT_PROMPT = """\
@@ -73,6 +76,8 @@ class UserInterestProfile:
     def __init__(self) -> None:
         # Exchanges buffered by queue_interaction(), drained by drain_pending()
         self._pending: deque[str] = deque(maxlen=_MAX_PENDING_INTERACTIONS)
+        # Serialises ZPD generation — see zpd_topics()
+        self._zpd_lock: asyncio.Lock = asyncio.Lock()
 
     # ------------------------------------------------------------------
     # DB init
@@ -142,11 +147,39 @@ class UserInterestProfile:
             return [r["topic"] for r in rows]
 
     # ------------------------------------------------------------------
-    # ZPD topics (vector-space, zero extra LLM calls)
+    # ZPD topics (LLM-generated, TTL-cached)
     # ------------------------------------------------------------------
 
     # TTL cache for zpd_topics — avoids LLM call on every API poll
     _zpd_cache: tuple[float, list[str]] | None = None
+
+    def _zpd_cached(self) -> list[str] | None:
+        """Return the cached ZPD topics if still fresh, else ``None``."""
+        if self._zpd_cache is None:
+            return None
+        expires_at, cached = self._zpd_cache
+        return cached if _time.monotonic() < expires_at else None
+
+    def _cache_zpd(self, topics: list[str], ttl: float) -> None:
+        """Store a ZPD result under its own TTL.
+
+        Failures must be cached too. The cache previously only recorded
+        successes, so whenever generation returned nothing — an empty completion
+        from the backend, a malformed array, no primary interests yet — the next
+        poll re-ran the whole thing. The curiosity panel polls every 8 s, so a
+        single persistent failure turned into a continuous stream of LLM calls.
+        """
+        self._zpd_cache = (_time.monotonic() + ttl, topics)
+
+    def zpd_topics_cached(self, n: int = 3) -> list[str]:
+        """Return the last generated ZPD topics without ever calling the LLM.
+
+        For read paths such as the profile endpoint, which the UI polls on a
+        timer: generating from a GET made display cost inference, and a stale or
+        empty cache turned every poll into a fresh request. The curiosity engine
+        refreshes the cache on its own cycle.
+        """
+        return (self._zpd_cached() or [])[:n]
 
     async def zpd_topics(self, n: int = 3) -> list[str]:
         """Return *n* ZPD topics — adjacent to primary interests but under-explored.
@@ -157,29 +190,37 @@ class UserInterestProfile:
         3. Filter out topics already in profile.
         4. Return top-n.
 
-        Result cached for _ZPD_CACHE_TTL seconds to prevent LLM spam from API polling.
+        Every outcome is cached, successes for _ZPD_CACHE_TTL and failures for
+        _ZPD_FAILURE_TTL, and generation is serialised behind a lock: prompt
+        processing can outlast the poll interval, so concurrent callers would
+        otherwise each start their own request.
         """
-        # Return cached result if fresh
-        if self._zpd_cache is not None:
-            ts, cached = self._zpd_cache
-            if _time.monotonic() - ts < _ZPD_CACHE_TTL:
-                return cached[:n]
+        cached = self._zpd_cached()
+        if cached is not None:
+            return cached[:n]
 
+        async with self._zpd_lock:
+            # A concurrent caller may have filled the cache while we waited.
+            cached = self._zpd_cached()
+            if cached is not None:
+                return cached[:n]
+            return (await self._generate_zpd_topics(n))[:n]
+
+    async def _generate_zpd_topics(self, n: int) -> list[str]:
+        """Generate and cache ZPD topics. Callers must hold ``_zpd_lock``."""
         # Never run ZPD when user is active — save LLM budget for interactions.
-        # Store timestamp of when we last skipped so repeated API polls don't
-        # keep checking: treat the "skipped" result as cached for 60s.
         try:
             from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
             if _ua():
                 logger.debug("ZPD skipped — user active")
-                # Cache empty with short TTL so next poll re-checks after 60s
-                self._zpd_cache = (_time.monotonic() - _ZPD_CACHE_TTL + 60.0, [])
+                self._cache_zpd([], _ZPD_SKIP_TTL)
                 return []
         except Exception:  # noqa: BLE001
             pass
 
         primaries = await self.primary_interests(5)
         if not primaries:
+            self._cache_zpd([], _ZPD_FAILURE_TTL)
             return []
 
         primary_labels = [p["topic"] for p in primaries]
@@ -211,12 +252,15 @@ class UserInterestProfile:
             arr_end = text.rfind("]")
             if arr_start == -1 or arr_end == -1:
                 logger.warning("ZPD topic generation produced no JSON array (raw len=%d)", len(raw))
+                self._cache_zpd([], _ZPD_FAILURE_TTL)
                 return []
             candidates: list[str] = json.loads(text[arr_start : arr_end + 1])
             if not isinstance(candidates, list):
+                self._cache_zpd([], _ZPD_FAILURE_TTL)
                 return []
         except Exception as exc:  # noqa: BLE001
             logger.warning("ZPD topic generation failed: %s", exc)
+            self._cache_zpd([], _ZPD_FAILURE_TTL)
             return []
 
         # Filter candidates: skip if too similar to existing profile topics
@@ -241,8 +285,7 @@ class UserInterestProfile:
                 break
 
         final = result[:n]
-        # Cache result to avoid repeated LLM calls from API polling
-        self._zpd_cache = (_time.monotonic(), final)
+        self._cache_zpd(final, _ZPD_CACHE_TTL if final else _ZPD_FAILURE_TTL)
         return final
 
     # ------------------------------------------------------------------

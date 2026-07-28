@@ -5,6 +5,32 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.14] — 2026-07-28
+
+### Fixed — ZPD topic generation fired an LLM request every few seconds
+
+`GET /api/curiosity/profile` called `zpd_topics()`, and the curiosity panel polls
+that endpoint every 8 s. The TTL cache only ever recorded *successful*
+generations, so as soon as the backend started returning empty completions every
+single poll launched a fresh `/v1/chat/completions` request — with nothing to
+cache, there was nothing to stop it.
+
+Three changes:
+
+- **Every outcome is cached**, not just successes: empty completions, malformed
+  arrays, LLM exceptions and "no interests recorded yet" all back off for
+  `_ZPD_FAILURE_TTL` (5 min) instead of retrying on the next poll. Successes keep
+  the 10 min TTL; the user-active skip keeps its short 60 s TTL so ZPD resumes
+  promptly once the user goes idle.
+- **Generation is serialised behind a lock.** On a local model prompt processing
+  routinely outlasts the 8 s poll interval, so concurrent callers each started
+  their own request rather than sharing one.
+- **The profile endpoint no longer generates.** It reads the cache via the new
+  `zpd_topics_cached()`; displaying the panel must not cost inference. The
+  curiosity engine refreshes the cache on its own cycle.
+
+---
+
 ## [0.5.13] — 2026-07-28
 
 ### Fixed — every greeting crashed with `KeyError: 'beliefs'`
