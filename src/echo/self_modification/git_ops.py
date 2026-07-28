@@ -7,6 +7,7 @@ All operations are relative to the ECHO repo root.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import stat
@@ -134,6 +135,31 @@ async def validate_python(path: str) -> tuple[bool, str]:
     if rc == 0 and "OK" in out:
         return True, ""
     return False, (err or out).strip()
+
+
+async def validate_structured(path: str) -> tuple[bool, str]:
+    """Validate a JSON or YAML config file parses. Returns (ok, error_message).
+
+    Self-modification only ever checked ``.py`` files, so a malformed config
+    edit was committed silently. That is not a cosmetic failure: a broken
+    ``data/mcp.json`` makes every MCP server fail to load, and ECHO then
+    genuinely loses file access and web search while still believing it has
+    them. Non-config extensions pass through untouched.
+    """
+    suffix = Path(path).suffix.lower()
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+        if suffix == ".json":
+            json.loads(text)
+        elif suffix in {".yaml", ".yml"}:
+            import yaml
+
+            yaml.safe_load(text)
+        else:
+            return True, ""
+    except Exception as exc:  # noqa: BLE001
+        return False, f"{type(exc).__name__}: {exc}"
+    return True, ""
 
 
 def repo_root() -> Path:

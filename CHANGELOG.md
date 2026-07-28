@@ -5,6 +5,47 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.13] — 2026-07-28
+
+### Fixed — every greeting crashed with `KeyError: 'beliefs'`
+
+`_SYNTHESIS_TEMPLATE` was formatted inline at three separate call sites.
+`str.format` only reports a missing placeholder at runtime, so when `{beliefs}`
+was added to the template the greeting fast path in `Orchestrator.stream` was
+silently left behind: "ciao", "grazie" and every other short message routed to
+the no-agent path raised `KeyError: 'beliefs'` and the UI rendered
+`[Error: 'beliefs']`.
+
+All three call sites now go through a single `_render_synthesis()` helper, so a
+future placeholder cannot desynchronise them. A regression test asserts the
+template is formatted in exactly one place and drives the fast path end to end.
+
+### Fixed — corrupt `data/mcp.json` disabled every tool
+
+A previous self-modification wrote `"feedback_enabled": false` into the middle
+of an `env` block, leaving the file unparseable. ECHO validated `.py` edits with
+`ast.parse` but wrote every other file unchecked, so the broken config committed
+cleanly — and with the MCP config unreadable **no server loaded at all**, which
+is why ECHO genuinely had no file access or web search while still believing it
+did.
+
+- Repaired `data/mcp.json` (7 servers parse again).
+- Added `git_ops.validate_structured()`: `.json` and `.yaml`/`.yml` edits are
+  parsed after writing and rolled back on failure, alongside the existing Python
+  check. Other extensions pass through untouched.
+
+### Added — `echo__list_beliefs`
+
+Asked "give me the list of all the beliefs you have", ECHO could only answer
+from the bounded selection in its prompt — at most 20 of up to 300 beliefs — so
+any list it gave was a guess. The new internal tool reads the identity graph
+directly, with optional `limit`, `min_confidence` and `query` filters. It lives
+in the `echo__*` namespace and is therefore never dropped by the tool-payload
+cap. The synthesis system prompt now instructs the model to call it rather than
+answer from the partial block.
+
+---
+
 ## [0.5.12] — 2026-07-28
 
 ### Identity Beliefs Reach the Prompt Again
