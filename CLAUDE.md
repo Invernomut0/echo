@@ -21,6 +21,22 @@ uv run pytest
 - Aggiornare `README.md`, `CHANGELOG.md` e `docs/` a ogni modifica di codice.
 - Commit in formato Conventional Commits.
 
+## Agenti
+
+Tre subagent di progetto in [.claude/agents/](.claude/agents/) (formato ufficiale:
+frontmatter YAML `name`/`description`/`tools`/`model`/`color` + system prompt).
+Si invocano per nome, oppure Claude delega da solo in base alla `description`.
+
+| Agente | Scopo | Accesso |
+| --- | --- | --- |
+| [`qa`](.claude/agents/qa.md) | Esegue `uv run pytest`, triage dei fallimenti, scrive test e regression test | read + write (test) + Bash |
+| [`code-reviewer`](.claude/agents/code-reviewer.md) | Review del diff: correttezza, sicurezza, secret, async safety, convenzioni | **read-only** |
+| [`researcher`](.claude/agents/researcher.md) | Ricerca su codebase e web (docs librerie, changelog), risposta con fonti citate | **read-only** + web |
+
+`qa` gira di default con `-m "not integration and not e2e"`: i marker
+`integration` (richiede LM Studio su `localhost:1234`) ed `e2e` vanno lanciati
+esplicitamente.
+
 ## Git
 
 **Regola: fare sempre commit e push, senza chiedere conferma.**
