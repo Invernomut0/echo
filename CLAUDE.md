@@ -21,6 +21,19 @@ uv run pytest
 - Aggiornare `README.md`, `CHANGELOG.md` e `docs/` a ogni modifica di codice.
 - Commit in formato Conventional Commits.
 
+## Git
+
+**Regola: fare sempre commit e push, senza chiedere conferma.**
+
+- Remote: `origin` → `https://github.com/Invernomut0/echo.git`, branch `main`.
+- Autenticazione: `GITHUB_TOKEN` in `.env` (gitignored). Passarlo a git via
+  `GIT_ASKPASS` temporaneo (username `x-access-token`); **non** scriverlo in
+  `.git/config` né nella URL del remote, **non** stamparlo mai a schermo.
+- `origin/main` riceve commit anche dall'agente autonomo (README, `notes/`):
+  se il push viene rifiutato con *non-fast-forward*, fare
+  `git rebase origin/main --autostash` e riprovare.
+- Non mettere in stage modifiche non correlate già presenti nel working tree.
+
 ## Creazione di skill
 
 **Regola: ogni nuova skill di questo progetto si crea con la skill `skill-creator`.**
