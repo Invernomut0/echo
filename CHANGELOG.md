@@ -5,6 +5,155 @@ Format: [version] — date, grouped by category.
 
 ---
 
+## [0.5.15] — 2026-08-04
+
+Findings from a full read-through of `src/echo` by four parallel `code-reviewer`
+subagents (core, memory, API/MCP/integrations, background engines). Only defects
+traceable to a real call path were acted on; each one now has a regression test in
+`tests/unit/test_review_regressions.py`.
+
+### Security
+
+- **Arbitrary file read through the wiki API.** `GET /api/wiki/page?path=../../.env`
+  returned the contents of `.env` — every API key and `GITHUB_TOKEN` — because
+  `WikiStore.read_page_by_path` joined caller-supplied text onto the wiki root with
+  no containment check. An absolute path worked too, since joining one discards the
+  base. The path is now resolved and required to stay inside the wiki root and to
+  end in `.md`.
+- **`.env` line injection through `PUT /api/setup/config`.** Values are written with
+  `quote_mode="never"`, so a newline inside one ended the line and defined a second
+  variable: a model name like `gpt-4o\nGITHUB_TOKEN=…` overwrote any secret, and
+  `LD_PRELOAD`/`DYLD_INSERT_LIBRARIES` set this way was inherited by every MCP
+  subprocess. Control characters and non-`[A-Z0-9_]` keys are now rejected with 422.
+- **Telegram bot token exfiltration.** `POST /api/setup/telegram/test` interpolated
+  the *stored* token into a caller-supplied `api_base_url`, so an attacker read it
+  from their own access log. A custom base URL now requires an explicit token.
+- **Bot token written to the logs.** httpx puts the request URL in its error
+  messages and the base URL embeds the token, so a 401 or a 409 polling conflict
+  logged a live credential. Token-bearing text is redacted before logging.
+- `GET /api/setup/config` returned `lm_studio_api_key` in clear while masking every
+  other credential; it is now masked, and a round-tripped `"***"` no longer
+  overwrites the real secret.
+- The self-modification path gate was bypassable two ways: the forbidden set was
+  matched against the raw LLM string (`./.env` and
+  `src/echo/self_modification/./engine.py` passed, then resolved to the real
+  protected files), and containment was a string prefix rather than a path check.
+  Paths are now resolved before matching, with `relative_to` for containment.
+
+### Fixed
+
+- **Semantic memory decayed ~24× too fast.** `apply_decay` measured Δt in hours with
+  λ = 1 − salience — the aggressive formula abandoned for episodic memory in
+  `echo.scripts.fix_decay_values` — so every semantic memory hit 0.0 strength within
+  two days of uptime and every identity-graph node showed confidence 0.0. Now days
+  and λ = (1 − salience) × 0.005, matching `MemoryEntry.compute_salience`.
+- **Deleted memories kept being injected into prompts.** A chunked memory stores one
+  vector per chunk but SQLite records only `chunk_00`, so `delete()` left chunks
+  01…NN in ChromaDB — and retrieval serves the Chroma document, not the SQLite row.
+  Deletion is now by `memory_id` metadata (plus the bare legacy id), in semantic,
+  episodic `delete_by_ids`, and `prune_weak` (which passed a bare id that was never
+  a Chroma id at all, so it deleted nothing).
+- **Curiosity and the goal cycle stopped permanently.** The "no new memories" guard
+  compared `len(get_all(limit=20))` against a saved count, and the count saturates
+  at 20 — once the store reached 20 entries the guard was always true and both
+  cycles were dead for the life of the process. It now compares the newest memory's
+  id.
+- **Two cron task types were silent no-ops.** `curiosity_cycle` imported a
+  `curiosity_engine` singleton that never existed and `goal_reflect` imported a
+  `curiosity.goal_engine` module that does not exist; both raised `ImportError`,
+  reported `status: skipped`, and climbed `run_count` forever. Rewired to
+  `CuriosityEngine`, with a new public `run_goal_cycle()`.
+- **Streaming tool loop could return no answer at all.** On exhausting
+  `max_tool_rounds` the streaming path logged a warning and returned, having yielded
+  only tool-status frames — the user saw an empty reply and an empty exchange was
+  stored in episodic memory. It now makes the same final tools-disabled call the
+  non-streaming loops make.
+- **Greeting fast path swallowed real questions.** `startswith` against the prefixes
+  `no`/`si`/`ok` routed "Notizie sulla mia ricerca?", "sicuro di aver capito?" and
+  "okay ma spiegami la memoria episodica" to the no-agent path, skipping the
+  archivist that surfaces retrieved memories. Text must now consist *entirely* of
+  acknowledgements.
+- **Multi-word routing signals could never match.** "come posso", "what if",
+  "free will" and friends were tested against a set of single tokens, so the planner
+  was never selected by the keywords that exist to select it.
+- Identity-fact injection prepended up to 5 rows and then truncated to `n_results`,
+  evicting every vector-search hit — semantic recall was effectively dead once a few
+  Telegram users were known. Capped at 2 with room reserved for vector hits.
+- Semantic ChromaDB calls were not error-wrapped, so an embedding-dimension mismatch
+  turned every chat into an error event instead of degrading to the SQLite fallback.
+- The chunker emitted chunks well over `CHUNK_SIZE` when a long sentence followed a
+  short one; the embedder truncates at 1800 chars, so the stored document no longer
+  matched its own vector. Long sentences are now hard-split.
+- `_last_memory_sources` was only created in the streaming path, so the first
+  Telegram message raised `AttributeError` (swallowed as a debug log) and silently
+  disabled the wiki fallback for the whole process. Initialised in `__init__`.
+- `_update_index` matched index rows by slug substring, so a short slug ("echo")
+  replaced a longer page's row ("echo-architecture") and evicted it from the index,
+  search, graph and prompt context. Rows are now keyed by relative path, titles are
+  escaped for the table cell, and a symbol-only title no longer slugifies to `""`
+  (which made every such page overwrite `<category>/.md`).
+- `rstrip(".git")` in `wiki_sync` strips a character set, not a suffix: any repo name
+  ending in `g`, `i`, `t` or `.` was mangled ("digit" → "d") and every GitHub call
+  404'd. Uses `removesuffix`.
+- Autobiographical memories recorded an `embedding_id` even when embedding failed, so
+  nothing ever re-embedded them and that chapter stayed unreachable by retrieval.
+- Manual consolidation triggers bypassed the `_light_running`/`_deep_running` overlap
+  guards, letting a cron task interleave with the scheduled loop and promote/delete
+  the same memory ids concurrently.
+- `WeightEvolution.evolve` was called without `meta_state`, pinning the Boltzmann
+  temperature at 0.0 so the selection was always fully elitist.
+- Restored learning counters left `_last_assessment_at`/`_last_insight_at` at 0, so
+  both engines fired an LLM call on the first interaction after every restart.
+
+### Changed — background cost control
+
+- **The background token budget under-counted by roughly two orders of magnitude.**
+  Only `chat()` was charged, and only for its completion — but the background loops
+  use `stream_chat_with_tools`, and their prompts dominate (thousands of input tokens
+  for a `{"should_modify": false}` reply). Every `can_spend()` gate was therefore
+  permanently open. Prompt and completion are both charged now, on the streaming and
+  tool paths as well.
+- **Cooldowns are charged against the attempt, not the success.** Self-modification,
+  proactive outreach and initiative generation only armed their clocks after a
+  delivered result, so a "no modification warranted" or `SILENT` answer — which the
+  prompts explicitly invite — re-ran a full multi-thousand-token call on every 5-minute
+  heartbeat (~288/day instead of the documented ≤4). They also seeded the clock at
+  `0.0` while comparing against `time.monotonic()`, which counts from boot, so the
+  cooldown was already expired minutes after every restart.
+- The rate limiter was acquired only on the two plain-chat paths, never inside the
+  five tool-round loops, so a single turn could fire 8 requests back-to-back and get
+  429'd mid-response on a rate-capped provider.
+- `tenacity` retried *every* exception, including "model not loaded" and 400 "context
+  length exceeded" that cannot change within the backoff; with a 300 s read timeout a
+  wedged backend turned one startup call into a 15-minute stall. Retries are now
+  limited to transient transport/5xx/429 failures.
+- Dedup bounded the *pair count*, and the nested loop broke out entirely on hitting
+  it — only the newest memory was ever compared, so a duplicate at indices (5, 6) was
+  never found, while the whole store was re-embedded every 5 minutes to do it. Bounds
+  the candidate set instead.
+- `stream_chat` did not check that the LM Studio model was loaded, letting it JIT-load
+  behind a 60–90 s blank stream instead of the clear error the non-streaming path
+  raises.
+- N+1 queries in the goal store (`selectinload` instead of per-row `refresh`;
+  `COUNT` in SQL instead of materialising rows to call `len()`), a single
+  `list_pages()` parse per wiki search instead of three, and bounded `limit`
+  parameters on the memory router (`GET /api/memory/chunks?limit=100000` was legal).
+- Fire-and-forget tasks in the pipeline and both learning engines are now tracked, so
+  they cannot be garbage-collected mid-flight and their exceptions are retrieved;
+  `_post_interact` logs with `logger.exception` so a failure in any of ~20 subsystems
+  is identifiable.
+
+### Known — not addressed here
+
+`POST /api/mcp/servers` spawns a caller-supplied command as a subprocess with the
+full secret environment, `GET /api/setup/github/copilot-token` returns a live bearer
+token, and `PATCH /api/mcp/servers/{name}` can point the filesystem server at `/` —
+all unauthenticated, on an interface `api_host` defaults to exposing on `0.0.0.0`.
+Fixing these means introducing an auth scheme and changing the default bind address,
+which the frontend has to be updated for; deliberately left as a separate decision.
+
+---
+
 ## [0.5.14] — 2026-07-28
 
 ### Fixed — ZPD topic generation fired an LLM request every few seconds

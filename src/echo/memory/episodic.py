@@ -407,16 +407,28 @@ class EpisodicMemoryStore:
         factory = get_session_factory()
         async with factory() as session:
             rows = (await session.execute(select(MemoryRow).where(MemoryRow.id.in_(ids)))).scalars().all()
-            chroma_ids = [r.embedding_id for r in rows if r.embedding_id]
+            deleted_ids = [r.id for r in rows]
             for row in rows:
                 await session.delete(row)
             await session.commit()
-        if chroma_ids:
-            try:
-                self._collection.delete(ids=chroma_ids)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("ChromaDB batch delete failed: %s", exc)
+        self._delete_vectors(deleted_ids)
         return len(rows)
+
+    def _delete_vectors(self, memory_ids: list[str]) -> None:
+        """Remove every chunk vector belonging to the given memories.
+
+        Deleting by `embedding_id` is not enough: a chunked memory has one vector
+        per chunk ("<uuid>__chunk_00…NN") and SQLite records only chunk_00, so the
+        remaining chunks would survive and keep being returned by retrieve_similar()
+        with no SQLite row behind them.
+        """
+        for mid in memory_ids:
+            try:
+                self._collection.delete(where={"memory_id": mid})
+                # Legacy vectors predate chunk metadata and are keyed by the bare id.
+                self._collection.delete(ids=[mid])
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("ChromaDB delete failed for %s: %s", mid[:8], exc)
 
     async def prune_weak(self, threshold: float = 0.01) -> int:
         """Delete memories below strength threshold (both dormant and active). Returns count deleted."""
@@ -430,7 +442,7 @@ class EpisodicMemoryStore:
             await session.commit()
 
         if ids_to_delete:
-            self._collection.delete(ids=ids_to_delete)
+            self._delete_vectors(ids_to_delete)
             logger.info("Pruned %d weak memories", len(ids_to_delete))
 
         return len(ids_to_delete)

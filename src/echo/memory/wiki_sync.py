@@ -31,7 +31,9 @@ def _parse_repo(url: str) -> tuple[str, str] | None:
     m = re.search(r"github\.com/([^/]+)/([^/\s?#]+)", url)
     if not m:
         return None
-    return m.group(1), m.group(2).rstrip(".git")
+    # removesuffix, not rstrip: rstrip(".git") strips a *character set*, so
+    # "digit" would become "d" and any repo ending in g/i/t/. gets mangled.
+    return m.group(1), m.group(2).removesuffix(".git")
 
 
 class WikiSyncEngine:

@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 
 _COLLECTION_NAME = "semantic_memory"
 
+# Identity rows are prepended to every retrieval; cap them so they cannot evict
+# the whole vector-search result set (see retrieve_similar).
+_MAX_IDENTITY_INJECTED = 2
+
+
+def _decay_lambda(salience: float) -> float:
+    """Gentle decay rate, matching `MemoryEntry.compute_salience` in core.types.
+
+    The original λ = 1 − salience killed memories within hours; the factor of
+    0.005 is what makes them last months. See `echo.scripts.fix_decay_values`.
+    """
+    return round((1.0 - salience) * 0.005, 6)
+
 # ---------------------------------------------------------------------------
 # Conflict-detection patterns
 # Each entry: (category_name, compiled_regex).
@@ -86,7 +99,7 @@ class SemanticMemoryStore:
                 # If the new salience is higher, update it
                 if salience > existing_row.salience:
                     existing_row.salience = salience
-                    existing_row.decay_lambda = round(1.0 - salience, 4)
+                    existing_row.decay_lambda = _decay_lambda(salience)
                     await session.commit()
                 logger.debug(
                     "Semantic store dedup: content already exists (%s), skipping",
@@ -109,7 +122,7 @@ class SemanticMemoryStore:
         chunks = chunk_text(norm_content)
         vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
 
-        decay_lambda = round(1.0 - salience, 4)
+        decay_lambda = _decay_lambda(salience)
         # Only set embedding_id when vectors are actually stored in ChromaDB.
         # If embedding fails, embedding_id stays None so backfill can detect it.
         embedding_id: str | None = None
@@ -259,19 +272,32 @@ class SemanticMemoryStore:
         # The multilingual embedding model (paraphrase-multilingual-mpnet-base-v2)
         # maps queries in any language close to their English equivalents, so a
         # single vector search is enough — no language-specific expansion needed.
-        col_count = await loop.run_in_executor(None, self._collection.count)
+        # A ChromaDB failure here (e.g. an embedding-dimension mismatch after the
+        # operator switches OLLAMA_EMBEDDING_MODEL) must degrade to the SQLite
+        # fallbacks below, not propagate: pipeline gathers this alongside episodic
+        # retrieval without return_exceptions, so a raise turns every chat into an
+        # error event. Episodic retrieval already wraps its Chroma calls this way.
+        try:
+            col_count = await loop.run_in_executor(None, self._collection.count)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Semantic ChromaDB count failed: %s", exc)
+            col_count = 0
         if col_count > 0:
             vector = query_vector if query_vector else await llm.embed_one(query)
 
             if vector:
-                results = await loop.run_in_executor(
-                    None,
-                    lambda: self._collection.query(
-                        query_embeddings=[vector],
-                        n_results=min(n_results * 3, col_count),
-                        include=["documents", "metadatas", "distances"],
-                    ),
-                )
+                try:
+                    results = await loop.run_in_executor(
+                        None,
+                        lambda: self._collection.query(
+                            query_embeddings=[vector],
+                            n_results=min(n_results * 3, col_count),
+                            include=["documents", "metadatas", "distances"],
+                        ),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Semantic ChromaDB query failed: %s", exc)
+                    results = {}
                 # Filter by cosine distance — discard memories too dissimilar to the query.
                 # ChromaDB cosine space: distance = 1 - cosine_similarity (0 = identical, 2 = opposite).
                 # High-salience items (≥ 0.9, e.g. user identity facts) use a relaxed threshold
@@ -313,7 +339,12 @@ class SemanticMemoryStore:
         # Safety fallback 1: Always inject user_identity tagged entries so the user's
         # name and other critical facts are never missing from context regardless of
         # cosine distance (the query phrasing may differ greatly from the stored text).
+        # Capped at _MAX_IDENTITY_INJECTED: these are inserted at the front and the
+        # function returns entries[:n_results], so injecting five of them (which one
+        # Telegram user per stored name/@username easily produces) pushed every
+        # vector-search hit out of the returned slice and killed semantic recall.
         existing_contents = {e.content for e in entries}
+        reserve = min(_MAX_IDENTITY_INJECTED, max(1, n_results // 2))
         try:
             factory = get_session_factory()
             async with factory() as session:
@@ -322,7 +353,7 @@ class SemanticMemoryStore:
                         select(SemanticRow)
                         .where(SemanticRow.tags.like('%user_identity%'))
                         .order_by(SemanticRow.salience.desc())
-                        .limit(5)
+                        .limit(reserve)
                     )
                 ).scalars().all()
             for row in identity_rows:
@@ -463,16 +494,21 @@ class SemanticMemoryStore:
     async def apply_decay(self, elapsed_seconds: float) -> int:
         """Apply exponential decay I(t) = I₀·e^(−λ·Δt) to all semantic memories.
 
+        Δt is in **days**, matching episodic decay and the λ produced by
+        `_decay_lambda`. Using hours here (as this method originally did) with a
+        λ of 1−salience crushed every semantic memory to 0.0 within two days of
+        uptime, which zeroed the confidence of every node in the identity graph.
+
         Returns count of memories below 0.01 strength (prunable).
         """
-        elapsed_hours = elapsed_seconds / 3600.0
+        elapsed_days = elapsed_seconds / 86400.0
         factory = get_session_factory()
         prunable = 0
         async with factory() as session:
             rows = (await session.execute(select(SemanticRow))).scalars().all()
             for row in rows:
                 new_strength = row.current_strength * math.exp(
-                    -row.decay_lambda * elapsed_hours
+                    -row.decay_lambda * elapsed_days
                 )
                 row.current_strength = max(0.0, round(new_strength, 6))
                 if row.current_strength < 0.01:
@@ -495,15 +531,20 @@ class SemanticMemoryStore:
             row = await session.get(SemanticRow, memory_id)
             if row is None:
                 return False
-            chroma_id = row.embedding_id
             content_snippet = row.content[:60]
 
-        # Delete from ChromaDB first — if this fails, SQLite row stays intact (no orphan vector)
-        if chroma_id:
-            try:
-                self._collection.delete(ids=[chroma_id])
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("ChromaDB delete failed for %s: %s", chroma_id[:8], exc)
+        # Delete from ChromaDB first — if this fails, SQLite row stays intact (no orphan vector).
+        # Delete by metadata rather than by embedding_id: a chunked memory has one
+        # vector per chunk ("<uuid>__chunk_00…NN") but only chunk_00 is recorded in
+        # SQLite, so deleting by id would leave chunks 01…NN in the collection —
+        # and retrieve_similar() serves the Chroma document, so the "deleted" text
+        # would keep being injected into prompts forever.
+        try:
+            self._collection.delete(where={"memory_id": memory_id})
+            # Legacy vectors predate chunk metadata and are keyed by the bare id.
+            self._collection.delete(ids=[memory_id])
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ChromaDB delete failed for %s: %s", memory_id[:8], exc)
 
         async with factory() as session:
             row = await session.get(SemanticRow, memory_id)

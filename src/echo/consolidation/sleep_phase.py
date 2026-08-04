@@ -52,7 +52,12 @@ HARD_DEDUP_SIM: float = 0.97
 SOFT_DEDUP_SIM: float = 0.92
 
 # Max pairs to evaluate per cycle (cost guard)
-_MAX_PAIRS: int = 300
+# Bound the *candidate set*, not the pair count: capping pairs made the nested
+# loop break out entirely after 300 comparisons, so only the newest memory was
+# ever compared against anything (pairs (0, 1..300)) — a duplicate at indices
+# (5, 6) was never found. 120 candidates is a full 7 140-pair scan, sub-second
+# in pure Python, and it also caps how much gets embedded each cycle.
+_MAX_CANDIDATES: int = 120
 
 
 # ── Prompts ───────────────────────────────────────────────────────────────────
@@ -123,24 +128,19 @@ def _find_duplicate_pairs(
 ) -> list[tuple[str, str, float]]:
     """Return (winner_id, loser_id, similarity) for pairs above threshold.
 
-    Winner = higher _memory_score(). Capped at _MAX_PAIRS evaluated.
+    Winner = higher _memory_score(). Every pair within the first
+    _MAX_CANDIDATES memories is compared.
     """
-    ids = [m.id for m in memories if m.id in vectors]
+    ids = [m.id for m in memories if m.id in vectors][:_MAX_CANDIDATES]
     score = {m.id: _memory_score(m) for m in memories}
     pairs: list[tuple[str, str, float]] = []
-    evaluated = 0
     for i in range(len(ids)):
         for j in range(i + 1, len(ids)):
-            if evaluated >= _MAX_PAIRS:
-                break
-            evaluated += 1
             sim = _cosine(vectors[ids[i]], vectors[ids[j]])
             if sim >= threshold:
                 a, b = ids[i], ids[j]
                 winner, loser = (a, b) if score[a] >= score[b] else (b, a)
                 pairs.append((winner, loser, sim))
-        if evaluated >= _MAX_PAIRS:
-            break
     return pairs
 
 
@@ -193,6 +193,9 @@ class ConsolidationPhase:
         if len(memories) < 2:
             return 0, 0, []
 
+        # Embed only the candidate slice: this ran over the entire store on every
+        # light cycle (~300 s) to perform a few hundred comparisons.
+        memories = memories[:_MAX_CANDIDATES]
         vectors = await _embed_memories(memories)
         threshold = SOFT_DEDUP_SIM if hard_prune else HARD_DEDUP_SIM
         if len(vectors) >= 2:
@@ -256,6 +259,7 @@ class ConsolidationPhase:
             for r in all_rows
         ]
 
+        proxies = proxies[:_MAX_CANDIDATES]
         vectors = await _embed_memories(proxies)
         # Semantic dedup always uses HARD threshold regardless of cycle type —
         # semantic memories are already abstract, even soft similarity is enough

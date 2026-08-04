@@ -13,8 +13,14 @@ from collections.abc import AsyncGenerator
 from typing import Any
 
 import httpx
-from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    AsyncOpenAI,
+    InternalServerError,
+    RateLimitError,
+)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from echo.core.config import settings
 
@@ -26,7 +32,11 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class _EmbedCache:
-    """Thread-safe LRU cache for embedding vectors with TTL expiry.
+    """LRU cache for embedding vectors with TTL expiry.
+
+    Not thread-safe and does not need to be: every access happens on the event
+    loop. Two concurrent embed_one() calls for the same text can both miss and
+    both hit the backend, which is wasteful but not incorrect.
 
     On slow hardware (e.g. a phone acting as LM Studio server) a single
     embed call can take 30-40 s.  Caching avoids repeated calls for the
@@ -502,12 +512,19 @@ class LLMClient:
     # ── Chat completions ───────────────────────────────────────────────────────
 
     @staticmethod
-    def _record_background_usage(text: str) -> None:
+    def _record_background_usage(
+        text: str, messages: list[dict[str, Any]] | None = None
+    ) -> None:
         """Charge a completed call to the background budget, if it was one.
 
         A call counts as *background* when no user-facing generation is in
-        flight. Token count is estimated from the completion length (~4 chars
-        per token) since not every provider returns a usage block.
+        flight. Token count is estimated at ~4 chars per token since not every
+        provider returns a usage block.
+
+        The prompt is charged too: background calls here send thousands of input
+        tokens and get back a few dozen ("{\"should_modify\": false}"), so counting
+        only the completion under-reported spend by roughly two orders of
+        magnitude and left every can_spend() gate permanently open.
         """
         try:
             from echo.core.background_budget import background_budget  # noqa: PLC0415
@@ -515,11 +532,34 @@ class LLMClient:
 
             if is_generating():
                 return  # foreground work is never charged
-            background_budget.record(len(text) // 4)
+            prompt_chars = 0
+            for msg in messages or []:
+                content = msg.get("content")
+                if isinstance(content, str):
+                    prompt_chars += len(content)
+            background_budget.record((prompt_chars + len(text)) // 4)
         except Exception:  # noqa: BLE001
             pass  # accounting must never break a completion
 
-    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10), reraise=True)
+    # Retry only transient transport/server failures. Retrying *everything* meant a
+    # RuntimeError("model not loaded") or a 400 "context length exceeded" — neither of
+    # which can change within the backoff — burned three attempts, and with
+    # llm_read_timeout_s at its 300 s default a wedged backend turned a single startup
+    # call into a 15-minute stall.
+    @retry(
+        retry=retry_if_exception_type(
+            (
+                APIConnectionError,
+                APITimeoutError,
+                InternalServerError,
+                RateLimitError,
+                httpx.TransportError,
+            )
+        ),
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        reraise=True,
+    )
     async def chat(
         self,
         messages: list[dict[str, str]],
@@ -536,7 +576,7 @@ class LLMClient:
             model=model,
             extra=extra,
         )
-        self._record_background_usage(result)
+        self._record_background_usage(result, messages)
         return result
 
     async def _chat_impl(
@@ -581,8 +621,34 @@ class LLMClient:
         max_tokens: int = 1024,
         model: str | None = None,
     ) -> AsyncGenerator[str, None]:
+        # Charged in a finally so background streaming counts against the budget
+        # too — it previously did not, and stream_chat/stream_chat_with_tools are
+        # exactly what the consolidation, curiosity and proactive loops use.
+        _charged: list[str] = []
+        try:
+            async for _delta in self._stream_chat_impl(
+                messages, temperature=temperature, max_tokens=max_tokens, model=model
+            ):
+                _charged.append(_delta)
+                yield _delta
+        finally:
+            self._record_background_usage("".join(_charged), messages)
+
+    async def _stream_chat_impl(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        temperature: float,
+        max_tokens: int,
+        model: str | None,
+    ) -> AsyncGenerator[str, None]:
         await _rate_limiter.acquire()
         p = settings.llm_provider
+        # Same guard as _chat_impl: without it the primary user-facing path lets
+        # LM Studio JIT-load the model, which shows up as a 60-90 s blank stream or
+        # an opaque Channel Error instead of a clear "model not loaded" message.
+        if p == "lm_studio":
+            await self.assert_model_ready()
         if p == "copilot":
             async for delta in self._copilot_stream_chat(
                 messages, temperature=temperature, max_tokens=max_tokens, model=model
@@ -845,6 +911,10 @@ class LLMClient:
         current_messages = list(messages)
         client = _build_provider_client()
         for _round in range(max_tool_rounds):
+            # Every round is a separate provider request: without this the
+            # per-provider RPM limiter is bypassed entirely on tool paths,
+            # which is what triggers 429s mid-response on rate-capped APIs.
+            await _rate_limiter.acquire()
             response = await client.chat.completions.create(
                 model=model or _provider_model(),
                 messages=current_messages,
@@ -857,7 +927,10 @@ class LLMClient:
 
             # No tool calls → we have the final answer
             if not msg.tool_calls:
-                return msg.content or ""
+                final = msg.content or ""
+                # chat() charges its own calls, but this loop bypasses it.
+                self._record_background_usage(final, current_messages)
+                return final
 
             # Append the assistant message (with tool_calls) to history
             current_messages.append(msg.model_dump(exclude_none=True))
@@ -900,6 +973,10 @@ class LLMClient:
         self._last_tools_used = []
         current_messages = list(messages)
         for _round in range(max_rounds):
+            # Every round is a separate provider request: without this the
+            # per-provider RPM limiter is bypassed entirely on tool paths,
+            # which is what triggers 429s mid-response on rate-capped APIs.
+            await _rate_limiter.acquire()
             token_data = await _get_copilot_token_cached()
             async with httpx.AsyncClient(timeout=120.0) as client:
                 r = await client.post(
@@ -1000,12 +1077,20 @@ class LLMClient:
 
         # OpenAI-compatible: single streaming pass with in-flight tool detection.
         # If the model uses no tools, content is streamed directly — no second call.
-        async for delta in self._stream_openai_with_tool_rounds(
-            messages, tools, mcp_manager,
-            temperature=temperature, max_tokens=max_tokens,
-            max_rounds=max_tool_rounds, model=model,
-        ):
-            yield delta
+        # This branch never goes through stream_chat, so it charges the background
+        # budget itself. Status dicts carry no tokens.
+        _charged: list[str] = []
+        try:
+            async for delta in self._stream_openai_with_tool_rounds(
+                messages, tools, mcp_manager,
+                temperature=temperature, max_tokens=max_tokens,
+                max_rounds=max_tool_rounds, model=model,
+            ):
+                if isinstance(delta, str):
+                    _charged.append(delta)
+                yield delta
+        finally:
+            self._record_background_usage("".join(_charged), messages)
 
     async def _stream_openai_with_tool_rounds(
         self,
@@ -1031,6 +1116,10 @@ class LLMClient:
         _tools_supported = True  # assume support; flip on 404 tool error
 
         for _round in range(max_rounds):
+            # Every round is a separate provider request: without this the
+            # per-provider RPM limiter is bypassed entirely on tool paths,
+            # which is what triggers 429s mid-response on rate-capped APIs.
+            await _rate_limiter.acquire()
             content_parts: list[str] = []
             # tool_call_acc: index → {"id", "name", "args"}
             tool_call_acc: dict[int, dict[str, str]] = {}
@@ -1125,7 +1214,27 @@ class LLMClient:
                     "content": tool_result,
                 })
 
-        logger.warning("[MCP] max tool rounds (%d) reached", max_rounds)
+        # Round budget exhausted with the model still asking for tools. Every
+        # non-streaming tool loop makes a final tools-disabled call here; without it
+        # this generator returns having yielded only "_status" dicts, so the caller
+        # sees an empty assistant message and stores an empty episodic exchange.
+        logger.warning(
+            "[MCP] max tool rounds (%d) reached — final call without tools", max_rounds
+        )
+        await _rate_limiter.acquire()
+        final_stream = await client.chat.completions.create(
+            model=model or _provider_model(),
+            messages=current_messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            stream=True,
+        )
+        try:
+            async for chunk in final_stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        finally:
+            await final_stream.close()
 
     async def _openai_tool_rounds(
         self,
@@ -1143,6 +1252,10 @@ class LLMClient:
         current_messages = list(messages)
         client = _build_provider_client()
         for _round in range(max_rounds):
+            # Every round is a separate provider request: without this the
+            # per-provider RPM limiter is bypassed entirely on tool paths,
+            # which is what triggers 429s mid-response on rate-capped APIs.
+            await _rate_limiter.acquire()
             response = await client.chat.completions.create(
                 model=model or _provider_model(),
                 messages=current_messages,
@@ -1194,6 +1307,10 @@ class LLMClient:
         self._last_tools_used = []
         current_messages = list(messages)
         for _round in range(max_rounds):
+            # Every round is a separate provider request: without this the
+            # per-provider RPM limiter is bypassed entirely on tool paths,
+            # which is what triggers 429s mid-response on rate-capped APIs.
+            await _rate_limiter.acquire()
             token_data = await _get_copilot_token_cached()
             async with httpx.AsyncClient(timeout=120.0) as client:
                 r = await client.post(

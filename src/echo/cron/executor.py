@@ -117,14 +117,13 @@ async def _exec_curiosity_cycle(
     config keys (all optional):
       force: bool — bypass idle-time check (default True for cron).
     """
-    try:
-        from echo.curiosity.engine import curiosity_engine  # lazy import
-    except ImportError:
-        return {"status": "skipped", "reason": "curiosity module not available"}
+    # CuriosityEngine, not a `curiosity_engine` singleton: that name has never
+    # existed, so this task raised ImportError and reported "skipped" forever.
+    from echo.curiosity.engine import CuriosityEngine  # noqa: PLC0415
 
     force = config.get("force", True)
-    result = await curiosity_engine.run_cycle(force=force)
-    return {"status": "ok", "result": result}
+    stored = await CuriosityEngine().run_cycle(force=force)
+    return {"status": "ok", "stored": stored}
 
 
 async def _exec_llm_task(
@@ -244,15 +243,14 @@ async def _exec_goal_reflect(
     config keys (all optional):
       max_goals: int — max goals to process (default 3).
     """
-    try:
-        from echo.curiosity.goal_engine import GoalEngine  # lazy import
-    except ImportError:
-        return {"status": "skipped", "reason": "goal engine not available"}
+    # There is no `curiosity.goal_engine` module — the goal cycle lives on
+    # CuriosityEngine. The old import always failed and the task reported
+    # "skipped" on every run while claiming to be scheduled.
+    from echo.curiosity.engine import CuriosityEngine  # noqa: PLC0415
+    from echo.memory.goals import goal_store  # noqa: PLC0415
 
-    max_goals = config.get("max_goals", 3)
-    engine = GoalEngine()
-    result = await engine.reflect_and_plan(max_goals=max_goals)
-    return {"status": "ok", "result": result}
+    await CuriosityEngine().run_goal_cycle()
+    return {"status": "ok", "active_goals": await goal_store.count_active()}
 
 
 async def _exec_self_modification(
@@ -276,7 +274,9 @@ async def _exec_self_modification(
     from echo.self_modification.engine import self_modification_engine  # noqa: PLC0415
 
     if config.get("cooldown_override"):
-        self_modification_engine._last_modified = 0.0  # reset cooldown
+        # Assigning 0.0 no longer expires the cooldown now that _last_modified is
+        # seeded from the monotonic clock instead of a zero sentinel.
+        self_modification_engine.reset_cooldown()
 
     mod = await self_modification_engine.evaluate_and_modify(pipeline)
 

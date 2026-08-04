@@ -75,16 +75,24 @@ def chunk_text(
         if len(candidate) <= chunk_size:
             current = candidate
         else:
-            if current:
+            if len(sentence) > chunk_size:
+                # The sentence alone busts the window, so it must be hard-split
+                # whether or not a window is already open. Seeding the next window
+                # with `tail + sentence` instead (the previous behaviour) produced
+                # chunks far above chunk_size, which the embedder silently truncates
+                # at _EMBED_MAX_CHARS — the stored document then no longer matches
+                # its own vector and the tail becomes unsearchable.
+                if current:
+                    chunks.append(current)
+                    current = ""
+                chunks.extend(_hard_split(sentence, chunk_size, overlap))
+            elif current:
                 chunks.append(current)
                 # Seed next window with the tail of the finished chunk.
                 tail = current[-overlap:] if len(current) > overlap else current
                 current = (tail + " " + sentence).strip()
             else:
-                # Single sentence already exceeds chunk_size — hard character-split.
-                for piece in _hard_split(sentence, chunk_size, overlap):
-                    chunks.append(piece)
-                current = ""
+                current = sentence
 
     if current:
         chunks.append(current)

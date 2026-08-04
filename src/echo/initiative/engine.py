@@ -57,6 +57,7 @@ def _lang_directive() -> str:
 _MAX_DAILY_INITIATIVES = 3       # max proactive messages per 24h
 _MIN_INSIGHT_QUALITY = 0.6       # minimum quality score to send
 _COOLDOWN_HOURS = 4              # minimum hours between initiatives
+_ATTEMPT_COOLDOWN_HOURS = 1      # minimum hours between *attempted* generations
 
 
 # ---------------------------------------------------------------------------
@@ -84,11 +85,42 @@ class InitiativeEngine:
 
     def __init__(self) -> None:
         self._recent_initiatives: deque[datetime] = deque(maxlen=_MAX_DAILY_INITIATIVES * 2)
+        self._last_attempt_at: datetime | None = None
         self._loaded = False
 
     # ------------------------------------------------------------------
     # Rate limiting
     # ------------------------------------------------------------------
+
+    def _can_attempt(self) -> bool:
+        """Check the rate limits *and* the per-attempt throttle.
+
+        _can_send only counts delivered initiatives. A generation that produces
+        nothing — quality below threshold, null insight, too similar to a previous
+        one, share_worthy false — still costs a full LLM call, and recording
+        nothing meant run_cycle re-tried it on every 300 s consolidation heartbeat
+        (~576 calls/day on an idle machine).
+        """
+        if not self._can_send():
+            return False
+        self._prune_attempts()
+        if self._last_attempt_at is None:
+            return True
+        return (datetime.now(timezone.utc) - self._last_attempt_at) >= timedelta(
+            hours=_ATTEMPT_COOLDOWN_HOURS
+        )
+
+    def _prune_attempts(self) -> None:
+        """Drop an attempt timestamp older than the attempt cooldown."""
+        if self._last_attempt_at is None:
+            return
+        if datetime.now(timezone.utc) - self._last_attempt_at >= timedelta(
+            hours=_ATTEMPT_COOLDOWN_HOURS
+        ):
+            self._last_attempt_at = None
+
+    def _record_attempt(self) -> None:
+        self._last_attempt_at = datetime.now(timezone.utc)
 
     def _can_send(self) -> bool:
         """Check if we're within daily rate limits."""
@@ -525,13 +557,15 @@ Respond with JSON: {{"reflection": "...", "share_worthy": true/false}}
         results.extend(milestones)
 
         # Priority 2: Daily insight (creative connection)
-        if self._can_send():
+        if self._can_attempt():
+            self._record_attempt()
             insight = await self.generate_daily_insight()
             if insight:
                 results.append(insight)
 
         # Priority 3: Question or reflection (alternate)
-        if self._can_send():
+        if self._can_attempt():
+            self._record_attempt()
             import random  # noqa: PLC0415
             if random.random() < 0.5:
                 q = await self.generate_question()

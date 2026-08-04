@@ -116,7 +116,11 @@ class ProactiveEchoEngine:
     """Evaluates ECHO's internal state, acts via tools, and sends proactive messages."""
 
     def __init__(self) -> None:
-        self._last_reached_out: float = 0.0
+        # Seeded from the monotonic clock, not 0.0: monotonic() counts from boot, so
+        # a zero sentinel means "cooldown already expired" on any host up longer
+        # than _PROACTIVE_COOLDOWN_S.
+        self._last_reached_out: float = _time.monotonic()
+        self._ever_reached_out: bool = False
         self._sent_messages: list[str] = self._load_sent_cache()
 
     # ------------------------------------------------------------------
@@ -173,6 +177,12 @@ class ProactiveEchoEngine:
             logger.debug("ProactiveEcho: skipped — background token budget low")
             return None
 
+        # Charge the cooldown against the attempt, not only a delivered message.
+        # The prompt explicitly invites the model to answer SILENT, and in that case
+        # the clock was never armed — so a 1500-token tool-enabled call ran on every
+        # single light heartbeat instead of once per cooldown window.
+        self._last_reached_out = _time.monotonic()
+
         try:
             state = await self._snapshot(pipeline)
         except Exception as exc:  # noqa: BLE001
@@ -223,7 +233,7 @@ class ProactiveEchoEngine:
 
         sent = await broadcast(message, prefix="💭 ")
         if sent:
-            self._last_reached_out = _time.monotonic()
+            self._ever_reached_out = True
             self._sent_messages.append(message)
             if len(self._sent_messages) > _SENT_CACHE_MAXLEN:
                 self._sent_messages.pop(0)
@@ -314,7 +324,9 @@ class ProactiveEchoEngine:
 
         recent_sent = "\n".join(f"- {m[:120]}" for m in self._sent_messages[-3:]) or "(none yet)"
 
-        if self._last_reached_out > 0:
+        # Tracked with a flag rather than a zero sentinel now that
+        # _last_reached_out is seeded from the clock at construction.
+        if self._ever_reached_out:
             mins = int((_time.monotonic() - self._last_reached_out) / 60)
             last_str = f"{mins} minutes ago"
         else:

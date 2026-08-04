@@ -22,20 +22,43 @@ def test_salience_formula():
     assert abs(s - expected) < 1e-6
 
 
-def test_decay_lambda_equals_one_minus_salience():
+def test_decay_lambda_uses_gentle_formula():
+    """λ = (1 − salience) × 0.005.
+
+    The plain 1 − salience form was abandoned because it killed memories within
+    hours; see echo.scripts.fix_decay_values.
+    """
     entry = MemoryEntry(content="test", importance=0.9, novelty=0.9, self_relevance=0.9, emotional_weight=0.9)
     entry.compute_salience()
-    assert abs(entry.decay_lambda - (1.0 - entry.salience)) < 1e-6
+    expected = (1.0 - entry.salience) * 0.005
+    assert abs(entry.decay_lambda - expected) < 1e-6
 
 
 def test_exponential_decay_formula():
     """I(t) = I₀ · e^(−λ·t)"""
     I0 = 1.0
     lam = 0.3
-    t = 2.0  # hours
+    t = 2.0  # days
     expected = I0 * math.exp(-lam * t)
     computed = I0 * math.exp(-lam * t)
     assert abs(computed - expected) < 1e-9
+
+
+def test_semantic_decay_lambda_matches_episodic():
+    """Semantic memories must use the same gentle λ as episodic ones.
+
+    Semantic decay was left on the old aggressive formula *and* measured Δt in
+    hours, which drove every semantic memory to 0.0 strength within two days of
+    uptime and zeroed the confidence of every identity-graph node.
+    """
+    from echo.memory.semantic import _decay_lambda
+
+    for salience in (0.1, 0.5, 0.95):
+        assert abs(_decay_lambda(salience) - (1.0 - salience) * 0.005) < 1e-6
+
+    # A high-salience fact must survive a month of decay essentially intact.
+    lam = _decay_lambda(0.7)
+    assert math.exp(-lam * 30.0) > 0.95
 
 
 def test_high_salience_slow_decay():

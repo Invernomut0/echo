@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from echo.api.schemas import (
     ChunksResponse,
@@ -63,7 +63,9 @@ async def vector_store_status() -> VectorStoreStatus:
 
 
 @router.get("/semantic", response_model=SemanticMemoriesResponse)
-async def list_semantic_memories(limit: int = 50) -> SemanticMemoriesResponse:
+async def list_semantic_memories(
+    limit: int = Query(default=50, ge=1, le=500),
+) -> SemanticMemoriesResponse:
     sem = SemanticMemoryStore()
     memories = await sem.get_all(limit=limit)
     items = [_to_item(m) for m in memories]
@@ -71,7 +73,9 @@ async def list_semantic_memories(limit: int = 50) -> SemanticMemoriesResponse:
 
 
 @router.get("/chunks", response_model=ChunksResponse)
-async def list_memory_chunks(limit: int = 200) -> ChunksResponse:
+async def list_memory_chunks(
+    limit: int = Query(default=200, ge=1, le=500),
+) -> ChunksResponse:
     """Return all semantic memories with their ChromaDB chunk texts + embedding previews."""
     sem = SemanticMemoryStore()
     data = await sem.get_all_chunks(limit=limit)
@@ -84,7 +88,9 @@ async def list_memory_chunks(limit: int = 200) -> ChunksResponse:
 
 
 @router.get("/search/{query}", response_model=MemoriesResponse)
-async def search_memories(query: str, n: int = 5) -> MemoriesResponse:
+async def search_memories(
+    query: str, n: int = Query(default=5, ge=1, le=100),
+) -> MemoriesResponse:
     memories = await pipeline.episodic.retrieve_similar(query, n_results=n)
     items = [_to_item(m) for m in memories]
     return MemoriesResponse(total=len(items), items=items)
@@ -118,7 +124,9 @@ async def resolve_conflict(body: ResolveConflictRequest) -> ResolveConflictRespo
 # ── Generic paths (wildcard must come after static) ─────────────────────────
 
 @router.get("", response_model=MemoriesResponse)
-async def list_memories(limit: int = 50) -> MemoriesResponse:
+async def list_memories(
+    limit: int = Query(default=50, ge=1, le=500),
+) -> MemoriesResponse:
     memories = await pipeline.episodic.get_all(limit=limit)
     items = [_to_item(m) for m in memories]
     return MemoriesResponse(total=await pipeline.episodic.acount(), items=items)

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -216,6 +217,10 @@ class TelegramTestPayload(BaseModel):
 # ── Helper ────────────────────────────────────────────────────────────────────
 
 
+_ENV_KEY_RE = re.compile(r"^[A-Z0-9_]+$")
+_ENV_CONTROL_RE = re.compile(r"[\r\n\x00]")
+
+
 def _set_env_key(key: str, value: str) -> None:
     """Update (or append) a single key in the .env file AND in os.environ.
 
@@ -224,8 +229,21 @@ def _set_env_key(key: str, value: str) -> None:
     vars are injected via -e / compose `environment:`) writing only to .env
     has no effect. Patching os.environ makes the reload pick up the new value
     regardless of how the process was started.
+
+    Values are written with quote_mode="never", so a newline inside one would end
+    the line and define a *second* variable: a caller-supplied model name like
+    "gpt-4o\nGITHUB_TOKEN=…" could overwrite any secret, or inject
+    LD_PRELOAD/DYLD_INSERT_LIBRARIES, which os.environ then hands to every MCP
+    subprocess. Reject control characters instead.
     """
     import os  # noqa: PLC0415
+
+    if not _ENV_KEY_RE.fullmatch(key):
+        raise HTTPException(status_code=422, detail=f"Invalid env key: {key!r}")
+    if _ENV_CONTROL_RE.search(value):
+        raise HTTPException(
+            status_code=422, detail=f"Invalid control character in value for {key}"
+        )
 
     os.environ[key] = value
     try:
@@ -253,7 +271,10 @@ async def get_config() -> dict:
     """Return current configuration (secrets masked)."""
     return {
         "lm_studio_base_url": settings.lm_studio_base_url,
-        "lm_studio_api_key": settings.lm_studio_api_key,
+        # Masked like every other credential here: the default is the dummy
+        # "lm-studio", but operators put real keys in it for OpenAI-compatible
+        # gateways (vLLM, LiteLLM).
+        "lm_studio_api_key": "***" if settings.lm_studio_api_key else "",
         "lm_studio_model": settings.lm_studio_model,
         "lm_studio_embedding_model": settings.lm_studio_embedding_model,
         "llm_provider": settings.llm_provider,
@@ -364,7 +385,9 @@ async def save_config(payload: ConfigPayload, request: Request) -> dict:
     }
 
     for env_key, value in mapping.items():
-        if value is not None:
+        # "***" is the placeholder GET /config returns for secrets; writing it back
+        # would replace the real key with literal asterisks.
+        if value is not None and value != "***":
             _set_env_key(env_key, _to_env_value(value))
 
     # Hot-reload the singleton so subsequent API calls see new values
@@ -619,6 +642,16 @@ async def telegram_status(request: Request) -> dict:
 async def test_telegram_connection(payload: TelegramTestPayload) -> dict:
     """Verify Telegram bot API reachability and token validity via getMe."""
     bot_token = (payload.bot_token or settings.telegram_bot_token or "").strip()
+
+    # The token is interpolated into the request path, so a caller-supplied base URL
+    # would send the *stored* bot token to an arbitrary host — the attacker just
+    # reads it from their own access log and owns the bot. A custom base URL is
+    # therefore only honoured together with a caller-supplied token.
+    if payload.api_base_url and not payload.bot_token:
+        raise HTTPException(
+            status_code=422,
+            detail="api_base_url requires an explicit bot_token",
+        )
     api_base_url = (payload.api_base_url or settings.telegram_api_base_url).rstrip("/")
 
     if not bot_token:

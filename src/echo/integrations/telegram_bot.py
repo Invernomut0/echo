@@ -18,6 +18,20 @@ from echo.core.pipeline import pipeline
 
 logger = logging.getLogger(__name__)
 
+
+def _redact(value: object) -> str:
+    """Strip the bot token out of text before it reaches the logs.
+
+    httpx puts the full request URL in HTTPStatusError messages, and the base URL
+    embeds the token ("…/bot<token>/getMe"), so a 401 from a revoked bot or a 409
+    getUpdates conflict wrote a live credential into stdout/journald/Docker logs.
+    """
+    text = str(value)
+    token = settings.telegram_bot_token.strip()
+    if token and token in text:
+        text = text.replace(token, "<TOKEN>")
+    return text
+
 _NAME_TOKEN_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿ'.\-]{2,40}")
 
 
@@ -213,7 +227,7 @@ class TelegramBotBridge:
                 bot.get("id", "?"),
             )
         except Exception as exc:  # noqa: BLE001
-            logger.error("Telegram bootstrap getMe failed: %s", exc)
+            logger.error("Telegram bootstrap getMe failed: %s", _redact(exc))
             return False
 
         # 2. Delete any active webhook (silently conflicts with long-polling)
@@ -228,7 +242,7 @@ class TelegramBotBridge:
             else:
                 logger.debug("deleteWebhook returned: %s", data)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Telegram deleteWebhook failed (non-fatal): %s", exc)
+            logger.warning("Telegram deleteWebhook failed (non-fatal): %s", _redact(exc))
 
         return True
 
@@ -254,7 +268,8 @@ class TelegramBotBridge:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                logger.error("Telegram polling error: %s", exc, exc_info=True)
+                # exc_info would put the token-bearing URL back in via the traceback.
+                logger.error("Telegram polling error: %s", _redact(exc))
                 await asyncio.sleep(max(self._poll_interval, 1.0))
 
     async def _fetch_updates(self) -> list[dict[str, Any]]:

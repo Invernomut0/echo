@@ -21,6 +21,7 @@ Key operations:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import re
@@ -91,10 +92,25 @@ def _now_ts() -> str:
 
 
 def _slugify(text: str) -> str:
-    """Convert a title to a filesystem-safe slug."""
+    """Convert a title to a filesystem-safe slug.
+
+    Never returns an empty string: a symbol-only title ("C++", "!!!") would
+    otherwise collapse to "" and make every such page write to `<category>/.md`,
+    overwriting the previous one.
+    """
     slug = re.sub(r"[^\w\s-]", "", text.lower())
     slug = re.sub(r"[\s_]+", "-", slug)
-    return slug[:80].strip("-")
+    slug = slug[:80].strip("-")
+    if not slug:
+        digest = hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+        slug = f"page-{digest}"
+    return slug
+
+
+def _cell(text: str, limit: int) -> str:
+    """Make `text` safe to embed in a single markdown table cell."""
+    cleaned = text.replace("|", "–").replace("\r", " ").replace("\n", " ").strip()
+    return cleaned[:limit]
 
 
 def _truncate(text: str, max_chars: int = 1800) -> str:
@@ -151,10 +167,10 @@ class WikiStore:
     # Index management
     # ------------------------------------------------------------------
 
-    def _index_has_page(self, slug: str) -> bool:
+    def _index_has_page(self, slug: str, category: PageCategory) -> bool:
         if not self._index.exists():
             return False
-        return slug in self._index.read_text(encoding="utf-8")
+        return f"(pages/{category}/{slug}.md)" in self._index.read_text(encoding="utf-8")
 
     def _update_index(
         self,
@@ -167,12 +183,16 @@ class WikiStore:
         content = self._index.read_text(encoding="utf-8")
         rel_path = f"pages/{category}/{slug}.md"
         tag_str = ", ".join(tags)
-        # Sanitize for table cell
-        summary_short = summary.replace("|", "–").replace("\n", " ")[:120]
-        new_row = f"| [[{title}]]({rel_path}) | {category} | {tag_str} | {summary_short} |\n"
+        # Sanitize for table cell: an unescaped "|" or newline in either field
+        # splits the row and makes list_pages() drop the page entirely.
+        summary_short = _cell(summary, 120)
+        title_cell = _cell(title, 120) or slug
+        new_row = f"| [[{title_cell}]]({rel_path}) | {category} | {_cell(tag_str, 80)} | {summary_short} |\n"
 
-        # Replace existing row or append
-        pattern = re.compile(rf"^\|.*{re.escape(slug)}.*\|.*$\n?", re.MULTILINE)
+        # Match on the unique relative path, not the slug: a substring match
+        # lets a short slug ("echo") replace a longer page's row
+        # ("echo-architecture"), silently evicting it from the index.
+        pattern = re.compile(rf"^\|[^\n]*\({re.escape(rel_path)}\)[^\n]*$\n?", re.MULTILINE)
         if pattern.search(content):
             content = pattern.sub(new_row, content, count=1)
         else:
@@ -223,9 +243,22 @@ class WikiStore:
         return None
 
     def read_page_by_path(self, rel_path: str) -> str | None:
-        """Read a page given its path relative to wiki root."""
-        path = self._root / rel_path
-        if path.exists():
+        """Read a page given its path relative to wiki root.
+
+        The path is caller-supplied (it reaches here from `GET /api/wiki/page`
+        and from index rows), so containment inside the wiki root is enforced
+        here rather than at the call site: `..` segments and absolute paths
+        would otherwise escape and read arbitrary files such as `.env`.
+        """
+        root = self._root.resolve()
+        try:
+            path = (root / rel_path).resolve()
+        except OSError:
+            return None
+        if not path.is_relative_to(root) or path.suffix != ".md":
+            logger.warning("Wiki: rejected out-of-root page read: %r", rel_path)
+            return None
+        if path.is_file():
             return path.read_text(encoding="utf-8")
         return None
 
@@ -380,7 +413,11 @@ class WikiStore:
         keywords = query_lower.split()
         results: list[dict[str, Any]] = []
 
-        for page in self.list_pages():
+        # Parse index.md once: this runs on every user turn, and each
+        # list_pages() call re-reads and re-parses the whole index.
+        pages = self.list_pages()
+
+        for page in pages:
             title_lower = page["title"].lower()
             # Score by number of keyword matches in title + summary
             score = sum(1 for kw in keywords if kw in title_lower)
@@ -391,7 +428,7 @@ class WikiStore:
                 results.append({**page, "score": score})
 
         # Also scan page bodies for more relevant hits
-        for page in self.list_pages():
+        for page in pages:
             body = self.read_page_by_path(page["path"]) or ""
             body_lower = body.lower()
             body_score = sum(0.2 for kw in keywords if kw in body_lower)

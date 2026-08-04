@@ -15,8 +15,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, select
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, DateTime, Float, ForeignKey, Integer, String, Text, func, select
+from sqlalchemy.orm import relationship, selectinload
 
 from echo.core.db import Base, get_session_factory
 
@@ -246,10 +246,12 @@ class GoalStore:
     async def count_active(self) -> int:
         factory = get_session_factory()
         async with factory() as session:
-            result = await session.execute(
-                select(GoalRow).where(GoalRow.status == "active")
-            )
-            return len(result.scalars().all())
+            # COUNT in SQL rather than materialising every row just to len() it.
+            return (
+                await session.execute(
+                    select(func.count()).select_from(GoalRow).where(GoalRow.status == "active")
+                )
+            ).scalar_one()
 
     async def list_active(self) -> list[dict[str, Any]]:
         factory = get_session_factory()
@@ -257,16 +259,14 @@ class GoalStore:
             rows = (
                 await session.execute(
                     select(GoalRow)
+                    .options(selectinload(GoalRow.actions))
                     .where(GoalRow.status == "active")
                     .order_by(GoalRow.priority.desc(), GoalRow.created_at)
                 )
             ).scalars().all()
-            # eagerly load actions
-            result = []
-            for row in rows:
-                await session.refresh(row, ["actions"])
-                result.append(_row_to_goal(row))
-            return result
+            # selectinload fetches every goal's actions in one extra query;
+            # refreshing per row was one round-trip per goal.
+            return [_row_to_goal(row) for row in rows]
 
     async def list_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """Return achieved/abandoned goals, newest first."""
@@ -275,16 +275,13 @@ class GoalStore:
             rows = (
                 await session.execute(
                     select(GoalRow)
+                    .options(selectinload(GoalRow.actions))
                     .where(GoalRow.status.in_(["achieved", "abandoned"]))
                     .order_by(GoalRow.updated_at.desc())
                     .limit(limit)
                 )
             ).scalars().all()
-            result = []
-            for row in rows:
-                await session.refresh(row, ["actions"])
-                result.append(_row_to_goal(row))
-            return result
+            return [_row_to_goal(row) for row in rows]
 
     async def get(self, goal_id: str) -> dict[str, Any] | None:
         factory = get_session_factory()
@@ -451,10 +448,13 @@ class GoalStore:
         """Return the total number of actions for a goal."""
         factory = get_session_factory()
         async with factory() as session:
-            result = await session.execute(
-                select(GoalActionRow).where(GoalActionRow.goal_id == goal_id)
-            )
-            return len(result.scalars().all())
+            return (
+                await session.execute(
+                    select(func.count())
+                    .select_from(GoalActionRow)
+                    .where(GoalActionRow.goal_id == goal_id)
+                )
+            ).scalar_one()
 
     async def consolidate_goal(self, goal_id: str) -> dict[str, Any] | None:
         """Force-close a goal that reached max iterations.

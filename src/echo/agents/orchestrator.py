@@ -112,6 +112,29 @@ _ALL_ROLES: frozenset[str] = frozenset({"analyst", "explorer", "skeptic", "archi
 _FULL_ROUTING_WORD_THRESHOLD: int = 40
 
 
+def _is_simple_ack(stripped: str) -> bool:
+    """True only when the text consists *entirely* of greetings/acknowledgements.
+
+    Prefix matching is not enough: any question opening with "ok", "no" or "si"
+    ("okay ma spiegami la memoria episodica") would be dismissed as a greeting and
+    skip every agent. So the whole text must be consumable as ack phrases —
+    "ok grazie" and "ciao!" qualify, "ok ma spiegami…" does not.
+    """
+    remainder = re.sub(r"[^\w\s']+", " ", stripped).strip()
+    # Longest phrases first so "come stai" wins over the bare "come".
+    prefixes = sorted(_SIMPLE_PREFIXES, key=len, reverse=True)
+    while remainder:
+        for prefix in prefixes:
+            if remainder == prefix:
+                return True
+            if remainder.startswith(prefix + " "):
+                remainder = remainder[len(prefix) + 1:].lstrip()
+                break
+        else:
+            return False
+    return True
+
+
 def _select_agents(text: str) -> frozenset[str] | None:
     """Return set of agent role names to activate, or None for full routing.
 
@@ -121,8 +144,13 @@ def _select_agents(text: str) -> frozenset[str] | None:
     stripped = text.strip().lower()
     words = stripped.split()
 
-    # Simple greeting / ack → no agents (fast path handled in stream())
-    if len(words) <= 18 and any(stripped.startswith(p) for p in _SIMPLE_PREFIXES):
+    # Simple greeting / ack → no agents (fast path handled in stream()).
+    # Matching requires a whole-token boundary: a bare startswith let the short
+    # prefixes "no", "si" and "ok" swallow real questions — "Notizie sulla mia
+    # ricerca?", "sicuro di aver capito?", "okay ma spiegami la memoria episodica"
+    # were all routed to the greeting fast path, skipping every agent (including
+    # the archivist that surfaces retrieved memories).
+    if len(words) <= 18 and _is_simple_ack(stripped):
         return frozenset()  # empty = fast path
 
     # Long/complex queries → full routing
@@ -133,7 +161,12 @@ def _select_agents(text: str) -> frozenset[str] | None:
     word_set = frozenset(w.rstrip("?!.,;:") for w in words)
 
     for keywords, roles in _ROUTING_SIGNALS:
-        if word_set & keywords:
+        # Single tokens match the word set; multi-word signals ("come posso",
+        # "what if", "free will") can never appear in it and must be matched
+        # against the raw text, otherwise they select nothing at all.
+        single = {k for k in keywords if " " not in k}
+        phrases = keywords - single
+        if (word_set & single) or any(p in stripped for p in phrases):
             for r in roles:
                 if r not in selected:
                     selected.append(r)

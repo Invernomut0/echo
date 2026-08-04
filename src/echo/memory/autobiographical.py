@@ -49,6 +49,11 @@ class AutobiographicalMemoryStore:
         vectors = await llm.embed(chunks)  # batch: one call regardless of chunk count
 
         ids_c = chunk_ids(entry_id, len(chunks))
+        # Only record embedding_id once the vectors are actually in ChromaDB, as
+        # semantic.store() does: claiming an id that was never written makes the row
+        # look embedded, so nothing ever re-embeds it and that chapter of the
+        # self-narrative stays permanently unreachable by retrieve_similar.
+        embedding_id: str | None = None
         if vectors and len(vectors) == len(chunks):
             try:
                 self._collection.upsert(
@@ -60,6 +65,7 @@ class AutobiographicalMemoryStore:
                         for i in range(len(chunks))
                     ],
                 )
+                embedding_id = ids_c[0]
             except Exception as exc:  # noqa: BLE001
                 logger.warning("ChromaDB upsert skipped for autobiographical %s: %s", entry_id[:8], exc)
 
@@ -70,7 +76,7 @@ class AutobiographicalMemoryStore:
                 content=content,
                 narrative_chapter=chapter,
                 salience=salience,
-                embedding_id=ids_c[0],
+                embedding_id=embedding_id,
             )
             session.add(row)
             await session.commit()
@@ -81,7 +87,7 @@ class AutobiographicalMemoryStore:
             memory_type=MemoryType.AUTOBIOGRAPHICAL,
             salience=salience,
             self_relevance=1.0,
-            embedding_id=ids_c[0],
+            embedding_id=embedding_id,
         )
 
     async def get_narrative(self, chapter: str | None = None) -> list[MemoryEntry]:

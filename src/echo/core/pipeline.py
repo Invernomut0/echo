@@ -167,6 +167,12 @@ class CognitivePipeline:
         self._interaction_count = 0
         self._last_drift: float = 0.0  # last identity-drift score (fed to LearningEngine)
         self._last_pipeline_trace: dict[str, Any] = {}  # pipeline trace for UI visualisation
+        # Initialised here, not only in stream_interact: _run_pipeline (the
+        # non-streaming path used by Telegram) writes to it, so on a process whose
+        # first request is a Telegram message the write raised AttributeError. The
+        # broad except around the wiki block swallowed it as a debug log, silently
+        # disabling the "no keyword hits → inject recent wiki pages" fallback.
+        self._last_memory_sources: dict[str, int] = {"episodic": 0, "semantic": 0, "wiki": 0}
         # Track fire-and-forget tasks so we can await them on graceful shutdown
         self._pending_tasks: set[asyncio.Task] = set()
         self._interact_lock = asyncio.Lock()  # serialize concurrent interactions (web + telegram)
@@ -860,7 +866,12 @@ Respond ONLY with valid JSON:
                 from echo.integrations.telegram_send import broadcast as _tg_broadcast  # noqa: PLC0415
                 if settings.telegram_enabled and settings.telegram_bot_token.strip():
                     _label = f"💬 [{user_input[:60]}{'…' if len(user_input) > 60 else ''}]\n\n"
-                    asyncio.create_task(_tg_broadcast(response, prefix=_label))
+                    # Tracked in _pending_tasks: an untracked task is only weakly
+                    # referenced by the loop (so it can be GC'd mid-flight), its
+                    # exception is never retrieved, and shutdown() would not await it.
+                    _tg_task = asyncio.create_task(_tg_broadcast(response, prefix=_label))
+                    self._pending_tasks.add(_tg_task)
+                    _tg_task.add_done_callback(self._pending_tasks.discard)
             except Exception as _tge:  # noqa: BLE001
                 logger.debug("Telegram mirror failed: %s", _tge)
 
@@ -1071,7 +1082,9 @@ Respond ONLY with valid JSON:
             })
 
         except Exception as exc:  # noqa: BLE001
-            logger.error("Post-interact error: %s", exc)
+            # exception(), not error(): this wraps ~370 lines across 20 subsystems and
+            # the streaming path never awaits the task, so this log is the only signal.
+            logger.exception("Post-interact error: %s", exc)
 
 
 def _compute_identity_drift(

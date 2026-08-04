@@ -111,8 +111,16 @@ class SelfModificationEngine:
     """ECHO's autonomous self-improvement module."""
 
     def __init__(self) -> None:
-        self._last_modified: float = 0.0
+        # Seeded from the current clock, not 0.0: _time.monotonic() counts from
+        # boot, so a zero sentinel means "cooldown already expired" on a host that
+        # has been up longer than _COOLDOWN_S — ECHO would commit a code change
+        # minutes after every restart.
+        self._last_modified: float = _time.monotonic()
         self._modification_history: list[dict[str, Any]] = []
+
+    def reset_cooldown(self) -> None:
+        """Expire the cooldown so the next evaluation runs (manual cron trigger)."""
+        self._last_modified = _time.monotonic() - _COOLDOWN_S
 
     async def evaluate_and_modify(self, pipeline: Any) -> dict[str, Any] | None:
         """Run one evaluation cycle. Returns modification result dict or None."""
@@ -120,8 +128,8 @@ class SelfModificationEngine:
         from echo.core.user_activity import is_active as _ua  # noqa: PLC0415
         from echo.integrations.telegram_send import broadcast  # noqa: PLC0415
         from echo.self_modification.git_ops import (  # noqa: PLC0415
-            git_add, git_commit, git_push, git_status, repo_root, validate_python,
-            validate_structured,
+            git_add, git_commit, git_push, git_reset, git_status, repo_root,
+            validate_python, validate_structured,
         )
 
         # Cooldown
@@ -133,6 +141,13 @@ class SelfModificationEngine:
         # Never during active user session
         if _ua():
             return None
+
+        # Charge the cooldown against the *attempt*, not only a successful commit.
+        # Every early return below (LLM says no, forbidden path, snippet not found,
+        # validation or commit failure) still costs a full multi-thousand-token
+        # evaluation, and leaving the clock untouched re-ran it on every 5-minute
+        # heartbeat — ~288 evaluations/day instead of the documented ≤4.
+        self._last_modified = _time.monotonic()
 
         # Build context
         try:
@@ -181,22 +196,34 @@ class SelfModificationEngine:
         if not file_path:
             return None
 
-        # Security checks — block forbidden paths, allow everything else in repo
-        for forbidden in _FORBIDDEN:
-            if file_path == forbidden or file_path.startswith(forbidden + "/") or file_path.startswith(forbidden):
-                logger.warning("SelfMod: rejected forbidden path: %s (matched %s)", file_path, forbidden)
-                return None
-        # Must be within repo root (no ../ traversal)
-        _root = _repo_root()
-        abs_test = (_root / file_path).resolve()
-        if not str(abs_test).startswith(str(_root.resolve())):
+        # Security checks — block forbidden paths, allow everything else in repo.
+        # Resolve FIRST, then match: comparing the raw LLM string let
+        # "src/echo/self_modification/./engine.py" and "./.env" slip past the
+        # forbidden set while still resolving to the real protected files. Path
+        # containment is checked with relative_to rather than a string prefix,
+        # which would also accept a sibling directory sharing the repo's name.
+        _root = _repo_root().resolve()
+        try:
+            abs_path = (_root / file_path).resolve()
+            rel_path = abs_path.relative_to(_root)
+        except (ValueError, OSError):
             logger.warning("SelfMod: rejected path outside repo: %s", file_path)
             return None
 
-        abs_path = _repo_root() / file_path
-        if not abs_path.exists():
-            logger.warning("SelfMod: file does not exist: %s", file_path)
+        rel_str = rel_path.as_posix()
+        for forbidden in _FORBIDDEN:
+            if rel_str == forbidden or rel_str.startswith(forbidden + "/"):
+                logger.warning("SelfMod: rejected forbidden path: %s (matched %s)", rel_str, forbidden)
+                return None
+
+        # is_file, not exists: a directory passes exists() and then blows up in
+        # read_text() as an opaque generic failure.
+        if not abs_path.is_file():
+            logger.warning("SelfMod: file does not exist: %s", rel_str)
             return None
+
+        # Use the normalised form from here on (git add, notes, history).
+        file_path = rel_str
 
         old_snippet = plan.get("old_snippet", "")
         new_snippet = plan.get("new_snippet", "")
@@ -278,12 +305,15 @@ class SelfModificationEngine:
 
         committed = await git_commit(commit_msg)
         if not committed:
+            # Restore the file and unstage: leaving a modified, staged file behind
+            # made the next cycle retry the same broken change.
+            abs_path.write_text(original, encoding="utf-8")
+            await git_reset(paths_to_add)
             return None
 
         pushed = await git_push()
 
         # Update state
-        self._last_modified = _time.monotonic()
         mod_record = {
             "timestamp": now.isoformat(),
             "file": file_path,

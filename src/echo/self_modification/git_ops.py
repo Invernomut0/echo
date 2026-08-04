@@ -65,6 +65,14 @@ async def git_add(paths: list[str]) -> bool:
     return rc == 0
 
 
+async def git_reset(paths: list[str]) -> bool:
+    """Unstage specific files, leaving the working tree untouched."""
+    rc, _, err = await _run(["git", "reset", "HEAD", "--"] + paths)
+    if rc != 0:
+        logger.error("git reset failed: %s", err)
+    return rc == 0
+
+
 async def git_commit(message: str) -> bool:
     """Commit staged changes."""
     rc, out, err = await _run(["git", "commit", "-m", message])

@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 _recently_searched: dict[str, float] = {}  # topic → monotonic timestamp when last searched
 _RECENTLY_SEARCHED_TTL: float = 3600.0     # 1 hour — topics won't be re-searched within this window
 _cycle_counter: int = 0                    # incremented each cycle — used for ZPD scheduling
-_last_completed_memory_count: int = 0      # memory count at last completed cycle — skip if unchanged
+_last_completed_memory_id: str | None = None   # newest memory at last completed cycle — skip if unchanged
 
 # ---------------------------------------------------------------------------
 # Activity log — persists the last _MAX_LOG cycle records in memory
@@ -432,6 +432,15 @@ Respond ONLY with valid JSON:
         )
         return True
 
+    async def run_goal_cycle(self, limit: int = 20) -> None:
+        """Public entry point for a goal review/pursuit pass.
+
+        Used by the `goal_reflect` cron task, which previously imported a
+        non-existent `curiosity.goal_engine` module and silently no-opped.
+        """
+        recent_memories = await self._episodic.get_all(limit=limit)
+        await self._run_goal_cycle(recent_memories)
+
     async def _run_goal_cycle(self, recent_memories: list[Any]) -> None:
         """Review state, update goals, and pursue active goals with searches.
 
@@ -701,7 +710,7 @@ Respond ONLY with valid JSON:
         Args:
             force: bypass idle/activity guards (for manual UI triggers).
         """
-        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at, _last_completed_memory_count  # noqa: PLW0603
+        global _cycle_counter, _recently_searched, _is_running, _last_goal_cycle_at, _last_cycle_started_at, _last_completed_memory_id  # noqa: PLW0603
 
         # ── Activity record ──────────────────────────────────────────────────
         started_at = datetime.now(timezone.utc)
@@ -776,11 +785,15 @@ Respond ONLY with valid JSON:
                 logger.debug("Curiosity skipped — no episodic memories yet")
                 return _done("skipped", "no_episodic_memories")
 
-            # Skip if memory count hasn't changed since last completed cycle (no new context)
-            if not force and len(recent_memories) == _last_completed_memory_count:
+            # Skip if no memory has been added since the last completed cycle.
+            # Compare the newest memory's identity, not the row count: get_all(limit=20)
+            # saturates at 20, so a count comparison became permanently true once the
+            # store reached 20 entries and silently killed curiosity — and with it the
+            # goal cycle below — for the rest of the process's life.
+            if not force and recent_memories[0].id == _last_completed_memory_id:
                 logger.debug(
-                    "Curiosity skipped — memory count unchanged (%d) since last cycle",
-                    _last_completed_memory_count,
+                    "Curiosity skipped — no new memory since last cycle (%s)",
+                    (_last_completed_memory_id or "")[:8],
                 )
                 return _done("skipped", "no_new_memories")
 
@@ -807,7 +820,7 @@ Respond ONLY with valid JSON:
                 logger.debug("Curiosity skipped — user session active")
                 return _done("skipped", "user_session_active")
 
-            # 2b. Goal management — run when idle, but throttled (max once per 15 min)
+            # 2b. Goal management — run when idle, but throttled (see _GOAL_CYCLE_COOLDOWN)
             import time as _time_mod  # noqa: PLC0415
             _now_mono = _time_mod.monotonic()
             if _now_mono - _last_goal_cycle_at >= _GOAL_CYCLE_COOLDOWN:
@@ -1048,7 +1061,7 @@ Respond ONLY with valid JSON:
 
             # 7. Increment cycle counter + record memory snapshot
             _cycle_counter += 1
-            _last_completed_memory_count = len(recent_memories)
+            _last_completed_memory_id = recent_memories[0].id
 
             logger.info(
                 "Curiosity cycle done: %d new memories (topics: %s)",

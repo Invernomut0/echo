@@ -116,7 +116,12 @@ class DreamPhase:
 
         # Weight evolution is sync — run after gather
         current_weights = meta_state.agent_weights if meta_state else {}
-        weight_mutations = WeightEvolution().evolve(current_weights, sorted_mems)
+        # meta_state must be passed through: without it evolve() falls back to
+        # T = 0.0, so the Boltzmann-sampled selection is always fully elitist and
+        # the cognitive-temperature feature never actually varies anything.
+        weight_mutations = WeightEvolution().evolve(
+            current_weights, sorted_mems, meta_state=meta_state
+        )
 
         # Use SwarmDream winner as dream text if it scored well enough
         # (non-empty and not fallback) — richer than the base prompt

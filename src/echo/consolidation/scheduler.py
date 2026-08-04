@@ -799,8 +799,19 @@ class ConsolidationScheduler:
 
         Equivalent to _run_light() but without the scheduling overhead.
         Includes the curiosity engine run.
+
+        Takes the same _light_running guard as the scheduled loop: a
+        `consolidation_light` cron task on a short interval could otherwise
+        interleave with the 300 s loop, and two concurrent bodies promote and
+        delete the same memory ids and run conflict cleanup against each other.
         """
-        report = await self._run_light()
+        if self._light_running:
+            raise RuntimeError("A light consolidation cycle is already running")
+        self._light_running = True
+        try:
+            report = await self._run_light()
+        finally:
+            self._light_running = False
         self._last_report = report
         self._last_light_at = datetime.now(timezone.utc)
         return report
@@ -811,6 +822,18 @@ class ConsolidationScheduler:
         from echo.consolidation.sleep_phase import ConsolidationPhase
         from echo.memory.dream_store import DreamStore
 
+        # Same overlap guard as the scheduled deep loop — see trigger_now.
+        if self._deep_running:
+            raise RuntimeError("A deep consolidation cycle is already running")
+        self._deep_running = True
+        try:
+            return await self._trigger_rem_now_locked(DreamPhase, ConsolidationPhase, DreamStore)
+        finally:
+            self._deep_running = False
+
+    async def _trigger_rem_now_locked(
+        self, DreamPhase: Any, ConsolidationPhase: Any, DreamStore: Any
+    ) -> DreamEntry:
         phase = ConsolidationPhase()
         report = await phase.run(elapsed_seconds=0, prune=True)
 

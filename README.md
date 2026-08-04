@@ -760,8 +760,23 @@ Il sistema genera un file di log `logs/file_system_access.md` che registra tutte
 ## Sicurezza della Modifica Autonoma
 
 - **Limiti di modifica**: il modulo di auto‑modifica non può alterare `src/echo/self_modification/engine.py` né i file di configurazione sensibili (`.env`).
+  Il path proposto dall'LLM viene **prima risolto** e poi confrontato con la lista dei
+  percorsi vietati: confrontare la stringa grezza permetteva a `./.env` e a
+  `src/echo/self_modification/./engine.py` di superare il controllo (corretto in 0.5.15).
+- **Confinamento nel repo**: il file deve stare dentro la radice del repository, verificato
+  con `Path.relative_to` e non con un prefisso di stringa.
+- **Cooldown**: 6 h fra due modifiche, conteggiate sul *tentativo* e non sul successo —
+  altrimenti una valutazione conclusa con "nessuna modifica necessaria" veniva ripetuta a
+  ogni heartbeat da 5 minuti.
 - **Revisione**: ogni cambiamento è registrato in `CHANGELOG.md` e richiede conferma manuale prima di essere applicato in produzione.
 - **Rollback**: in caso di comportamento anomalo, è possibile ripristinare la versione precedente tramite Git.
+  Se il commit fallisce, il file viene ripristinato e rimosso dallo stage automaticamente.
+
+> ⚠️ **API non autenticata.** `POST /api/mcp/servers` lancia un comando arbitrario come
+> sottoprocesso, `GET /api/setup/github/copilot-token` restituisce un bearer token valido e
+> `PATCH /api/mcp/servers/{name}` può puntare il filesystem server su `/`. Nessuno di questi
+> endpoint richiede autenticazione e `api_host` è `0.0.0.0` per default: **non esporre ECHO
+> su una rete non fidata** finché non è stato aggiunto uno schema di autenticazione.
 
 
 ## Daily Self-Reflection Protocol

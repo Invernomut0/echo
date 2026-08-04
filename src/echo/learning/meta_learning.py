@@ -18,6 +18,7 @@ Design principles:
 from __future__ import annotations
 from echo.core.config import settings
 
+import asyncio
 import json
 import logging
 import uuid
@@ -123,6 +124,8 @@ class MetaLearningEngine:
         self._last_insight_at: int = 0
         self._cached_quality: LearningQuality = LearningQuality()
         self._loaded = False
+        # Strong references to fire-and-forget tasks (see _bg_tasks use below).
+        self._bg_tasks: set[asyncio.Task] = set()
 
         # Per-type error tracking (interaction_type → list of recent errors)
         self._type_errors: dict[str, deque[float]] = {}
@@ -158,6 +161,10 @@ class MetaLearningEngine:
             if t not in self._type_errors:
                 self._type_errors[t] = deque(maxlen=30)
             self._type_errors[t].append(obs.prediction_error)
+
+        # Re-anchor the insight clock to the restored counter, otherwise the
+        # gate fires on the first interaction after every restart.
+        self._last_insight_at = self._n
 
         self._loaded = True
         self._recompute_quality()
@@ -215,9 +222,11 @@ class MetaLearningEngine:
         # Generate meta-insight periodically
         if self._n - self._last_insight_at >= _INSIGHT_EVERY_N and self._n >= _MIN_OBSERVATIONS:
             self._last_insight_at = self._n
-            # Fire-and-forget — don't block the pipeline
+            # Fire-and-forget, but keep a strong reference — see self_evaluation.
             import asyncio
-            asyncio.create_task(self._generate_meta_insight())
+            task = asyncio.create_task(self._generate_meta_insight())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
         return self._cached_quality
 

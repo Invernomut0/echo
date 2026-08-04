@@ -14,6 +14,7 @@ Integration:
 from __future__ import annotations
 from echo.core.config import settings
 
+import asyncio
 import json
 import logging
 import uuid
@@ -123,6 +124,8 @@ class SelfEvaluationEngine:
     def __init__(self) -> None:
         self._n: int = 0
         self._last_assessment_at: int = 0
+        # Strong references to fire-and-forget tasks (see _bg_tasks use below).
+        self._bg_tasks: set[asyncio.Task] = set()
 
         # Prediction error trend
         self._prediction_errors: deque[float] = deque(maxlen=_TREND_WINDOW)
@@ -177,6 +180,12 @@ class SelfEvaluationEngine:
                     insights=json.loads(last.insights or "[]"),
                 )
                 self._n = last.interaction_count
+
+        # Re-anchor the assessment clock to the restored counter. Leaving it at 0
+        # made the gate (_n - _last_assessment_at >= 50) fire on the *first*
+        # interaction after every restart, however recently the last assessment
+        # ran, spending an LLM call in competition with the user's opening turn.
+        self._last_assessment_at = self._n
 
         self._loaded = True
         logger.info(
@@ -241,9 +250,12 @@ class SelfEvaluationEngine:
         if self._n - self._last_assessment_at >= _ASSESSMENT_INTERVAL:
             self._last_assessment_at = self._n
             result["assessment_due"] = True
-            # Fire-and-forget — don't block pipeline
+            # Fire-and-forget, but keep a strong reference: the loop holds only a
+            # weak one, so an untracked task can be garbage-collected mid-await.
             import asyncio
-            asyncio.create_task(self._run_assessment())
+            task = asyncio.create_task(self._run_assessment())
+            self._bg_tasks.add(task)
+            task.add_done_callback(self._bg_tasks.discard)
 
         return result
 
